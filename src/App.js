@@ -100,9 +100,10 @@ export default function RutaFlow() {
     // Load all data
     useEffect(() => {
         // 1. Revisar si ya hay una sesión activa al abrir la app
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
-        });
+       supabase.auth.getSession().then(({ data: { session } }) => {
+    setSession(session);
+    if (!session) setLoading(false);
+});
 
         // 2. Escuchar si el usuario entra (Login) o sale (Logout)
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
