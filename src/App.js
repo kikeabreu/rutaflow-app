@@ -1,1659 +1,1437 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
-    LineChart, Line, BarChart, Bar,
-    XAxis, YAxis, Tooltip, ResponsiveContainer,
-    PieChart, Pie, Cell, CartesianGrid, Legend
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip,
+  ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell
 } from "recharts";
-import {
-    Zap, FolderOpen, PieChart as ChartIcon,
-    Bot, Settings, Plus, Play, Square,
-    ChevronRight, Camera, Trash2,
-    AlertCircle, TrendingUp, DollarSign, Wallet, ShieldCheck,
-    Fuel, Clock, MapPin, Check, X, Shield, Trophy, Smartphone,
-    Mail, Lock, Eye
-} from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "./supabaseClient";
 
-// ─── CONSTANTS ───────────────────────────────────────────────────────────────
-const STORAGE_KEYS = { TRIPS: "rydecash:trips", DAYS: "rydecash:days", CONFIG: "rydecash:config", ACTIVE_DAY: "rydecash:activeday", ACTIVE_TRIP: "rydecash:activetrip" };
-const DEFAULT_CONFIG = {
-    gasPricePerLiter: 24.5,
-    kmPerLiter: 12,
-    targetHourlyRate: 150,
-    targetPerKm: 5,
-    platformCut: 25,
-    unitCost: 0,
-    unitPeriod: 'monthly',
-    insuranceCost: 0,
-    insurancePeriod: 'monthly',
-    tireCost: 0,
-    tireLifeKm: 50000,
-    maintenanceCost: 0,
-    maintenanceIntervalKm: 10000,
-    mobileDataCost: 0,
-    mobileDataPeriod: 'monthly',
-    useRentInCalc: false,
-    useInsuranceInCalc: false,
-    useTiresInCalc: false,
-    useMaintenanceInCalc: false,
-    useMobileDataInCalc: false
+// ─── PALETA ──────────────────────────────────────────────────────────────────
+const C = {
+  bg:     "#07080d",
+  card:   "#0d0f1a",
+  card2:  "#111320",
+  border: "#1a1d2e",
+  bord2:  "#242740",
+  accent: "#f0a500",
+  teal:   "#00c9a7",
+  danger: "#ff4055",
+  dim:    "#3a3d55",
+  muted:  "#6b6e8a",
+  text:   "#dde0f5",
 };
-
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
-const fmt = (n, d = 2) => (parseFloat(n) || 0).toLocaleString("es-MX", { minimumFractionDigits: d, maximumFractionDigits: d });
-const fmtMXN = (n) => `$${fmt(n)}`;
-const fmtDate = (d) => new Date(d).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" });
-const fmtTime = (ms) => {
-    const s = Math.floor(ms / 1000);
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const ss = s % 60;
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+const fmt      = (n, d = 2) => (parseFloat(n) || 0).toFixed(d);
+const fmtMXN   = (n) => `$${fmt(n)}`;
+const fmtPct   = (n) => `${fmt(n, 1)}%`;
+const ms        = () => Date.now();
+const todayStr  = () => new Date().toISOString().split("T")[0];
+const fmtDate   = (d) => new Date(d).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" });
+const fmtHour   = (d) => new Date(d).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+const fmtClock  = (millis) => {
+  const s = Math.floor(Math.abs(millis) / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+  return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(ss).padStart(2,"0")}`;
 };
-const now = () => Date.now();
-const todayStr = () => new Date().toISOString().split("T")[0];
-
-const getDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371; // km
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
+const haversine = (a, b) => {
+  const R = 6371, r = x => x * Math.PI / 180;
+  const dLat = r(b.lat - a.lat), dLon = r(b.lon - a.lon);
+  const x = Math.sin(dLat/2)**2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 };
 
+// ─── CÁLCULO ─────────────────────────────────────────────────────────────────
 const calcTrip = (trip, cfg) => {
-    const totalKm = trip.trackedKm || (parseFloat(trip.pickupKm) || 0) + (parseFloat(trip.destKm) || 0);
-    const totalMin = trip.trackedMin || (parseFloat(trip.pickupMin) || 0) + (parseFloat(trip.destMin) || 0);
-    const hours = totalMin / 60;
-
-    const gasCost = (totalKm / cfg.kmPerLiter) * cfg.gasPricePerLiter;
-    const platformFee = (parseFloat(trip.fare) || 0) * (cfg.platformCut / 100);
-
-    // Amortized costs (Time-based or Distance-based)
-    let amortizedCosts = 0;
-
-    // Fixed Time Costs (Assumption: 8 working hours per day)
-    const getDaily = (cost, period) => {
-        if (period === 'daily') return cost;
-        if (period === 'weekly') return cost / 7;
-        if (period === 'monthly') return cost / 30;
-        if (period === 'annual') return cost / 365;
-        return 0;
-    };
-
-    if (cfg.useRentInCalc) {
-        const dailyRent = getDaily(cfg.unitCost, cfg.unitPeriod);
-        amortizedCosts += (dailyRent / 8) * hours;
-    }
-    if (cfg.useInsuranceInCalc) {
-        const dailyIns = getDaily(cfg.insuranceCost, cfg.insurancePeriod);
-        amortizedCosts += (dailyIns / 8) * hours;
-    }
-    if (cfg.useMobileDataInCalc) {
-        const dailyData = getDaily(cfg.mobileDataCost, cfg.mobileDataPeriod);
-        amortizedCosts += (dailyData / 8) * hours;
-    }
-
-    // Usage Based Costs
-    if (cfg.useTiresInCalc) {
-        const costPerKm = cfg.tireCost / (cfg.tireLifeKm || 1);
-        amortizedCosts += costPerKm * totalKm;
-    }
-    if (cfg.useMaintenanceInCalc) {
-        const costPerKm = cfg.maintenanceCost / (cfg.maintenanceIntervalKm || 1);
-        amortizedCosts += costPerKm * totalKm;
-    }
-
-    const netEarning = (parseFloat(trip.fare) || 0) - platformFee - gasCost - amortizedCosts;
-    const netPerHour = hours > 0 ? netEarning / hours : 0;
-    const netPerKm = totalKm > 0 ? netEarning / totalKm : 0;
-
-    // Metas: Si cumple con ambas es "Muy Bueno", si cumple una es "Regular", si ninguna es "Bajo"
-    const score = (netPerHour >= cfg.targetHourlyRate ? 1 : 0) + (netPerKm >= cfg.targetPerKm ? 1 : 0);
-
-    return { totalKm, totalMin, gasCost, amortizedCosts, platformFee, netEarning, netPerHour, netPerKm, hours, score };
+  const gpsKm  = parseFloat(trip.gps_km)  || 0;
+  const gpsMin = parseFloat(trip.gps_min) || 0;
+  const totalKm  = gpsKm  > 0 ? gpsKm  : (parseFloat(trip.pickup_km)  || 0) + (parseFloat(trip.dest_km)  || 0);
+  const totalMin = gpsMin > 0 ? gpsMin : (parseFloat(trip.pickup_min) || 0) + (parseFloat(trip.dest_min) || 0);
+  const fare     = parseFloat(trip.fare) || 0;
+  const gasCost  = (totalKm / (cfg.kmPerLiter || 12)) * (cfg.gasPricePerLiter || 24);
+  const platFee  = fare * ((cfg.platformCut || 10) / 100);
+  const p2d = { diario:1, semanal:7, mensual:30, trimestral:90, semestral:180, anual:365 };
+  let fixedCost = 0;
+  if (cfg.rentaEnabled)         fixedCost += (cfg.rentaMonto || 0) / (p2d[cfg.rentaPeriodo] || 30);
+  if (cfg.seguroEnabled)        fixedCost += (cfg.seguroMonto || 0) / (p2d[cfg.seguroPeriodo] || 30);
+  if (cfg.llantasEnabled)       fixedCost += ((cfg.llantasMonto || 0) / (cfg.llantasKmVida || 40000)) * totalKm;
+  if (cfg.mantenimientoEnabled) fixedCost += ((cfg.mantenimientoMonto || 0) / (cfg.mantenimientoKmVida || 5000)) * totalKm;
+  const netEarning = fare - platFee - gasCost - fixedCost;
+  const hours = totalMin / 60;
+  return {
+    totalKm, totalMin, fare, gasCost, platFee, fixedCost,
+    netEarning, hours,
+    netPerHour: hours > 0 ? netEarning / hours : 0,
+    netPerKm:   totalKm > 0 ? netEarning / totalKm : 0,
+    grossPct:   fare > 0 ? (netEarning / fare) * 100 : 0,
+  };
 };
 
+// ─── ÍCONOS SVG inline ───────────────────────────────────────────────────────
+const SVG = ({ d, size = 18, color = "currentColor", fill = "none", sw = 1.8 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color}
+    strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    {(Array.isArray(d) ? d : [d]).map((p, i) => <path key={i} d={p} />)}
+  </svg>
+);
 
-// ─── STORAGE ─────────────────────────────────────────────────────────────────
-const store = {
-    get: (key) => {
-        try {
-            const v = localStorage.getItem(key);
-            return v ? JSON.parse(v) : null;
-        } catch { return null; }
-    },
-    set: (key, val) => {
-        try {
-            localStorage.setItem(key, JSON.stringify(val));
-        } catch { }
-    }
+const IC = {
+  home:   "M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z M9 22V12h6v10",
+  trips:  "M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8",
+  stats:  "M18 20V10 M12 20V4 M6 20v-6",
+  ai:     ["M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3","M12 17h.01","M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"],
+  config: ["M12 15a3 3 0 100-6 3 3 0 000 6z","M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"],
+  play:   "M5 3l14 9-14 9V3z",
+  stop:   "M6 6h12v12H6z",
+  plus:   "M12 5v14 M5 12h14",
+  gps:    ["M12 2a7 7 0 017 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 017-7z","M12 11a2 2 0 100-4 2 2 0 000 4z"],
+  cam:    ["M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z","M12 17a4 4 0 100-8 4 4 0 000 8z"],
+  trash:  ["M3 6h18","M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6","M10 11v6","M14 11v6","M9 6V4h6v2"],
+  check:  "M20 6L9 17l-5-5",
+  eye:    ["M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z","M12 9a3 3 0 100 6 3 3 0 000-6z"],
+  mail:   ["M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z","M22 6l-10 7L2 6"],
+  lock:   ["M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2z","M7 11V7a5 5 0 0110 0v4"],
+  user:   ["M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2","M12 11a4 4 0 100-8 4 4 0 000 8z"],
+  logout: ["M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4","M16 17l5-5-5-5","M21 12H9"],
+  back:   "M15 18l-6-6 6-6",
+  send:   "M22 2L11 13 M22 2L15 22l-4-9-9-4 22-7z",
+  info:   ["M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z","M12 16v-4","M12 8h.01"],
 };
 
-// ─── COMPONENTS ──────────────────────────────────────────────────────────────
+// ─── CSS GLOBAL ───────────────────────────────────────────────────────────────
+const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Barlow+Condensed:wght@600;700;800;900&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+::-webkit-scrollbar{width:0;height:0;}
+body{background:#07080d;color:#dde0f5;font-family:'IBM Plex Mono',monospace;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
+input,select,textarea{font-family:'IBM Plex Mono',monospace;}
+input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;}
+button{cursor:pointer;font-family:'IBM Plex Mono',monospace;border:none;background:none;}
+button:active{transform:scale(0.97);}
+.B{font-family:'Barlow Condensed',sans-serif;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.fu{animation:fadeUp .3s ease forwards;}
+.pu{animation:pulse 2s ease-in-out infinite;}
+.sp{animation:spin .75s linear infinite;}
+.su{animation:slideUp .28s cubic-bezier(.32,.72,0,1) forwards;}
+`;
 
-export default function App() {
-    const [tab, setTab] = useState("home");
-    const [config, setConfig] = useState(DEFAULT_CONFIG);
-    const [trips, setTrips] = useState([]);
-    const [days, setDays] = useState([]);
-    const [activeDay, setActiveDay] = useState(null);
-    const [activeTrip, setActiveTrip] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [session, setSession] = useState(null);
-    const lastPos = useRef(null);
+// ─── ATOMS ───────────────────────────────────────────────────────────────────
+const Card = ({ children, s, onClick }) => (
+  <div onClick={onClick} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 13, padding: 15, ...s }}>
+    {children}
+  </div>
+);
 
-    // Auth & Load data
-    useEffect(() => {
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
+const Lbl = ({ children, color = C.muted, s }) => (
+  <div style={{ fontSize: 9, letterSpacing: "0.2em", textTransform: "uppercase", color, fontWeight: 600, ...s }}>{children}</div>
+);
+
+const Big = ({ children, size = 24, color = C.text, s }) => (
+  <div className="B" style={{ fontSize: size, fontWeight: 800, color, lineHeight: 1, ...s }}>{children}</div>
+);
+
+const Pill = ({ platform }) => {
+  const cols = { uber: "#00b4d8", didi: "#ff6b35", beat: "#a855f7", otra: C.muted };
+  const p = (platform || "uber").toLowerCase();
+  return (
+    <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: cols[p] || C.muted,
+      textTransform: "uppercase", background: `${cols[p] || C.muted}18`, padding: "2px 7px", borderRadius: 4 }}>
+      {p}
+    </span>
+  );
+};
+
+const Btn = ({ children, onClick, color = C.accent, outline = false, sm = false, disabled = false, s, full }) => (
+  <button onClick={onClick} disabled={disabled} style={{
+    padding: sm ? "7px 13px" : "12px 18px",
+    background: outline ? "transparent" : `${color}1e`,
+    border: `${outline ? 1 : 2}px solid ${disabled ? C.dim : color}`,
+    borderRadius: 9, color: disabled ? C.dim : color,
+    fontSize: sm ? 10 : 11, fontWeight: 700, letterSpacing: "0.12em",
+    textTransform: "uppercase", display: "inline-flex", alignItems: "center",
+    justifyContent: "center", gap: 7, transition: "all .15s",
+    width: full ? "100%" : undefined, opacity: disabled ? .5 : 1,
+    cursor: disabled ? "not-allowed" : "pointer", ...s
+  }}>{children}</button>
+);
+
+const Inp = ({ label, value, onChange, type = "text", unit, placeholder = "0", big }) => (
+  <div>
+    {label && <Lbl s={{ marginBottom: 5 }}>{label}</Lbl>}
+    <div style={{ position: "relative" }}>
+      <input type={type} step="any" value={value} onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        onFocus={e => e.target.style.borderColor = C.accent}
+        onBlur={e => e.target.style.borderColor = C.border}
+        style={{ width: "100%", background: C.card2, border: `1px solid ${C.border}`, borderRadius: 8,
+          padding: big ? "13px 42px 13px 13px" : "9px 34px 9px 11px",
+          color: "#fff", fontSize: big ? 26 : 15, fontFamily: "inherit", outline: "none", fontWeight: big ? 700 : 400 }} />
+      {unit && <span style={{ position: "absolute", right: 9, top: "50%", transform: "translateY(-50%)", fontSize: 9, color: C.muted }}>{unit}</span>}
+    </div>
+  </div>
+);
+
+const Spinner = () => (
+  <div className="sp" style={{ width: 16, height: 16, border: `2px solid transparent`, borderTopColor: "currentColor", borderRadius: "50%" }} />
+);
+
+// ─── MODAL: DETALLE VIAJE ─────────────────────────────────────────────────────
+function TripDetailModal({ trip, cfg, onClose }) {
+  const c = calcTrip(trip, cfg);
+  const isGood = c.netPerHour >= cfg.targetHourlyRate;
+  const isOk   = c.netPerHour >= cfg.targetHourlyRate * 0.75;
+  const verdict = isGood
+    ? { color: C.teal,   label: "✅ Excelente viaje" }
+    : isOk
+    ? { color: C.accent, label: "⚠️ Viaje aceptable" }
+    : { color: C.danger, label: "❌ No rentable" };
+
+  const rows = [
+    { lbl: "Tarifa bruta",                                       val: fmtMXN(c.fare),      color: C.text },
+    { lbl: `Comisión plataforma (${cfg.platformCut}%)`,          val: `-${fmtMXN(c.platFee)}`, color: C.danger },
+    { lbl: `Gasolina · ${fmt(c.totalKm,1)}km ÷ ${cfg.kmPerLiter}km/L × $${cfg.gasPricePerLiter}`, val: `-${fmtMXN(c.gasCost)}`, color: C.danger },
+    ...(c.fixedCost > 0 ? [{ lbl: "Gastos fijos amortizados", val: `-${fmtMXN(c.fixedCost)}`, color: C.danger }] : []),
+    { lbl: "GANANCIA NETA", val: fmtMXN(c.netEarning), color: c.netEarning >= 0 ? C.teal : C.danger, bold: true },
+  ];
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.87)", zIndex: 9999,
+      display: "flex", flexDirection: "column", justifyContent: "flex-end" }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} className="su"
+        style={{ background: C.card, borderTop: `2px solid ${C.bord2}`, borderRadius: "20px 20px 0 0",
+          maxHeight: "90vh", overflowY: "auto", padding: "22px 18px 40px" }}>
+        <div style={{ width: 32, height: 3, background: C.bord2, borderRadius: 4, margin: "0 auto 18px" }} />
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18 }}>
+          <div>
+            <Big size={21} color={C.accent} s={{ letterSpacing: 1 }}>DESGLOSE DEL VIAJE</Big>
+            <div style={{ fontSize: 10, color: C.muted, marginTop: 3, display: "flex", gap: 8, alignItems: "center" }}>
+              {fmtDate(trip.created_at || trip.timestamp)} · <Pill platform={trip.platform} />
+              {trip.start_time && <span>{fmtHour(trip.start_time)}</span>}
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <Big size={26} color={verdict.color}>{fmtMXN(c.netEarning)}</Big>
+            <div style={{ fontSize: 10, color: verdict.color, marginTop: 3 }}>{verdict.label}</div>
+          </div>
+        </div>
+
+        {/* KPIs */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 7, marginBottom: 18 }}>
+          {[
+            { l: "Duración",  v: `${c.totalMin.toFixed(0)} min`, c: C.text },
+            { l: "Distancia", v: `${fmt(c.totalKm,1)} km`,       c: C.text },
+            { l: "$/hora",    v: fmtMXN(c.netPerHour),           c: isGood ? C.teal : isOk ? C.accent : C.danger },
+            { l: "$/km",      v: fmtMXN(c.netPerKm),             c: C.text },
+            { l: "% neto",    v: fmtPct(c.grossPct),             c: c.grossPct > 40 ? C.teal : C.accent },
+            { l: "Gas",       v: fmtMXN(c.gasCost),              c: C.danger },
+          ].map(({ l, v, c: col }) => (
+            <div key={l} style={{ background: C.card2, borderRadius: 9, padding: "9px 11px" }}>
+              <Lbl s={{ marginBottom: 4 }}>{l}</Lbl>
+              <Big size={15} color={col}>{v}</Big>
+            </div>
+          ))}
+        </div>
+
+        {/* Desglose */}
+        <Lbl s={{ marginBottom: 9 }}>Desglose contable</Lbl>
+        <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 16 }}>
+          {rows.map((r, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "10px 13px", borderBottom: i < rows.length - 1 ? `1px solid ${C.border}` : "none",
+              background: r.bold ? `${C.accent}08` : "transparent" }}>
+              <div style={{ fontSize: r.bold ? 11 : 10, color: r.bold ? C.text : C.muted, fontWeight: r.bold ? 700 : 400 }}>{r.lbl}</div>
+              <div className={r.bold ? "B" : ""} style={{ fontSize: r.bold ? 17 : 13, color: r.color, fontWeight: r.bold ? 800 : 600 }}>{r.val}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* GPS detail */}
+        {(trip.gps_km > 0 || trip.start_time) && (
+          <div style={{ background: C.card2, borderRadius: 10, padding: "12px 13px", marginBottom: 16 }}>
+            <Lbl s={{ marginBottom: 9 }}>Registro GPS / tiempo</Lbl>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8 }}>
+              {trip.start_time && <div><Lbl s={{ marginBottom: 3 }}>Inicio</Lbl><div style={{ fontSize: 13 }}>{fmtHour(trip.start_time)}</div></div>}
+              {trip.end_time   && <div><Lbl s={{ marginBottom: 3 }}>Fin</Lbl><div style={{ fontSize: 13 }}>{fmtHour(trip.end_time)}</div></div>}
+              {trip.gps_km > 0 && <div><Lbl s={{ marginBottom: 3 }}>GPS km</Lbl><Big size={16} color={C.teal}>{fmt(trip.gps_km,2)} km</Big></div>}
+              {trip.gps_min > 0 && <div><Lbl s={{ marginBottom: 3 }}>GPS min</Lbl><Big size={16} color={C.teal}>{fmt(trip.gps_min,0)} min</Big></div>}
+            </div>
+          </div>
+        )}
+
+        <Btn full onClick={onClose}>Cerrar</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ─── MODAL: NUEVO VIAJE ───────────────────────────────────────────────────────
+function TripModal({ cfg, trips, saveTrip, activeDay, onClose }) {
+  const [mode,     setMode]     = useState("manual");
+  const [trip,     setTrip]     = useState({ fare:"", pickup_km:"", pickup_min:"", dest_km:"", dest_min:"", platform:"uber" });
+  const [phase,    setPhase]    = useState(0);
+  const [gpsOn,    setGpsOn]    = useState(false);
+  const [gpsStatus,setGpsStatus]= useState("");
+  const [gpsMs,    setGpsMs]    = useState(0);
+  const [proc,     setProc]     = useState(false);
+  const [prevImg,  setPrevImg]  = useState(null);
+
+  const watchRef   = useRef(null);
+  const timerRef   = useRef(null);
+  const startRef   = useRef(null);
+  const distRef    = useRef(0);
+  const lastRef    = useRef(null);
+  const fileRef    = useRef();
+
+  useEffect(() => () => {
+    if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
+    clearInterval(timerRef.current);
+  }, []);
+
+  const setF = (k, v) => setTrip(p => ({ ...p, [k]: v }));
+
+  const startGPS = () => {
+    if (!navigator.geolocation) { setGpsStatus("GPS no disponible en este dispositivo"); return; }
+    distRef.current = 0;
+    lastRef.current = null;
+    startRef.current = Date.now();
+    setGpsOn(true);
+    setGpsMs(0);
+    setGpsStatus("📍 Buscando señal...");
+
+    timerRef.current = setInterval(() => setGpsMs(Date.now() - startRef.current), 1000);
+
+    watchRef.current = navigator.geolocation.watchPosition(
+      ({ coords: { latitude: lat, longitude: lon } }) => {
+        if (lastRef.current) {
+          const d = haversine(lastRef.current, { lat, lon });
+          if (d > 0.005) distRef.current += d;
+        }
+        lastRef.current = { lat, lon };
+        setGpsStatus(`📍 ${distRef.current.toFixed(2)} km`);
+      },
+      () => setGpsStatus("⚠️ Error GPS — verifica permisos"),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+    );
+  };
+
+  const stopGPS = () => {
+    if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
+    clearInterval(timerRef.current);
+    const mins = ((Date.now() - startRef.current) / 60000).toFixed(1);
+    setTrip(p => ({ ...p, gps_km: distRef.current.toFixed(2), gps_min: mins }));
+    setGpsOn(false);
+    setGpsStatus(`✅ ${distRef.current.toFixed(2)} km · ${mins} min`);
+  };
+
+  const handlePhoto = async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    setProc(true);
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const b64 = ev.target.result.split(",")[1];
+      setPrevImg(ev.target.result);
+      try {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514", max_tokens: 200,
+            messages: [{ role: "user", content: [
+              { type: "image", source: { type: "base64", media_type: file.type || "image/jpeg", data: b64 } },
+              { type: "text", text: `Analiza esta captura de app de transporte. Extrae solo: tarifa total MXN, km al destino, minutos al destino. Responde SOLO JSON: {"fare":0,"dest_km":0,"dest_min":0}` }
+            ]}]
+          })
         });
-
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setSession(session);
-        });
-
-        const loadInitial = async () => {
-            const cfg = store.get(STORAGE_KEYS.CONFIG);
-            const tr = store.get(STORAGE_KEYS.TRIPS);
-            const dy = store.get(STORAGE_KEYS.DAYS);
-            const ad = store.get(STORAGE_KEYS.ACTIVE_DAY);
-            const at = store.get(STORAGE_KEYS.ACTIVE_TRIP);
-
-            if (cfg) setConfig(cfg);
-            if (tr) setTrips(tr);
-            if (dy) setDays(dy);
-            if (ad) setActiveDay(ad);
-            if (at) setActiveTrip(at);
-
-            setTimeout(() => setLoading(false), 1500);
-        };
-
-        loadInitial();
-        return () => subscription.unsubscribe();
-    }, []);
-
-    // Geolocation Tracking
-    useEffect(() => {
-        if (!activeDay) {
-            lastPos.current = null;
-            return;
-        }
-
-        const watchId = navigator.geolocation.watchPosition(
-            (pos) => {
-                const { latitude: lat, longitude: lon } = pos.coords;
-                if (lastPos.current) {
-                    const d = getDistance(lastPos.current.lat, lastPos.current.lon, lat, lon);
-                    if (d > 0.01) { // 10 meters threshold
-                        // Update activeDay
-                        setActiveDay(prev => {
-                            const updated = { ...prev, trackedTotalKm: (prev.trackedTotalKm || 0) + d };
-                            store.set(STORAGE_KEYS.ACTIVE_DAY, updated);
-                            return updated;
-                        });
-
-                        // Update activeTrip if any
-                        if (activeTrip) {
-                            setActiveTrip(prev => {
-                                const updated = { ...prev, trackedKm: (prev.trackedKm || 0) + d };
-                                store.set(STORAGE_KEYS.ACTIVE_TRIP, updated);
-                                return updated;
-                            });
-                        }
-                    }
-                }
-                lastPos.current = { lat, lon };
-            },
-            (err) => console.error("GPS Error:", err),
-            { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
-        );
-
-        return () => navigator.geolocation.clearWatch(watchId);
-    }, [activeDay, !!activeTrip]);
-
-    const syncFromSupabase = async () => {
-
-        try {
-            const { data: tr } = await supabase.from('trips').select('*').order('timestamp', { ascending: false });
-            const { data: dy } = await supabase.from('days').select('*');
-            const { data: pr } = await supabase.from('profiles').select('*').single();
-
-            if (tr) setTrips(tr);
-            if (dy) setDays(dy);
-            if (pr) setConfig({
-                gasPricePerLiter: parseFloat(pr.gas_price_per_liter) || 18,
-                kmPerLiter: parseFloat(pr.km_per_liter) || 12,
-                targetHourlyRate: parseFloat(pr.target_hourly_rate) || 150,
-                targetPerKm: parseFloat(pr.target_per_km) || 5,
-                platformCut: parseFloat(pr.platform_cut) || 25,
-                unitCost: parseFloat(pr.unit_cost || pr.monthly_rent) || 0,
-                unitPeriod: pr.unit_period || 'monthly',
-                insuranceCost: parseFloat(pr.insurance_cost) || 0,
-                insurancePeriod: pr.insurance_period || 'monthly',
-                tireCost: parseFloat(pr.tire_cost) || 0,
-                tireLifeKm: parseFloat(pr.tire_life_km) || 50000,
-                maintenanceCost: parseFloat(pr.maintenance_cost) || (parseFloat(pr.maintenance_cost_per_km) * 10000) || 0,
-                maintenanceIntervalKm: parseFloat(pr.maintenance_interval_km) || 10000,
-                useRentInCalc: pr.use_rent_in_calc,
-                useInsuranceInCalc: pr.use_insurance_in_calc,
-                useTiresInCalc: pr.use_tires_in_calc,
-                useMaintenanceInCalc: pr.use_maintenance_in_calc
-            });
-        } catch (e) {
-            console.error("Sync error:", e);
-        }
+        const data = await res.json();
+        const txt = data.content?.find(b => b.type === "text")?.text || "{}";
+        const parsed = JSON.parse(txt.replace(/```json|```/g, "").trim());
+        setTrip(p => ({ ...p, fare: String(parsed.fare || ""), dest_km: String(parsed.dest_km || ""), dest_min: String(parsed.dest_min || "") }));
+        setMode("manual"); setPhase(1);
+      } catch { alert("No pude leer la imagen. Intenta manualmente."); }
+      setProc(false);
     };
+    reader.readAsDataURL(file);
+  };
 
+  const handleSave = async () => {
+    if (!trip.fare) return;
+    await saveTrip({
+      ...trip,
+      fare:       parseFloat(trip.fare),
+      pickup_km:  parseFloat(trip.pickup_km  || 0),
+      pickup_min: parseFloat(trip.pickup_min || 0),
+      dest_km:    parseFloat(trip.dest_km    || 0),
+      dest_min:   parseFloat(trip.dest_min   || 0),
+      gps_km:     parseFloat(trip.gps_km     || 0),
+      gps_min:    parseFloat(trip.gps_min    || 0),
+      date:       todayStr(),
+      start_time: trip.start_time || null,
+      end_time:   new Date().toISOString(),
+      day_id:     activeDay?.id || null,
+    });
+    onClose();
+  };
 
-    const saveTrips = async (t) => {
-        setTrips(t);
-        store.set(STORAGE_KEYS.TRIPS, t);
-        if (session) {
-            const lastTrip = t[t.length - 1];
-            if (lastTrip) {
-                await supabase.from('trips').upsert({
-                    ...lastTrip,
-                    user_id: session.user.id
-                });
-            }
-        }
-    };
+  const calc = calcTrip(trip, cfg);
+  const hasData = trip.fare && (trip.dest_km || trip.dest_min || parseFloat(trip.gps_km) > 0);
+  const verdict = calc.netPerHour >= cfg.targetHourlyRate
+    ? { color: C.teal,   label: "✅ Excelente" }
+    : calc.netPerHour >= cfg.targetHourlyRate * 0.75
+    ? { color: C.accent, label: "⚠️ Aceptable" }
+    : { color: C.danger, label: "❌ No conviene" };
 
-    const saveDays = async (d) => {
-        setDays(d);
-        store.set(STORAGE_KEYS.DAYS, d);
-        if (session) {
-            const lastDay = d[d.length - 1];
-            if (lastDay) {
-                await supabase.from('days').upsert({
-                    ...lastDay,
-                    user_id: session.user.id
-                });
-            }
-        }
-    };
+  const modeBtnStyle = (id) => ({
+    padding: "8px 4px", borderRadius: 8, fontSize: 10, fontWeight: 600,
+    letterSpacing: "0.05em", fontFamily: "inherit",
+    background: mode === id ? `${C.teal}1e` : "transparent",
+    border: `1px solid ${mode === id ? C.teal : C.border}`,
+    color: mode === id ? C.teal : C.muted,
+  });
 
-    const saveConfig = async (c) => {
-        setConfig(c);
-        store.set(STORAGE_KEYS.CONFIG, c);
-        if (session) {
-            await supabase.from('profiles').upsert({
-                id: session.user.id,
-                gas_price_per_liter: c.gasPricePerLiter,
-                km_per_liter: c.kmPerLiter,
-                target_hourly_rate: c.targetHourlyRate,
-                target_per_km: c.targetPerKm,
-                platform_cut: c.platformCut,
-                unit_cost: c.unitCost,
-                unit_period: c.unitPeriod,
-                monthly_rent: c.unitCost, // Legacy
-                insurance_cost: c.insuranceCost,
-                insurance_period: c.insurancePeriod,
-                tire_cost: c.tireCost,
-                tire_life_km: c.tireLifeKm,
-                maintenance_cost: c.maintenanceCost,
-                maintenance_interval_km: c.maintenanceIntervalKm,
-                use_rent_in_calc: c.useRentInCalc,
-                use_insurance_in_calc: c.useInsuranceInCalc,
-                use_tires_in_calc: c.useTiresInCalc,
-                use_maintenance_in_calc: c.useMaintenanceInCalc,
-                updated_at: new Date().toISOString()
-            });
-        }
-    };
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.88)", zIndex: 9999,
+      display: "flex", flexDirection: "column", justifyContent: "flex-end" }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} className="su"
+        style={{ background: C.card, borderTop: `2px solid ${C.bord2}`, borderRadius: "20px 20px 0 0",
+          maxHeight: "92vh", display: "flex", flexDirection: "column" }}>
 
-    const saveActiveDay = (d) => {
-        setActiveDay(d);
-        store.set(STORAGE_KEYS.ACTIVE_DAY, d);
-    };
-
-    const saveActiveTrip = (t) => {
-        setActiveTrip(t);
-        store.set(STORAGE_KEYS.ACTIVE_TRIP, t);
-    };
-
-
-    if (loading) return <LoadingScreen />;
-
-    const todayTrips = trips.filter(t => t.date === todayStr());
-    const todayNet = todayTrips.reduce((s, t) => s + (calcTrip(t, config).netEarning), 0);
-
-    if (!session) return <AuthScreen />;
-
-    return (
-        <div className="container-responsive relative min-h-screen flex flex-col bg-bg">
-            <Header session={session} />
-
-
-            <main className="flex-1 pb-32">
-                <AnimatePresence mode="wait">
-                    <motion.div
-                        key={tab}
-                        initial={{ opacity: 0, y: 15 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -15 }}
-                        transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-                    >
-                        {tab === "home" && <HomeTab
-                            config={config}
-                            trips={trips}
-                            days={days}
-                            activeDay={activeDay}
-                            activeTrip={activeTrip}
-                            saveTrips={saveTrips}
-                            saveDays={saveDays}
-                            saveActiveDay={saveActiveDay}
-                            saveActiveTrip={saveActiveTrip}
-                        />}
-                        {tab === "trips" && <TripsTab config={config} trips={trips} saveTrips={saveTrips} />}
-                        {tab === "stats" && <StatsTab config={config} trips={trips} days={days} />}
-                        {tab === "logros" && <LogrosTab config={config} trips={trips} days={days} />}
-                        {tab === "ai" && <AITab config={config} trips={trips} days={days} />}
-                        {tab === "config" && <ConfigTab config={config} saveConfig={saveConfig} />}
-                    </motion.div>
-                </AnimatePresence>
-            </main>
-
-            <Navigation active={tab} onChange={setTab} />
+        {/* Header fijo */}
+        <div style={{ padding: "18px 18px 0", flexShrink: 0 }}>
+          <div style={{ width: 30, height: 3, background: C.bord2, borderRadius: 4, margin: "0 auto 14px" }} />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 13 }}>
+            <Big size={19} color={C.accent} s={{ letterSpacing: 1 }}>NUEVO VIAJE</Big>
+            <button onClick={onClose} style={{ color: C.muted, fontSize: 20, lineHeight: 1 }}>✕</button>
+          </div>
+          {/* Plataforma */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 5, marginBottom: 11 }}>
+            {["uber","didi","beat","otra"].map(p => (
+              <button key={p} onClick={() => setF("platform", p)} style={{
+                padding: "7px 4px", background: trip.platform === p ? `${C.accent}1e` : "transparent",
+                border: `1px solid ${trip.platform === p ? C.accent : C.border}`, borderRadius: 7,
+                color: trip.platform === p ? C.accent : C.muted, fontSize: 10,
+                letterSpacing: "0.08em", textTransform: "uppercase" }}>{p}</button>
+            ))}
+          </div>
+          {/* Modos */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 5, marginBottom: 11 }}>
+            {[{id:"manual",l:"✍️ Manual"},{id:"gps",l:"📍 GPS"},{id:"photo",l:"📸 Foto IA"}].map(m => (
+              <button key={m.id} onClick={() => setMode(m.id)} style={modeBtnStyle(m.id)}>{m.l}</button>
+            ))}
+          </div>
         </div>
-    );
-}
 
-function LoadingScreen() {
-    return (
-        <div className="fixed inset-0 flex flex-col items-center justify-center bg-black z-[1000] font-display">
-            <motion.div
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ duration: 0.8, ease: "easeOut" }}
-                className="mb-8"
-            >
-                <div className="w-20 h-20 rounded-[32px] bg-accent/10 border border-accent/20 flex items-center justify-center float">
-                    <Wallet size={36} className="text-accent" strokeWidth={2.5} />
+        {/* Cuerpo scrolleable */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "0 18px", WebkitOverflowScrolling: "touch" }}>
+          {/* Tarifa grande */}
+          <div style={{ marginBottom: 13 }}>
+            <Lbl s={{ marginBottom: 5 }}>💰 Tarifa del viaje (MXN)</Lbl>
+            <input type="number" step="any" value={trip.fare} onChange={e => setF("fare", e.target.value)}
+              placeholder="0.00"
+              onFocus={e => e.target.style.borderColor = C.accent}
+              onBlur={e => e.target.style.borderColor = C.border}
+              style={{ width: "100%", background: "#0a0b14", border: `1px solid ${C.border}`, borderRadius: 10,
+                padding: "13px 14px", color: C.accent, fontSize: 36, fontFamily: "inherit",
+                fontWeight: 700, outline: "none", textAlign: "center" }} />
+          </div>
+
+          {/* GPS */}
+          {mode === "gps" && (
+            <div style={{ background: C.card2, border: `1px solid ${C.border}`, borderRadius: 12, padding: 15, marginBottom: 13 }}>
+              <Lbl s={{ marginBottom: 11 }}>Rastreo GPS en tiempo real</Lbl>
+              {gpsOn && (
+                <div className="B" style={{ fontSize: 44, fontWeight: 900, color: C.teal, textAlign: "center", marginBottom: 10 }}>
+                  {fmtClock(gpsMs)}
                 </div>
-            </motion.div>
-            <div className="flex flex-col items-center gap-6">
-                <div className="h-1.5 w-40 bg-white/5 overflow-hidden relative rounded-full border border-white/5">
-                    <motion.div
-                        className="absolute left-0 top-0 h-full bg-accent shadow-[0_0_15px_rgba(34,197,94,0.5)]"
-                        initial={{ width: "0%" }}
-                        animate={{ width: "100%" }}
-                        transition={{ duration: 2, ease: "easeInOut", repeat: Infinity }}
-                    />
+              )}
+              {gpsStatus && (
+                <div style={{ fontSize: 13, color: gpsOn ? C.teal : C.muted, textAlign: "center", marginBottom: 12 }}>{gpsStatus}</div>
+              )}
+              {!gpsOn ? (
+                <Btn full onClick={startGPS} color={C.teal}>
+                  <SVG d={IC.gps} size={13} color={C.teal} /> Iniciar GPS
+                </Btn>
+              ) : (
+                <Btn full onClick={stopGPS} color={C.danger}>
+                  <SVG d={IC.stop} size={13} color={C.danger} fill={C.danger} /> Finalizar viaje GPS
+                </Btn>
+              )}
+              {trip.gps_km && !gpsOn && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginTop: 11 }}>
+                  <div style={{ background: C.card, borderRadius: 8, padding: "8px 11px" }}>
+                    <Lbl s={{ marginBottom: 3 }}>Km GPS</Lbl>
+                    <Big size={17} color={C.teal}>{fmt(trip.gps_km,2)} km</Big>
+                  </div>
+                  <div style={{ background: C.card, borderRadius: 8, padding: "8px 11px" }}>
+                    <Lbl s={{ marginBottom: 3 }}>Tiempo</Lbl>
+                    <Big size={17} color={C.teal}>{fmt(trip.gps_min,0)} min</Big>
+                  </div>
                 </div>
-                <div className="text-center">
-                    <h3 className="text-white font-extrabold tracking-tight uppercase text-sm mb-1">Ryde Cash</h3>
-                    <p className="text-[10px] font-bold text-accent uppercase tracking-[0.2em] animate-pulse">Optimizando rutas...</p>
-                </div>
+              )}
             </div>
-        </div>
-    );
-}
+          )}
 
-function Header({ session }) {
-    return (
-        <header className="px-6 py-10 flex items-center justify-between font-display">
-            <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-[24px] overflow-hidden border border-white/10 ring-4 ring-accent-dim shadow-2xl">
-                    <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${session?.user?.id}`} alt="avatar" className="w-full h-full object-cover" />
-                </div>
-                <div>
-                    <h1 className="text-xl font-extrabold text-white tracking-tight">Driver Center</h1>
-                    <p className="text-[10px] font-black text-accent uppercase tracking-[0.2em] flex items-center gap-1.5">
-                        <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-                        Sistema Activo
-                    </p>
-                </div>
-            </div>
-            <div className="flex items-center gap-3">
-                {session && (
-                    <button onClick={() => supabase.auth.signOut()} className="w-12 h-12 rounded-2xl glass border border-white/5 flex items-center justify-center text-text-dim/60 hover:text-danger hover:bg-danger/10 transition-all">
-                        <X size={20} strokeWidth={2.5} />
-                    </button>
-                )}
-            </div>
-        </header>
-    );
-}
-
-
-
-function TripModal({ config, trips, saveTrips, activeDay, activeTrip, saveActiveTrip, onClose }) {
-    const [mode, setMode] = useState("live"); // live | manual | photo
-    const [phase, setPhase] = useState(0);
-    const [trip, setTrip] = useState({ fare: "", pickupKm: "", pickupMin: "", destKm: "", destMin: "", platform: "uber", notes: "" });
-    const fileRef = useRef();
-
-    const handleStartLive = () => {
-        if (!trip.fare) return;
-        const newTrip = {
-            ...trip,
-            id: `trip-${now()}`,
-            date: todayStr(),
-            timestamp: now(),
-            dayId: activeDay?.id || null,
-            trackedKm: 0,
-            trackedMin: 0
-        };
-        saveActiveTrip(newTrip);
-        onClose();
-    };
-
-    const handleManualSave = () => {
-        if (!trip.fare) return;
-        const newTrip = {
-            ...trip,
-            id: `trip-${now()}`,
-            date: todayStr(),
-            timestamp: now(),
-            dayId: activeDay?.id || null,
-            trackedKm: (parseFloat(trip.pickupKm) || 0) + (parseFloat(trip.destKm) || 0),
-            trackedMin: (parseFloat(trip.pickupMin) || 0) + (parseFloat(trip.destMin) || 0),
-        };
-        saveTrips([...trips, newTrip]);
-        onClose();
-    };
-
-    const calc = useMemo(() => calcTrip(trip, config), [trip, config]);
-    const isGood = calc.netPerHour >= config.targetHourlyRate;
-
-    return (
-        <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xl flex items-end justify-center"
-            onClick={onClose}
-        >
-            <motion.div
-                initial={{ y: "100%" }}
-                animate={{ y: 0 }}
-                exit={{ y: "100%" }}
-                transition={{ type: "spring", damping: 25, stiffness: 200 }}
-                className="w-full max-w-lg glass-bright rounded-t-[32px] border-t border-white/10 flex flex-col"
-                style={{ maxHeight: "88vh" }}
-                onClick={e => e.stopPropagation()}
-            >
-                {/* Handle fijo arriba */}
-                <div className="flex-shrink-0 pt-5 pb-2 px-8">
-                    <div className="w-10 h-1 rounded-full bg-white/10 mx-auto mb-5" />
-                    <div className="flex gap-2 p-1.5 rounded-[20px] glass border border-white/5">
-                        {[
-                            { id: 'live', icon: Play, label: 'En Vivo' },
-                            { id: 'manual', icon: FolderOpen, label: 'Manual' },
-                            { id: 'photo', icon: Camera, label: 'IA Photo' }
-                        ].map(m => (
-                            <button key={m.id} onClick={() => setMode(m.id)}
-                                className={`flex-1 py-3 flex items-center justify-center gap-2 rounded-[14px] text-[10px] font-black tracking-widest uppercase transition-all ${mode === m.id ? 'bg-white text-black shadow-xl' : 'text-text-dim/50 hover:text-white'}`}>
-                                <m.icon size={11} fill={mode === m.id ? 'currentColor' : 'none'} />
-                                {m.label}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Contenido con scroll */}
-                <div className="flex-1 overflow-y-auto px-8 pb-2" style={{ WebkitOverflowScrolling: 'touch' }}>
-                    <div className="space-y-5 py-2">
-                        {/* Tarifa */}
-                        <div className="space-y-3">
-                            <label className="text-[10px] font-black text-text-dim tracking-[0.4em] uppercase pl-1">Tarifa Bruta</label>
-                            <input
-                                type="number"
-                                placeholder="0.00"
-                                value={trip.fare}
-                                onChange={e => setTrip({ ...trip, fare: e.target.value })}
-                                className="w-full bg-white/5 border border-white/5 rounded-2xl px-6 py-5 text-5xl font-black mono text-accent placeholder:text-white/10 outline-none focus:border-accent/30 transition-all text-center"
-                            />
-                        </div>
-
-                        {/* Campos manuales */}
-                        {mode === 'manual' && (
-                            <div className="grid grid-cols-2 gap-4">
-                                {[
-                                    { label: 'KM recolección', key: 'pickupKm' },
-                                    { label: 'MIN recolección', key: 'pickupMin' },
-                                    { label: 'KM al destino', key: 'destKm' },
-                                    { label: 'MIN al destino', key: 'destMin' },
-                                ].map(f => (
-                                    <div key={f.key} className="space-y-2">
-                                        <label className="text-[8px] font-black text-text-dim uppercase tracking-widest">{f.label}</label>
-                                        <input
-                                            type="number"
-                                            value={trip[f.key]}
-                                            onChange={e => setTrip({ ...trip, [f.key]: e.target.value })}
-                                            className="premium-input w-full text-xl font-black mono"
-                                            placeholder="0"
-                                        />
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        {/* Plataforma */}
-                        <div className="flex gap-2 p-1.5 rounded-[20px] glass border border-white/5">
-                            {['uber', 'didi', 'beat', 'otra'].map(p => (
-                                <button key={p} onClick={() => setTrip({ ...trip, platform: p })}
-                                    className={`flex-1 py-3 rounded-[14px] text-[9px] font-black tracking-widest uppercase transition-all ${trip.platform === p ? 'bg-accent/10 text-accent border border-accent/20' : 'text-text-dim/40'}`}>
-                                    {p}
-                                </button>
-                            ))}
-                        </div>
-
-                        {/* Foto IA */}
-                        {mode === 'photo' && (
-                            <div onClick={() => fileRef.current?.click()} className="w-full border-2 border-dashed border-white/10 rounded-[24px] p-10 flex flex-col items-center gap-3 cursor-pointer hover:border-accent/40 transition-all bg-white/[0.02]">
-                                <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center text-text-dim hover:text-accent transition-all">
-                                    <Camera size={22} />
-                                </div>
-                                <div className="text-center">
-                                    <p className="text-[10px] font-black text-white uppercase tracking-[0.2em] mb-1">Sube el recibo</p>
-                                    <p className="text-[8px] font-bold text-text-dim uppercase tracking-widest">Uber, Didi o Indriver</p>
-                                </div>
-                                <input ref={fileRef} type="file" className="hidden" accept="image/*" />
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* Botón guardar fijo abajo */}
-                <div className="flex-shrink-0 px-8 pt-4 pb-8">
-                    <button
-                        onClick={mode === 'live' ? handleStartLive : handleManualSave}
-                        disabled={mode !== 'photo' && !trip.fare}
-                        className="btn-accent w-full flex items-center justify-center gap-3 disabled:opacity-20 disabled:grayscale transition-all"
-                        style={{ height: 56, borderRadius: 16, fontSize: 14 }}
-                    >
-                        {mode === 'live' ? <><Play size={18} fill="currentColor" /> INICIAR VIAJE</> : mode === 'photo' ? 'PROCESAR CON IA' : 'GUARDAR REGISTRO'}
-                    </button>
-                </div>
-            </motion.div>
-        </motion.div>
-    );
-}
-
-
-function HomeTab({ config, trips, days, activeDay, activeTrip, saveTrips, saveDays, saveActiveDay, saveActiveTrip }) {
-    const [elapsed, setElapsed] = useState(0);
-    const [tripModalOpen, setTripModalOpen] = useState(false);
-    const timerRef = useRef(null);
-
-    useEffect(() => {
-        if (activeDay?.running) {
-            timerRef.current = setInterval(() => setElapsed(now() - activeDay.startTime), 1000);
-        } else {
-            clearInterval(timerRef.current);
-            setElapsed(0);
-        }
-        return () => clearInterval(timerRef.current);
-    }, [activeDay]);
-
-    const startDay = () => {
-        const d = { id: `day-${now()}`, date: todayStr(), startTime: now(), running: true, startKm: 0, trackedTotalKm: 0, trips: [] };
-        saveActiveDay(d);
-    };
-
-    const endDay = () => {
-        if (!activeDay) return;
-        const dayTrips = trips.filter(t => t.dayId === activeDay.id);
-        const dayStats = dayTrips.reduce((acc, t) => {
-            const c = calcTrip(t, config);
-            return { net: acc.net + c.netEarning, km: acc.km + c.totalKm };
-        }, { net: 0, km: 0 });
-
-        const totalMin = (now() - activeDay.startTime) / 60000;
-        const finished = {
-            ...activeDay,
-            endTime: now(),
-            running: false,
-            totalNet: dayStats.net,
-            totalKm: activeDay.trackedTotalKm || dayStats.km,
-            totalMin,
-            tripCount: dayTrips.length
-        };
-        saveDays([...days, finished]);
-        saveActiveDay(null);
-        saveActiveTrip(null);
-    };
-
-    const startTrip = () => {
-        setTripModalOpen(true);
-    };
-
-    const endTrip = () => {
-        if (!activeTrip) return;
-        const finishedTrip = {
-            ...activeTrip,
-            trackedMin: (now() - activeTrip.timestamp) / 60000,
-        };
-        saveTrips([...trips, finishedTrip]);
-        saveActiveTrip(null);
-    };
-
-    const todayTrips = trips.filter(t => t.date === todayStr());
-
-    // Detailed Stats for Home
-    const homeStats = useMemo(() => {
-        return todayTrips.reduce((acc, t) => {
-            const c = calcTrip(t, config);
-            return {
-                net: acc.net + c.netEarning,
-                km: acc.km + c.totalKm,
-                min: acc.min + c.totalMin,
-                gas: acc.gas + c.gasCost,
-                fees: acc.fees + c.platformFee,
-                count: acc.count + 1,
-                gross: acc.gross + (parseFloat(t.fare) || 0)
-            };
-        }, { net: 0, km: 0, min: 0, gas: 0, fees: 0, count: 0, gross: 0 });
-    }, [todayTrips, config]);
-
-    const gasPct = homeStats.gross > 0 ? (homeStats.gas / homeStats.gross) * 100 : 0;
-    const feesPct = homeStats.gross > 0 ? (homeStats.fees / homeStats.gross) * 100 : 0;
-    const netPct = homeStats.gross > 0 ? (homeStats.net / homeStats.gross) * 100 : 0;
-
-    return (
-        <div className="pb-40 animate-in fade-in slide-in-from-bottom-6 duration-700">
-            {/* Main Stats Card */}
-            <section className="px-6 mb-12">
-                <p className="text-[14px] font-extrabold text-text-dim tracking-tight mb-2">Ingresos del Día</p>
-                <div className="flex items-baseline gap-2 mb-4">
-                    <h2 className="text-[56px] font-extrabold text-white tracking-tighter leading-none heading-premium">
-                        {fmtMXN(homeStats.net).split('.')[0]}
-                        <span className="text-3xl opacity-20">.{fmtMXN(homeStats.net).split('.')[1]}</span>
-                    </h2>
-                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-accent/10 border border-accent/20 text-accent text-[12px] font-extrabold">
-                        <TrendingUp size={14} strokeWidth={3} />
-                        <span>PRO</span>
-                    </div>
-                </div>
-                <div className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-full bg-accent animate-pulse" />
-                    <span className="text-[11px] font-black text-accent uppercase tracking-widest">Actualizado en tiempo real</span>
-                </div>
-            </section>
-
-            {/* Allocation Bar */}
-            <section className="px-6 mb-12">
-                <div className="flex justify-between items-end mb-4">
-                    <div>
-                        <span className="text-[12px] font-black text-text-dim uppercase tracking-widest block mb-1">Distribución</span>
-                        <span className="text-lg font-extrabold text-white tracking-tight">Costo vs Ganancia</span>
-                    </div>
-                    <span className="text-lg font-black text-white mono">{fmtMXN(homeStats.gross)}</span>
-                </div>
-                <div className="spending-bar w-full h-[18px] mb-6 rounded-full p-1 bg-white/5 border border-white/5">
-                    <div className="bg-accent rounded-full transition-all duration-1000 shadow-[0_0_15px_rgba(34,197,94,0.3)]" style={{ width: `${netPct}%` }} />
-                    <div className="bg-accent-cyan rounded-full mx-1 transition-all duration-1000" style={{ width: `${gasPct}%` }} />
-                    <div className="bg-white/10 rounded-full transition-all duration-1000" style={{ width: `${feesPct}%` }} />
-                </div>
-                <div className="grid grid-cols-3 gap-4">
-                    <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-accent shadow-lg shadow-accent/20" />
-                        <span className="text-[10px] font-black text-text-dim uppercase tracking-widest">Neto</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-accent-cyan" />
-                        <span className="text-[10px] font-black text-text-dim uppercase tracking-widest">Gas</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-white/10" />
-                        <span className="text-[10px] font-black text-text-dim uppercase tracking-widest">Fee</span>
-                    </div>
-                </div>
-            </section>
-
-            {/* Info Cards Row */}
-            <div className="grid grid-cols-2 gap-4 px-6 mb-12">
-                <div className="card-premium h-44 flex flex-col justify-between py-6 group bg-gradient-to-br from-white/[0.03] to-transparent">
-                    <div className="w-12 h-12 rounded-2xl bg-accent/10 flex items-center justify-center text-accent group-hover:scale-110 transition-transform">
-                        <MapPin size={22} strokeWidth={2.5} />
-                    </div>
-                    <div>
-                        <p className="text-[11px] font-black text-text-dim uppercase tracking-widest mb-1">KM Totales</p>
-                        <p className="text-3xl font-extrabold text-white tracking-tighter">{fmt(activeDay?.trackedTotalKm || homeStats.km, 1)}</p>
-                    </div>
-                </div>
-                <div className="card-premium h-44 flex flex-col justify-between py-6 group bg-gradient-to-br from-white/[0.03] to-transparent">
-                    <div className="w-12 h-12 rounded-2xl bg-accent2/10 flex items-center justify-center text-accent2 group-hover:scale-110 transition-transform">
-                        <Clock size={22} strokeWidth={2.5} />
-                    </div>
-                    <div>
-                        <p className="text-[11px] font-black text-text-dim uppercase tracking-widest mb-1">Sesión</p>
-                        <p className="text-3xl font-extrabold text-white tracking-tighter">{activeDay ? fmtTime(elapsed).split(':').slice(0, 2).join('h ') + 'm' : `${Math.floor(homeStats.min / 60)}h ${Math.floor(homeStats.min % 60)}m`}</p>
-                    </div>
-                </div>
-            </div>
-
-            {/* Quick Actions / Status */}
-            <section className="px-6 mb-12">
-                <div className={`card-premium p-1 transition-all duration-700 ${activeDay ? 'bg-accent/5 border-accent/20' : 'bg-white/[0.02]'}`}>
-                    <div className="flex items-center justify-between p-7">
-                        <div>
-                            <h3 className="text-lg font-extrabold text-white tracking-tight mb-0.5">{activeDay ? 'Turno Iniciado' : 'Fuera de Línea'}</h3>
-                            <p className="text-[11px] font-bold text-text-dim uppercase tracking-[0.1em]">{activeDay ? 'Analizando métricas en vivo...' : 'Toca para empezar a ganar'}</p>
-                        </div>
-                        {activeDay ? (
-                            <button onClick={endDay} className="w-14 h-14 rounded-2xl bg-danger/10 border border-danger/20 text-danger flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg shadow-danger/10">
-                                <Square size={22} strokeWidth={3} />
-                            </button>
-                        ) : (
-                            <button onClick={startDay} className="w-14 h-14 rounded-2xl bg-accent text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-xl shadow-accent/40">
-                                <Play size={24} fill="currentColor" />
-                            </button>
-                        )
-                        }
-                    </div>
-                </div>
-            </section>
-
-            {/* Recent Trips List */}
-            {todayTrips.length > 0 && (
-                <section className="px-6 space-y-6">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h3 className="text-xl font-extrabold tracking-tight text-white mb-0.5">Actividad</h3>
-                            <p className="text-[11px] font-bold text-text-dim uppercase tracking-widest">Tus últimos servicios</p>
-                        </div>
-                        <button className="text-accent text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-full glass border border-accent/20">Ver todo</button>
-                    </div>
-
-                    <div className="space-y-4">
-                        {todayTrips.slice().reverse().slice(0, 5).map(t => {
-                            const c = calcTrip(t, config);
-                            const colorClass = c.score === 2 ? 'text-accent' : c.score === 1 ? 'text-accent2' : 'text-danger';
-
-                            return (
-                                <div key={t.id} className="card-premium flex items-center justify-between group p-6 border-white/5 hover:border-white/10">
-                                    <div className="flex items-center gap-4">
-                                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center bg-white/5 border border-white/5 transition-transform group-active:scale-95 group-hover:bg-white/10`}>
-                                            <Wallet size={24} className={colorClass} />
-                                        </div>
-                                        <div>
-                                            <div className="font-extrabold text-lg text-white tracking-tight uppercase">{t.platform}</div>
-                                            <div className="text-[10px] text-text-dim font-bold uppercase tracking-widest opacity-60">{fmtDate(t.timestamp)} • {Math.round(c.totalMin)}min</div>
-                                        </div>
-                                    </div>
-                                    <div className="text-right">
-                                        <div className={`text-xl font-extrabold tracking-tighter ${colorClass}`}>{fmtMXN(c.netEarning)}</div>
-                                        <div className="text-[10px] text-text-dim font-bold uppercase tracking-widest opacity-40">NETO</div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                    {activeDay && !activeTrip && (
-                        <button onClick={startTrip} className="w-full h-20 rounded-[32px] border-2 border-dashed border-white/10 flex items-center justify-center gap-3 text-white/40 hover:text-white hover:border-accent/40 transition-all bg-white/[0.01] hover:bg-accent/[0.02]">
-                            <Plus size={22} />
-                            <span className="text-[12px] font-black tracking-[0.3em] uppercase">Registrar Nuevo Viaje</span>
-                        </button>
-                    )}
-                </section>
-            )}
-
-            {activeDay && activeTrip && (
-                <div className="fixed bottom-36 left-6 right-6 z-[80] glass-bright border border-accent/30 rounded-[32px] p-6 shadow-2xl animate-float">
-                    <div className="flex justify-between items-center mb-6">
-                        <div className="flex items-center gap-3">
-                            <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-                            <span className="text-[10px] font-black text-accent uppercase tracking-widest">Escaneando Ruta...</span>
-                        </div>
-                        <span className="text-[12px] font-black text-white mono">{fmtTime(now() - activeTrip.timestamp).split(':').slice(1).join(':')}m</span>
-                    </div>
-                    <div className="flex justify-between items-end mb-6">
-                        <div>
-                            <p className="text-[8px] font-black text-text-dim uppercase tracking-widest mb-1">Tarifa Actual</p>
-                            <p className="text-3xl font-black text-white italic mono">{fmtMXN(activeTrip.fare)}</p>
-                        </div>
-                        <div className="text-right">
-                            <p className="text-[8px] font-black text-text-dim uppercase tracking-widest mb-1">Km Track</p>
-                            <p className="text-2xl font-black text-white mono">{fmt(activeTrip.trackedKm || 0, 2)}</p>
-                        </div>
-                    </div>
-                    <button onClick={endTrip} className="w-full py-4 rounded-2xl bg-white text-black font-black text-xs tracking-widest uppercase">
-                        FINALIZAR VIAJE
-                    </button>
-                </div>
-            )}
-
-            {tripModalOpen && <TripModal config={config} trips={trips} saveTrips={saveTrips} activeDay={activeDay} activeTrip={activeTrip} saveActiveTrip={saveActiveTrip} onClose={() => setTripModalOpen(false)} />}
-        </div>
-    );
-}
-
-function StatsMini({ label, value, color, icon: Icon }) {
-    return (
-        <div className="glass p-5 rounded-[28px] border border-white/5 flex flex-col items-center text-center group hover:bg-white/[0.03] transition-all">
-            <div className={`w-10 h-10 rounded-2xl mb-3 flex items-center justify-center`} style={{ backgroundColor: `${color}15`, color }}>
-                <Icon size={18} />
-            </div>
-            <p className="text-[8px] font-black text-text-dim uppercase tracking-[0.2em] mb-1">{label}</p>
-            <p className="text-sm font-black mono text-white truncate w-full">{value}</p>
-        </div>
-    );
-}
-
-function TripsTab({ config, trips, saveTrips }) {
-    const [filter, setFilter] = useState("all");
-    const [modalOpen, setModalOpen] = useState(false);
-
-    const filtered = trips.filter(t => {
-        if (filter === "today") return t.date === todayStr();
-        if (filter === "week") {
-            const d = new Date(); d.setDate(d.getDate() - 7);
-            return new Date(t.timestamp) >= d;
-        }
-        return true;
-    }).sort((a, b) => b.timestamp - a.timestamp);
-
-    const deleteTrip = (id) => {
-        if (confirm("¿Eliminar registro?")) {
-            saveTrips(trips.filter(t => t.id !== id));
-        }
-    };
-
-    return (
-        <div className="py-8 space-y-8 pb-32">
-            <header className="px-2">
-                <h2 className="text-3xl font-black italic tracking-tighter">HISTORIAL DE<br /><span className="accent-text NOT-italic">VIAJES</span></h2>
-            </header>
-
-            <div className="glass p-1.5 rounded-2xl flex gap-1 border border-white/5">
-                {["all", "week", "today"].map(f => (
-                    <button key={f} onClick={() => setFilter(f)}
-                        className={`flex-1 py-3 rounded-xl text-[10px] font-black tracking-widest uppercase transition-all ${filter === f ? 'bg-white text-black shadow-xl' : 'text-text-dim hover:text-white'}`}>
-                        {f === 'all' ? 'Ver Todos' : f === 'week' ? 'Semana' : 'Hoy'}
-                    </button>
+          {/* Manual */}
+          {mode === "manual" && (
+            <div style={{ marginBottom: 13 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 9 }}>
+                {[{id:0,l:"📍 Recolección"},{id:1,l:"🏁 Destino"}].map(ph => (
+                  <button key={ph.id} onClick={() => setPhase(ph.id)} style={{
+                    padding: "8px", background: phase === ph.id ? `${C.accent}1a` : "transparent",
+                    border: `1px solid ${phase === ph.id ? C.accent : C.border}`, borderRadius: 8,
+                    color: phase === ph.id ? C.accent : C.muted, fontSize: 10, fontWeight: 600 }}>
+                    {ph.l}
+                  </button>
                 ))}
+              </div>
+              {phase === 0 && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
+                  <Inp label="km para recoger"    type="number" value={trip.pickup_km}  onChange={v => setF("pickup_km",  v)} unit="km"  />
+                  <Inp label="min para recoger"   type="number" value={trip.pickup_min} onChange={v => setF("pickup_min", v)} unit="min" />
+                </div>
+              )}
+              {phase === 1 && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
+                  <Inp label="km al destino"      type="number" value={trip.dest_km}    onChange={v => setF("dest_km",    v)} unit="km"  />
+                  <Inp label="min al destino"     type="number" value={trip.dest_min}   onChange={v => setF("dest_min",   v)} unit="min" />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Foto IA */}
+          {mode === "photo" && (
+            <div style={{ marginBottom: 13 }}>
+              <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{ display: "none" }} />
+              {proc ? (
+                <div style={{ textAlign: "center", padding: "30px 0" }}>
+                  <div className="sp" style={{ width: 30, height: 30, border: `2px solid ${C.border}`, borderTopColor: C.accent, borderRadius: "50%", margin: "0 auto 11px" }} />
+                  <Lbl>Analizando con IA...</Lbl>
+                </div>
+              ) : (
+                <button onClick={() => fileRef.current?.click()} style={{
+                  width: "100%", padding: "28px 18px", background: `${C.accent}0a`,
+                  border: `2px dashed ${C.accent}44`, borderRadius: 12, color: C.accent,
+                  fontSize: 11, letterSpacing: "0.1em", fontWeight: 700,
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                  <SVG d={IC.cam} size={26} color={C.accent} />
+                  SUBE CAPTURA DE UBER / DIDI
+                  <span style={{ fontSize: 10, color: C.muted, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>La IA extrae tarifa, km y tiempo automáticamente</span>
+                </button>
+              )}
+              {prevImg && <img src={prevImg} alt="preview" style={{ width: "100%", borderRadius: 8, marginTop: 10, opacity: .5 }} />}
+            </div>
+          )}
+
+          {/* Preview rentabilidad */}
+          {hasData && (
+            <div style={{ background: `${verdict.color}10`, border: `1px solid ${verdict.color}33`,
+              borderRadius: 11, padding: "13px 14px", marginBottom: 13 }}>
+              <div className="B" style={{ fontSize: 15, color: verdict.color, marginBottom: 9 }}>{verdict.label}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 7 }}>
+                {[
+                  { l:"NETO",     v: fmtMXN(calc.netEarning), c: calc.netEarning >= 0 ? C.teal : C.danger },
+                  { l:"POR HORA", v: fmtMXN(calc.netPerHour), c: verdict.color },
+                  { l:"POR KM",   v: fmtMXN(calc.netPerKm),   c: C.muted },
+                ].map(({ l, v, c }) => (
+                  <div key={l} style={{ textAlign: "center" }}>
+                    <Lbl s={{ marginBottom: 3 }}>{l}</Lbl>
+                    <Big size={15} color={c}>{v}</Big>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer fijo */}
+        <div style={{ padding: "12px 18px 30px", flexShrink: 0, display: "grid", gridTemplateColumns: "1fr 2fr", gap: 9 }}>
+          <Btn onClick={onClose} color={C.muted} outline>Cancelar</Btn>
+          <Btn full onClick={handleSave} disabled={!trip.fare || gpsOn}>
+            <SVG d={IC.check} size={13} color={!trip.fare || gpsOn ? C.dim : C.accent} /> Guardar viaje
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── TAB: HOME ────────────────────────────────────────────────────────────────
+function HomeTab({ cfg, trips, activeDay, saveTrip, startDay, endDay }) {
+  const [elapsed,  setElapsed]  = useState(0);
+  const [modal,    setModal]    = useState(false);
+  const [detail,   setDetail]   = useState(null);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (activeDay?.running) {
+      timerRef.current = setInterval(() => setElapsed(Date.now() - activeDay.startTime), 1000);
+    } else { clearInterval(timerRef.current); setElapsed(0); }
+    return () => clearInterval(timerRef.current);
+  }, [activeDay]);
+
+  const todayTrips = trips.filter(t => t.date === todayStr());
+  const stats = todayTrips.reduce((a, t) => {
+    const c = calcTrip(t, cfg);
+    return { net: a.net + c.netEarning, km: a.km + c.totalKm };
+  }, { net: 0, km: 0 });
+
+  return (
+    <div className="fu" style={{ padding: "15px 14px 90px" }}>
+      {/* Hero */}
+      <div style={{ marginBottom: 15 }}>
+        <Lbl s={{ marginBottom: 3 }}>Ganancia neta hoy</Lbl>
+        <div className="B" style={{ fontSize: 58, fontWeight: 900, color: stats.net >= 0 ? C.teal : C.danger, lineHeight: 1 }}>
+          {fmtMXN(stats.net)}
+        </div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 5 }}>
+          {todayTrips.length} viajes · {fmt(stats.km,1)} km
+        </div>
+      </div>
+
+      {/* Jornada */}
+      <Card s={{ marginBottom: 13 }}>
+        <Lbl s={{ marginBottom: 12 }}>Estado de jornada</Lbl>
+        {!activeDay ? (
+          <Btn full onClick={startDay} color={C.teal}>
+            <SVG d={IC.play} size={13} color={C.teal} fill={C.teal} /> Iniciar jornada de trabajo
+          </Btn>
+        ) : (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div>
+                <div className="pu" style={{ fontSize: 9, color: C.danger, letterSpacing: "0.2em", marginBottom: 3 }}>● GRABANDO</div>
+                <div className="B" style={{ fontSize: 42, fontWeight: 900, color: C.teal, lineHeight: 1 }}>{fmtClock(elapsed)}</div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <Big size={28}>{todayTrips.length}</Big>
+                <Lbl s={{ marginTop: 2 }}>viajes</Lbl>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8 }}>
+              <Btn full onClick={() => setModal(true)} color={C.accent}>
+                <SVG d={IC.plus} size={13} color={C.accent} /> Nuevo viaje
+              </Btn>
+              <Btn onClick={endDay} color={C.danger}>
+                <SVG d={IC.stop} size={12} color={C.danger} fill={C.danger} /> Fin
+              </Btn>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* Lista hoy */}
+      {todayTrips.length > 0 && (
+        <Card>
+          <Lbl s={{ marginBottom: 12 }}>Viajes de hoy <span style={{ color: C.muted }}>— toca para desglose</span></Lbl>
+          {[...todayTrips].reverse().slice(0, 6).map(t => {
+            const c = calcTrip(t, cfg);
+            const col = c.netPerHour >= cfg.targetHourlyRate ? C.teal : c.netPerHour >= cfg.targetHourlyRate * .75 ? C.accent : C.danger;
+            return (
+              <div key={t.id || t.created_at} onClick={() => setDetail(t)}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "9px 0", borderBottom: `1px solid ${C.border}`, cursor: "pointer" }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3 }}>
+                    <Pill platform={t.platform} />
+                    {t.gps_km > 0 && <span style={{ fontSize: 9, color: C.teal }}>📍GPS</span>}
+                  </div>
+                  <div style={{ fontSize: 11, color: C.muted }}>
+                    {fmtMXN(t.fare)} · {fmt(c.totalKm,1)}km · {c.totalMin.toFixed(0)}min
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <Big size={18} color={col}>{fmtMXN(c.netEarning)}</Big>
+                  <Lbl s={{ marginTop: 2 }}>{fmtMXN(c.netPerHour)}/hr</Lbl>
+                </div>
+              </div>
+            );
+          })}
+        </Card>
+      )}
+
+      {modal  && <TripModal cfg={cfg} trips={trips} saveTrip={saveTrip} activeDay={activeDay} onClose={() => setModal(false)} />}
+      {detail && <TripDetailModal trip={detail} cfg={cfg} onClose={() => setDetail(null)} />}
+    </div>
+  );
+}
+
+// ─── TAB: VIAJES ─────────────────────────────────────────────────────────────
+function TripsTab({ cfg, trips, saveTrip, deleteTrip }) {
+  const [filter, setFilter] = useState("all");
+  const [modal,  setModal]  = useState(false);
+  const [detail, setDetail] = useState(null);
+
+  const filtered = trips.filter(t => {
+    if (filter === "today") return t.date === todayStr();
+    if (filter === "week")  { const d = new Date(); d.setDate(d.getDate() - 7); return new Date(t.created_at || t.timestamp) >= d; }
+    return true;
+  }).sort((a, b) => new Date(b.created_at || b.timestamp) - new Date(a.created_at || a.timestamp));
+
+  return (
+    <div className="fu" style={{ padding: "15px 14px 90px" }}>
+      <div className="B" style={{ fontSize: 22, fontWeight: 800, color: C.accent, marginBottom: 13, letterSpacing: 1 }}>HISTORIAL</div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginBottom: 12 }}>
+        {[{id:"all",l:"TODOS"},{id:"week",l:"SEMANA"},{id:"today",l:"HOY"}].map(f => (
+          <button key={f.id} onClick={() => setFilter(f.id)} style={{
+            padding: "8px 4px", background: filter === f.id ? `${C.accent}1a` : "transparent",
+            border: `1px solid ${filter === f.id ? C.accent : C.border}`, borderRadius: 7,
+            color: filter === f.id ? C.accent : C.muted, fontSize: 10, letterSpacing: "0.1em", fontWeight: 600 }}>{f.l}</button>
+        ))}
+      </div>
+
+      <Btn full onClick={() => setModal(true)} s={{ marginBottom: 12 }}>
+        <SVG d={IC.plus} size={13} color={C.accent} /> Agregar viaje
+      </Btn>
+
+      {filtered.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: C.dim }}>
+          <div style={{ fontSize: 34, marginBottom: 9 }}>🚗</div>
+          <Lbl>Sin viajes registrados</Lbl>
+        </div>
+      ) : filtered.map(t => {
+        const c = calcTrip(t, cfg);
+        const col = c.netPerHour >= cfg.targetHourlyRate ? C.teal : c.netPerHour >= cfg.targetHourlyRate * .75 ? C.accent : C.danger;
+        return (
+          <Card key={t.id || t.created_at} s={{ marginBottom: 7, cursor: "pointer" }} onClick={() => setDetail(t)}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+                  <Pill platform={t.platform} />
+                  {t.gps_km > 0 && <span style={{ fontSize: 9, color: C.teal }}>📍GPS</span>}
+                  <span style={{ fontSize: 9, color: C.muted }}>{fmtDate(t.created_at || t.timestamp)}</span>
+                </div>
+                <div style={{ fontSize: 12, color: C.text }}>{fmtMXN(t.fare)} · {fmt(c.totalKm,1)}km · {c.totalMin.toFixed(0)} min</div>
+                <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>Gas: {fmtMXN(c.gasCost)} · Fee: {fmtMXN(c.platFee)}</div>
+              </div>
+              <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
+                <Big size={19} color={col}>{fmtMXN(c.netEarning)}</Big>
+                <Lbl>{fmtMXN(c.netPerHour)}/hr</Lbl>
+                <button onClick={e => { e.stopPropagation(); deleteTrip(t.id); }}
+                  style={{ color: C.dim, padding: 2, marginTop: 2 }}>
+                  <SVG d={IC.trash} size={13} color={C.dim} />
+                </button>
+              </div>
+            </div>
+            {/* Barra de rentabilidad */}
+            <div style={{ marginTop: 9, height: 3, borderRadius: 3, background: C.card2, overflow: "hidden" }}>
+              <div style={{ width: `${Math.max(0, Math.min(100, c.grossPct))}%`, height: "100%", background: col, borderRadius: 3 }} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 3 }}>
+              <Lbl>{fmtPct(Math.max(0, c.grossPct))} neto</Lbl>
+              <Lbl>Toca para desglose →</Lbl>
+            </div>
+          </Card>
+        );
+      })}
+
+      {modal  && <TripModal cfg={cfg} trips={trips} saveTrip={saveTrip} activeDay={null} onClose={() => setModal(false)} />}
+      {detail && <TripDetailModal trip={detail} cfg={cfg} onClose={() => setDetail(null)} />}
+    </div>
+  );
+}
+
+// ─── TAB: STATS ───────────────────────────────────────────────────────────────
+function StatsTab({ cfg, trips }) {
+  const [range, setRange] = useState(30);
+  const cutoff = Date.now() - range * 86400000;
+  const filtered = trips.filter(t => new Date(t.created_at || t.timestamp).getTime() >= cutoff);
+
+  const byDate = {};
+  filtered.forEach(t => {
+    const d = t.date || todayStr();
+    const c = calcTrip(t, cfg);
+    if (!byDate[d]) byDate[d] = { date: d, net: 0, km: 0, trips: 0, min: 0, gas: 0, gross: 0 };
+    byDate[d].net   += c.netEarning; byDate[d].km  += c.totalKm;
+    byDate[d].min   += c.totalMin;   byDate[d].gas += c.gasCost;
+    byDate[d].gross += c.fare;       byDate[d].trips += 1;
+  });
+  const chartData = Object.values(byDate).sort((a,b) => a.date.localeCompare(b.date)).map(d => ({
+    ...d, netPerHour: d.min > 0 ? d.net / (d.min / 60) : 0,
+    label: new Date(d.date).toLocaleDateString("es-MX", { day: "numeric", month: "short" })
+  }));
+
+  const totals = filtered.reduce((a, t) => {
+    const c = calcTrip(t, cfg);
+    return { net: a.net+c.netEarning, km: a.km+c.totalKm, gas: a.gas+c.gasCost, gross: a.gross+c.fare, min: a.min+c.totalMin };
+  }, { net: 0, km: 0, gas: 0, gross: 0, min: 0 });
+
+  // Por plataforma
+  const byPlat = {};
+  filtered.forEach(t => {
+    const p = t.platform || "uber";
+    if (!byPlat[p]) byPlat[p] = { name: p.toUpperCase(), net: 0, count: 0 };
+    byPlat[p].net += calcTrip(t, cfg).netEarning; byPlat[p].count++;
+  });
+  const platData = Object.values(byPlat);
+  const PIE = [C.accent, C.teal, "#a855f7", "#f43f5e"];
+
+  // Por hora del día
+  const byHour = {};
+  filtered.forEach(t => {
+    const h = new Date(t.created_at || t.timestamp).getHours();
+    if (!byHour[h]) byHour[h] = { hour: h, net: 0, count: 0 };
+    byHour[h].net += calcTrip(t, cfg).netEarning; byHour[h].count++;
+  });
+  const hourData = Object.values(byHour).sort((a,b) => a.hour - b.hour)
+    .map(d => ({ ...d, label: `${d.hour}h`, avg: d.count > 0 ? d.net / d.count : 0 }));
+  const bestHour = hourData.length > 0 ? hourData.reduce((b,d) => d.avg > b.avg ? d : b) : null;
+  const bestDay  = chartData.length > 0 ? chartData.reduce((b,d) => d.net > b.net ? d : b) : null;
+
+  const Tip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 12px", fontSize: 11 }}>
+        <div style={{ color: C.muted, marginBottom: 4 }}>{label}</div>
+        {payload.map((p, i) => <div key={i} style={{ color: p.color }}>{p.name}: {fmtMXN(p.value)}</div>)}
+      </div>
+    );
+  };
+
+  return (
+    <div className="fu" style={{ padding: "15px 14px 90px" }}>
+      <div className="B" style={{ fontSize: 22, fontWeight: 800, color: C.accent, marginBottom: 13, letterSpacing: 1 }}>ESTADÍSTICAS</div>
+
+      {/* Rango */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 5, marginBottom: 15 }}>
+        {[7,14,30,60].map(r => (
+          <button key={r} onClick={() => setRange(r)} style={{
+            padding: "8px 4px", background: range === r ? `${C.accent}1e` : "transparent",
+            border: `1px solid ${range === r ? C.accent : C.border}`, borderRadius: 7,
+            color: range === r ? C.accent : C.muted, fontSize: 11, fontWeight: 700 }}>{r}D</button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "50px 0", color: C.dim }}>
+          <div style={{ fontSize: 34, marginBottom: 9 }}>📊</div>
+          <Lbl>Registra viajes para ver estadísticas</Lbl>
+        </div>
+      ) : <>
+        {/* KPIs */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 13 }}>
+          {[
+            { l:"Neto total",      v: fmtMXN(totals.net),                          c: totals.net>=0?C.teal:C.danger },
+            { l:"Viajes",          v: filtered.length,                              c: C.text },
+            { l:"Km recorridos",   v: `${fmt(totals.km,0)} km`,                    c: C.accent },
+            { l:"Promedio/viaje",  v: fmtMXN(filtered.length>0?totals.net/filtered.length:0), c: C.teal },
+            { l:"$/hora promedio", v: fmtMXN(totals.min>0?totals.net/(totals.min/60):0), c: C.accent },
+            { l:"Gas total",       v: fmtMXN(totals.gas),                          c: C.danger },
+          ].map(({ l, v, c }) => (
+            <Card key={l} s={{ padding: "11px 13px" }}>
+              <Lbl s={{ marginBottom: 5 }}>{l}</Lbl>
+              <Big size={21} color={c}>{v}</Big>
+            </Card>
+          ))}
+        </div>
+
+        {/* Mejor día / hora */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 13 }}>
+          {bestDay && (
+            <div style={{ background: `${C.accent}10`, border: `1px solid ${C.accent}33`, borderRadius: 12, padding: "11px 13px" }}>
+              <Lbl s={{ color: C.accent, marginBottom: 6 }}>🏆 Mejor día</Lbl>
+              <div style={{ fontSize: 11, color: C.text, marginBottom: 4 }}>{fmtDate(bestDay.date)}</div>
+              <Big size={19} color={C.accent}>{fmtMXN(bestDay.net)}</Big>
+            </div>
+          )}
+          {bestHour && (
+            <div style={{ background: `${C.teal}10`, border: `1px solid ${C.teal}33`, borderRadius: 12, padding: "11px 13px" }}>
+              <Lbl s={{ color: C.teal, marginBottom: 6 }}>⏰ Mejor hora</Lbl>
+              <div style={{ fontSize: 11, color: C.text, marginBottom: 4 }}>{bestHour.hour}:00 – {bestHour.hour+1}:00</div>
+              <Big size={19} color={C.teal}>{fmtMXN(bestHour.avg)}/viaje</Big>
+            </div>
+          )}
+        </div>
+
+        {/* Ganancia diaria */}
+        <Card s={{ marginBottom: 11, padding: "13px 8px" }}>
+          <Lbl s={{ marginBottom: 11, paddingLeft: 6 }}>Ganancia diaria (MXN)</Lbl>
+          <ResponsiveContainer width="100%" height={145}>
+            <BarChart data={chartData} margin={{ left: -20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: C.dim, fontSize: 9 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: C.dim, fontSize: 9 }} axisLine={false} tickLine={false} />
+              <Tooltip content={<Tip />} />
+              <Bar dataKey="net" name="neto $" radius={[4,4,0,0]}>
+                {chartData.map((e, i) => <Cell key={i} fill={e.net >= 0 ? C.teal : C.danger} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+
+        {/* Rentabilidad por hora del día */}
+        {hourData.length > 0 && (
+          <Card s={{ marginBottom: 11, padding: "13px 8px" }}>
+            <Lbl s={{ marginBottom: 11, paddingLeft: 6 }}>Rentabilidad por hora del día</Lbl>
+            <ResponsiveContainer width="100%" height={125}>
+              <BarChart data={hourData} margin={{ left: -20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+                <XAxis dataKey="label" tick={{ fill: C.dim, fontSize: 9 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: C.dim, fontSize: 9 }} axisLine={false} tickLine={false} />
+                <Tooltip content={<Tip />} />
+                <Bar dataKey="avg" name="$/viaje" radius={[3,3,0,0]}>
+                  {hourData.map((e, i) => <Cell key={i} fill={e.avg >= cfg.targetHourlyRate/8 ? C.teal : e.avg >= cfg.targetHourlyRate/12 ? C.accent : C.danger} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <div style={{ display: "flex", justifyContent: "center", gap: 14, marginTop: 7 }}>
+              {[[C.teal,"Excelente"],[C.accent,"Aceptable"],[C.danger,"Bajo"]].map(([col,l]) => (
+                <div key={l} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <div style={{ width: 7, height: 7, borderRadius: 2, background: col }} />
+                  <Lbl>{l}</Lbl>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* $/hr vs meta */}
+        <Card s={{ marginBottom: 11, padding: "13px 8px" }}>
+          <Lbl s={{ marginBottom: 11, paddingLeft: 6 }}>$/hora vs meta ({fmtMXN(cfg.targetHourlyRate)})</Lbl>
+          <ResponsiveContainer width="100%" height={125}>
+            <LineChart data={chartData} margin={{ left: -20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: C.dim, fontSize: 9 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: C.dim, fontSize: 9 }} axisLine={false} tickLine={false} />
+              <Tooltip content={<Tip />} />
+              <Line type="monotone" dataKey="netPerHour" stroke={C.teal} strokeWidth={2} dot={false} name="$/hr" />
+            </LineChart>
+          </ResponsiveContainer>
+        </Card>
+
+        {/* Por plataforma */}
+        {platData.length > 0 && (
+          <Card s={{ marginBottom: 11 }}>
+            <Lbl s={{ marginBottom: 11 }}>Ganancia por plataforma</Lbl>
+            <div style={{ display: "flex", alignItems: "center" }}>
+              <ResponsiveContainer width="50%" height={105}>
+                <PieChart>
+                  <Pie data={platData} dataKey="net" cx="50%" cy="50%" innerRadius={26} outerRadius={48} paddingAngle={3}>
+                    {platData.map((_, i) => <Cell key={i} fill={PIE[i % PIE.length]} />)}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+              <div style={{ flex: 1, paddingLeft: 7 }}>
+                {platData.map((p, i) => (
+                  <div key={p.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                      <div style={{ width: 7, height: 7, borderRadius: "50%", background: PIE[i] }} />
+                      <span style={{ fontSize: 11 }}>{p.name}</span>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 12, color: PIE[i], fontWeight: 700 }}>{fmtMXN(p.net)}</div>
+                      <div style={{ fontSize: 9, color: C.muted }}>{p.count} viajes</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Gasolina */}
+        <Card>
+          <Lbl s={{ marginBottom: 11 }}>Gasto en gasolina</Lbl>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 9 }}>
+            <div>
+              <Big size={26} color={C.danger}>{fmtMXN(totals.gas)}</Big>
+              <Lbl s={{ marginTop: 4 }}>en {range} días</Lbl>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <Big size={19} color={C.muted}>{fmtMXN(totals.gas / (range || 1))}</Big>
+              <Lbl s={{ marginTop: 4 }}>por día</Lbl>
+            </div>
+          </div>
+          <div style={{ height: 5, background: C.card2, borderRadius: 4, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${Math.min(100, (totals.gas/(totals.gross||1))*100)}%`, background: C.danger, borderRadius: 4 }} />
+          </div>
+          <Lbl s={{ marginTop: 5 }}>Gas = {fmtPct((totals.gas/(totals.gross||1))*100)} de ingresos brutos</Lbl>
+        </Card>
+      </>}
+    </div>
+  );
+}
+
+// ─── TAB: IA ──────────────────────────────────────────────────────────────────
+function AITab({ cfg, trips }) {
+  const [msgs,    setMsgs]    = useState([{ role: "assistant", content: "¡Hola! Soy tu asesor de rentabilidad 🚗\n\nAnalizo tus datos reales para darte consejos concretos:\n• ¿En qué horas gano más?\n• ¿Qué plataforma me conviene más?\n• ¿Cómo reduzco mis costos?\n• ¿Qué rutas son más rentables?" }]);
+  const [input,   setInput]   = useState("");
+  const [loading, setLoading] = useState(false);
+  const endRef = useRef();
+
+  const recent = trips.filter(t => new Date(t.created_at || t.timestamp).getTime() >= Date.now() - 30*86400000);
+
+  const buildCtx = () => {
+    const s = recent.reduce((a, t) => { const c = calcTrip(t, cfg); return { net:a.net+c.netEarning, km:a.km+c.totalKm, gas:a.gas+c.gasCost, min:a.min+c.totalMin, count:a.count+1 }; }, {net:0,km:0,gas:0,min:0,count:0});
+    const byHour = {};
+    recent.forEach(t => { const h = new Date(t.created_at||t.timestamp).getHours(); if(!byHour[h]) byHour[h]={net:0,count:0}; byHour[h].net+=calcTrip(t,cfg).netEarning; byHour[h].count++; });
+    const bestHours = Object.entries(byHour).sort((a,b)=>(b[1].net/b[1].count)-(a[1].net/a[1].count)).slice(0,3).map(([h])=>`${h}:00`).join(", ");
+    const byPlat = {};
+    recent.forEach(t => { const p=t.platform||"uber"; if(!byPlat[p]) byPlat[p]={net:0,count:0}; byPlat[p].net+=calcTrip(t,cfg).netEarning; byPlat[p].count++; });
+    const platSumm = Object.entries(byPlat).map(([p,d])=>`${p}:${fmtMXN(d.net/d.count)}/viaje`).join(", ");
+    return `Conductor Uber/Didi México. 30 días: ${s.count} viajes, neto ${fmtMXN(s.net)}, ${fmt(s.km,0)}km, ${fmtMXN(s.gas)} gas, ${(s.min/60).toFixed(1)}hrs. $/hr=${fmtMXN(s.min>0?s.net/(s.min/60):0)}, meta=${fmtMXN(cfg.targetHourlyRate)}/hr. Mejores horas: ${bestHours||"sin datos"}. Plataformas: ${platSumm||"sin datos"}. Gas $${cfg.gasPricePerLiter}/L, ${cfg.kmPerLiter}km/L.`;
+  };
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, loading]);
+
+  const send = async () => {
+    if (!input.trim() || loading) return;
+    const userMsg = { role: "user", content: input };
+    setMsgs(p => [...p, userMsg]); setInput(""); setLoading(true);
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514", max_tokens: 700,
+          system: `Asesor experto en rentabilidad para conductores Uber/Didi México. Consejos concisos y accionables en español mexicano informal. Todo basado en datos reales. Contexto: ${buildCtx()}`,
+          messages: [...msgs, userMsg].map(m => ({ role: m.role, content: m.content }))
+        })
+      });
+      const data = await res.json();
+      setMsgs(p => [...p, { role: "assistant", content: data.content?.find(b => b.type==="text")?.text || "Error al responder." }]);
+    } catch { setMsgs(p => [...p, { role: "assistant", content: "Error de conexión." }]); }
+    setLoading(false);
+  };
+
+  const SUGG = ["¿En qué horarios gano más?","¿Qué plataforma me conviene?","¿Cómo bajo mis costos?","Dame un diagnóstico rápido"];
+
+  return (
+    <div className="fu" style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 130px)" }}>
+      {recent.length < 5 && (
+        <div style={{ margin: "11px 14px 0", background: `${C.accent}12`, border: `1px solid ${C.accent}33`, borderRadius: 9, padding: "9px 13px", fontSize: 11, color: C.accent }}>
+          ⚠️ Con más viajes registrados el análisis mejora ({recent.length} actuales)
+        </div>
+      )}
+      {msgs.length <= 1 && (
+        <div style={{ padding: "11px 14px 0" }}>
+          <Lbl s={{ marginBottom: 7 }}>Preguntas frecuentes</Lbl>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {SUGG.map(s => (
+              <button key={s} onClick={() => setInput(s)} style={{ padding: "6px 11px", background: `${C.teal}12`, border: `1px solid ${C.teal}33`, borderRadius: 18, color: C.teal, fontSize: 11, fontWeight: 600 }}>{s}</button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div style={{ flex: 1, overflowY: "auto", padding: "11px 14px", display: "flex", flexDirection: "column", gap: 9 }}>
+        {msgs.map((m, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: m.role==="user" ? "flex-end" : "flex-start" }}>
+            <div style={{ maxWidth: "88%", padding: "10px 13px",
+              borderRadius: m.role==="user" ? "13px 13px 3px 13px" : "13px 13px 13px 3px",
+              background: m.role==="user" ? `${C.accent}1e` : C.card,
+              border: `1px solid ${m.role==="user" ? C.accent+"44" : C.border}`,
+              fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap", color: C.text }}>
+              {m.content}
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div style={{ display: "flex" }}>
+            <div style={{ padding: "10px 14px", background: C.card, border: `1px solid ${C.border}`, borderRadius: "13px 13px 13px 3px" }}>
+              <div className="pu" style={{ fontSize: 10, color: C.teal, letterSpacing: "0.2em" }}>ANALIZANDO...</div>
+            </div>
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+      <div style={{ padding: "9px 14px 18px", borderTop: `1px solid ${C.border}`, display: "flex", gap: 7 }}>
+        <input value={input} onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && !e.shiftKey && send()}
+          placeholder="Pregunta sobre tu rentabilidad..."
+          onFocus={e => e.target.style.borderColor = C.accent}
+          onBlur={e => e.target.style.borderColor = C.border}
+          style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, borderRadius: 9, padding: "10px 13px", color: C.text, fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+        <button onClick={send} disabled={!input.trim() || loading} style={{ padding: "10px 14px", background: input.trim() ? `${C.accent}1e` : "transparent", border: `1px solid ${input.trim() ? C.accent : C.border}`, borderRadius: 9, color: input.trim() ? C.accent : C.dim, display: "flex", alignItems: "center" }}>
+          <SVG d={IC.send} size={15} color={input.trim() ? C.accent : C.dim} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── TAB: CONFIG ──────────────────────────────────────────────────────────────
+function ConfigTab({ cfg, saveConfig, onLogout }) {
+  const [local, setLocal] = useState(cfg);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => setLocal(cfg), [cfg]);
+  const set = (k, v) => setLocal(p => ({ ...p, [k]: v }));
+  const save = async () => { await saveConfig(local); setSaved(true); setTimeout(() => setSaved(false), 2000); };
+  const periods = ["diario","semanal","mensual","trimestral","semestral","anual"];
+
+  const FCRow = ({ ek, mk, pk, label, xk, xl }) => (
+    <div style={{ background: C.card2, border: `1px solid ${local[ek] ? C.accent+"44" : C.border}`, borderRadius: 11, padding: "13px 14px", marginBottom: 9 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: local[ek] ? 12 : 0 }}>
+        <div style={{ fontSize: 12, color: local[ek] ? C.text : C.muted }}>{label}</div>
+        <button onClick={() => set(ek, !local[ek])} style={{ width: 38, height: 21, borderRadius: 11, background: local[ek] ? C.accent : C.bord2, position: "relative", flexShrink: 0 }}>
+          <div style={{ width: 15, height: 15, borderRadius: "50%", background: "#fff", position: "absolute", top: 3, left: local[ek] ? 20 : 3, transition: "left .18s" }} />
+        </button>
+      </div>
+      {local[ek] && (
+        <div style={{ display: "grid", gridTemplateColumns: xk ? "1fr 1fr 1fr" : "1fr 1fr", gap: 7 }}>
+          <div>
+            <Lbl s={{ marginBottom: 4 }}>Monto $MXN</Lbl>
+            <input type="number" value={local[mk]} onChange={e => set(mk, parseFloat(e.target.value)||0)} style={{ width:"100%", background:C.card, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px", color:"#fff", fontSize:15, fontFamily:"inherit" }} />
+          </div>
+          {pk && (
+            <div>
+              <Lbl s={{ marginBottom: 4 }}>Periodo</Lbl>
+              <select value={local[pk]} onChange={e => set(pk, e.target.value)} style={{ width:"100%", background:C.card, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px", color:"#fff", fontSize:11, fontFamily:"inherit" }}>
+                {periods.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+          )}
+          {xk && (
+            <div>
+              <Lbl s={{ marginBottom: 4 }}>{xl}</Lbl>
+              <input type="number" value={local[xk]} onChange={e => set(xk, parseFloat(e.target.value)||0)} style={{ width:"100%", background:C.card, border:`1px solid ${C.border}`, borderRadius:7, padding:"8px 10px", color:"#fff", fontSize:15, fontFamily:"inherit" }} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="fu" style={{ padding: "15px 14px 100px" }}>
+      <div className="B" style={{ fontSize: 22, fontWeight: 800, color: C.accent, marginBottom: 16, letterSpacing: 1 }}>CONFIGURACIÓN</div>
+      <Lbl s={{ marginBottom: 9 }}>Variables base</Lbl>
+      <Card s={{ marginBottom: 13 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 11 }}>
+          <Inp label="Gasolina (MXN/L)" type="number" value={local.gasPricePerLiter} onChange={v => set("gasPricePerLiter",parseFloat(v)||0)} unit="$/L" />
+          <Inp label="Rendimiento"       type="number" value={local.kmPerLiter}        onChange={v => set("kmPerLiter",parseFloat(v)||0)}        unit="km/L" />
+          <Inp label="Meta por hora"     type="number" value={local.targetHourlyRate}  onChange={v => set("targetHourlyRate",parseFloat(v)||0)}  unit="MXN/hr" />
+          <Inp label="Comisión plat."    type="number" value={local.platformCut}       onChange={v => set("platformCut",parseFloat(v)||0)}       unit="%" />
+        </div>
+      </Card>
+      <Lbl s={{ marginBottom: 9 }}>Gastos fijos (opcionales)</Lbl>
+      <FCRow ek="rentaEnabled"         mk="rentaMonto"         pk="rentaPeriodo"         label="🚗 Renta / crédito del auto" />
+      <FCRow ek="seguroEnabled"        mk="seguroMonto"        pk="seguroPeriodo"        label="🛡️ Seguro del auto" />
+      <FCRow ek="llantasEnabled"       mk="llantasMonto"       xk="llantasKmVida"        xl="Vida (km)"    label="🔧 Desgaste de llantas" />
+      <FCRow ek="mantenimientoEnabled" mk="mantenimientoMonto" xk="mantenimientoKmVida" xl="Cada (km)"    label="🔩 Mantenimiento" />
+      <Btn full onClick={save} color={saved ? C.teal : C.accent} s={{ marginTop: 6, marginBottom: 9 }}>
+        <SVG d={IC.check} size={13} color={saved ? C.teal : C.accent} /> {saved ? "¡Guardado!" : "Guardar cambios"}
+      </Btn>
+      <Btn full onClick={onLogout} color={C.danger} outline>
+        <SVG d={IC.logout} size={13} color={C.danger} /> Cerrar sesión
+      </Btn>
+    </div>
+  );
+}
+
+// ─── AUTH ─────────────────────────────────────────────────────────────────────
+function Auth() {
+  const [mode,     setMode]    = useState("login");
+  const [name,     setName]    = useState("");
+  const [email,    setEmail]   = useState("");
+  const [pass,     setPass]    = useState("");
+  const [confirm,  setConfirm] = useState("");
+  const [showPw,   setShowPw]  = useState(false);
+  const [loading,  setLoading] = useState(false);
+  const [error,    setError]   = useState("");
+  const [success,  setSuccess] = useState("");
+
+  const reset = () => { setError(""); setSuccess(""); };
+
+  const handleLogin = async (e) => {
+    e.preventDefault(); setLoading(true); reset();
+    const { error: err } = await supabase.auth.signInWithPassword({ email, password: pass });
+    if (err) setError("Correo o contraseña incorrectos");
+    setLoading(false);
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault(); reset();
+    if (!name.trim())      { setError("Ingresa tu nombre completo"); return; }
+    if (pass.length < 6)   { setError("Contraseña mínima: 6 caracteres"); return; }
+    if (pass !== confirm)  { setError("Las contraseñas no coinciden"); return; }
+    setLoading(true);
+    const { data, error: err } = await supabase.auth.signUp({ email, password: pass, options: { data: { full_name: name } } });
+    if (err) { setError(err.message); setLoading(false); return; }
+    if (data?.user) {
+      await supabase.from("profiles").upsert({ id: data.user.id, full_name: name, email, gas_price_per_liter:24, km_per_liter:12, target_hourly_rate:200, platform_cut:10 });
+    }
+    setSuccess("¡Cuenta creada! Revisa tu correo para confirmar.");
+    setLoading(false);
+  };
+
+  const handleForgot = async (e) => {
+    e.preventDefault(); setLoading(true); reset();
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+    if (err) setError(err.message);
+    else setSuccess("Te enviamos un link para restablecer tu contraseña.");
+    setLoading(false);
+  };
+
+  const handleGoogle = () => supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
+
+  const inp = { width:"100%", background:"#0a0b14", border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 14px 12px 42px", color:"#fff", fontSize:14, fontFamily:"IBM Plex Mono,monospace", outline:"none" };
+
+  const FldIcon = ({ d }) => (
+    <div style={{ position:"absolute", left:13, top:"50%", transform:"translateY(-50%)", pointerEvents:"none" }}>
+      <SVG d={d} size={15} color={C.muted} />
+    </div>
+  );
+
+  return (
+    <div style={{ background:C.bg, minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+      <div style={{ width:"100%", maxWidth:400 }}>
+        <div style={{ textAlign:"center", marginBottom:30 }}>
+          <div className="B" style={{ fontSize:36, fontWeight:900, color:C.accent, letterSpacing:2 }}>RUTAFLOW</div>
+          <div style={{ fontSize:10, color:C.dim, letterSpacing:"0.3em", marginTop:3 }}>GESTOR DE CONDUCTOR</div>
+        </div>
+
+        {/* Tabs */}
+        {mode !== "forgot" && (
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:5, marginBottom:22, background:C.card2, borderRadius:11, padding:4 }}>
+            {["login","register"].map(m => (
+              <button key={m} onClick={() => { setMode(m); reset(); }} style={{
+                padding:"9px", background: mode===m ? C.card : "transparent",
+                border: `1px solid ${mode===m ? C.bord2 : "transparent"}`,
+                borderRadius:8, color: mode===m ? C.text : C.muted,
+                fontSize:11, letterSpacing:"0.1em", textTransform:"uppercase", fontWeight:700 }}>
+                {m==="login" ? "Iniciar sesión" : "Crear cuenta"}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <form onSubmit={mode==="login"?handleLogin:mode==="register"?handleRegister:handleForgot}>
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {mode === "forgot" && (
+              <button type="button" onClick={() => { setMode("login"); reset(); }}
+                style={{ color:C.accent, fontSize:11, display:"flex", alignItems:"center", gap:5, marginBottom:6 }}>
+                <SVG d={IC.back} size={13} color={C.accent} /> Volver al inicio de sesión
+              </button>
+            )}
+
+            {mode === "register" && (
+              <div style={{ position:"relative" }}>
+                <FldIcon d={IC.user} />
+                <input type="text" placeholder="Tu nombre completo" value={name} onChange={e=>setName(e.target.value)}
+                  style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border} />
+              </div>
+            )}
+
+            <div style={{ position:"relative" }}>
+              <FldIcon d={IC.mail} />
+              <input type="email" placeholder="correo@ejemplo.com" value={email} onChange={e=>setEmail(e.target.value)} required
+                style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border} />
             </div>
 
-            <button onClick={() => setModalOpen(true)} className="w-full card-item border-dashed flex items-center justify-center gap-3 text-text-dim hover:text-accent group">
-                <Plus size={18} strokeWidth={3} className="group-hover:scale-125 transition-all" />
-                <span className="text-[10px] font-black tracking-[0.2em] uppercase">Registrar Manual</span>
+            {mode !== "forgot" && (
+              <div style={{ position:"relative" }}>
+                <FldIcon d={IC.lock} />
+                <input type={showPw?"text":"password"} placeholder="Contraseña (mín. 6 caracteres)" value={pass}
+                  onChange={e=>setPass(e.target.value)} required style={{ ...inp, paddingRight:44 }}
+                  onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border} />
+                <button type="button" onClick={()=>setShowPw(!showPw)}
+                  style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", color:C.muted }}>
+                  <SVG d={IC.eye} size={15} color={C.muted} />
+                </button>
+              </div>
+            )}
+
+            {mode === "register" && (
+              <div style={{ position:"relative" }}>
+                <FldIcon d={IC.lock} />
+                <input type={showPw?"text":"password"} placeholder="Confirmar contraseña" value={confirm}
+                  onChange={e=>setConfirm(e.target.value)} required style={inp}
+                  onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border} />
+              </div>
+            )}
+
+            {mode === "login" && (
+              <div style={{ textAlign:"right" }}>
+                <button type="button" onClick={()=>{setMode("forgot");reset();}}
+                  style={{ color:C.accent, fontSize:10, letterSpacing:"0.05em", textDecoration:"underline" }}>
+                  ¿Olvidaste tu contraseña?
+                </button>
+              </div>
+            )}
+
+            {error   && <div style={{ background:`${C.danger}12`, border:`1px solid ${C.danger}33`, borderRadius:8, padding:"9px 13px", fontSize:12, color:C.danger }}>⚠️ {error}</div>}
+            {success && <div style={{ background:`${C.teal}12`,   border:`1px solid ${C.teal}33`,   borderRadius:8, padding:"9px 13px", fontSize:12, color:C.teal   }}>✅ {success}</div>}
+
+            <button type="submit" disabled={loading} style={{ padding:"13px", background:`${C.accent}1e`, border:`2px solid ${C.accent}`, borderRadius:11, color:C.accent, fontSize:12, fontWeight:700, letterSpacing:"0.15em", textTransform:"uppercase", marginTop:2, display:"flex", alignItems:"center", justifyContent:"center", gap:9 }}>
+              {loading ? <Spinner /> : mode==="login"?"Entrar":mode==="register"?"Crear cuenta":"Enviar link"}
             </button>
 
-            <div className="space-y-4 px-2">
-                {filtered.length === 0 ? (
-                    <div className="py-20 flex flex-col items-center justify-center opacity-20">
-                        <FolderOpen size={48} className="mb-4" />
-                        <p className="text-[12px] font-extrabold tracking-[0.4em] uppercase">Sin registros</p>
-                    </div>
-                ) : (
-                    filtered.map(t => {
-                        const c = calcTrip(t, config);
-                        const label = c.score === 2 ? 'Rendimiento Alto' : c.score === 1 ? 'Neutral' : 'Bajo Impacto';
-                        const colorClass = c.score === 2 ? 'text-accent' : c.score === 1 ? 'text-accent2' : 'text-danger';
-                        const bgColorClass = c.score === 2 ? 'bg-accent/20' : c.score === 1 ? 'bg-accent2/20' : 'bg-danger/20';
-
-                        return (
-                            <div key={t.id} className="card-premium group relative border-white/5 hover:border-accent/30 transition-all">
-                                <div className="flex justify-between items-start mb-6">
-                                    <div className="flex items-center gap-4">
-                                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center bg-white/5 border border-white/5 group-hover:bg-white/10 transition-colors`}>
-                                            <Wallet size={24} className={colorClass} />
-                                        </div>
-                                        <div>
-                                            <span className="text-[10px] font-black text-text-dim tracking-widest uppercase">{fmtDate(t.timestamp)} • {t.platform}</span>
-                                            <h4 className="text-2xl font-extrabold text-white tracking-tight">{fmtMXN(t.fare)}</h4>
-                                        </div>
-                                    </div>
-                                    <button onClick={() => deleteTrip(t.id)} className="w-10 h-10 flex items-center justify-center text-text-muted hover:text-danger hover:bg-danger/10 rounded-xl transition-all">
-                                        <Trash2 size={18} />
-                                    </button>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-6 py-4 border-t border-white/5">
-                                    <div>
-                                        <p className="text-[10px] font-black text-text-dim uppercase tracking-widest mb-1">Recorrido</p>
-                                        <p className="text-xl font-extrabold text-white tracking-tight">{fmt(c.totalKm, 1)} <span className="text-xs text-text-muted">KM</span></p>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-[10px] font-black text-text-dim uppercase tracking-widest mb-1">Neto Real</p>
-                                        <p className={`text-xl font-extrabold tracking-tight ${colorClass}`}>{fmtMXN(c.netEarning)}</p>
-                                    </div>
-                                </div>
-
-                                <div className="flex items-center justify-between pt-4 border-t border-white/5">
-                                    <div className="flex gap-4">
-                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/5">
-                                            <Fuel size={12} className="text-danger" />
-                                            <span className="text-[10px] font-black text-white">{fmtMXN(c.gasCost)}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/5">
-                                            <Clock size={12} className="text-accent" />
-                                            <span className="text-[10px] font-black text-white">{Math.round(c.totalMin)}m</span>
-                                        </div>
-                                    </div>
-                                    <div className={`px-4 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase ${bgColorClass} ${colorClass}`}>
-                                        {label}
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })
-                )}
-            </div>
-            {modalOpen && <TripModal config={config} trips={trips} saveTrips={saveTrips} onClose={() => setModalOpen(false)} />}
-        </div>
-    );
-}
-
-
-function StatsTab({ config, trips, days }) {
-    const [range, setRange] = useState(30);
-
-    const cutoff = Date.now() - range * 24 * 3600 * 1000;
-    const filtered = trips.filter(t => t.timestamp >= cutoff);
-
-    const byDate = {};
-    filtered.forEach(t => {
-        const c = calcTrip(t, config);
-        if (!byDate[t.date]) byDate[t.date] = { date: t.date, net: 0, km: 0, trips: 0, minutes: 0, gas: 0 };
-        byDate[t.date].net += c.netEarning;
-        byDate[t.date].km += c.totalKm;
-        byDate[t.date].trips += 1;
-        byDate[t.date].minutes += c.totalMin;
-        byDate[t.date].gas += c.gasCost;
-    });
-
-    const chartData = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)).map(d => ({
-        ...d,
-        netPerHour: d.minutes > 0 ? (d.net / (d.minutes / 60)) : 0,
-        label: new Date(d.date).toLocaleDateString("es-MX", { day: "numeric", month: "short" })
-    }));
-
-    const totals = filtered.reduce((acc, t) => {
-        const c = calcTrip(t, config);
-        return {
-            net: acc.net + c.netEarning,
-            km: acc.km + c.totalKm,
-            gas: acc.gas + c.gasCost,
-            amortized: acc.amortized + c.amortizedCosts
-        };
-    }, { net: 0, km: 0, gas: 0, amortized: 0 });
-
-    const totalNet = totals.net;
-    const totalKm = totals.km;
-    const totalGas = totals.gas;
-
-    const CustomTooltip = ({ active, payload, label }) => {
-        if (!active || !payload?.length) return null;
-        return (
-            <div className="card-premium !bg-black border-accent/20 p-5 shadow-2xl backdrop-blur-3xl">
-                <div className="text-[10px] font-black text-accent uppercase tracking-widest mb-4 pb-3 border-b border-white/5">{label}</div>
-                <div className="space-y-3">
-                    {payload.map((p, i) => (
-                        <div key={i} className="flex items-center justify-between gap-8">
-                            <span className="text-[10px] font-black text-text-dim uppercase tracking-tighter">{p.name}</span>
-                            <span className="text-sm font-extrabold" style={{ color: p.color }}>{p.name.includes("km") ? `${fmt(p.value, 1)}` : fmtMXN(p.value)}</span>
-                        </div>
-                    ))}
+            {mode !== "forgot" && (
+              <>
+                <div style={{ display:"flex", alignItems:"center", gap:9 }}>
+                  <div style={{ flex:1, height:1, background:C.border }} />
+                  <span style={{ fontSize:10, color:C.dim }}>o continúa con</span>
+                  <div style={{ flex:1, height:1, background:C.border }} />
                 </div>
-            </div>
-        );
-    };
-
-    return (
-        <div className="py-8 space-y-10 pb-32 px-1">
-            <header className="px-4">
-                <h2 className="text-[34px] font-extrabold text-white tracking-tighter leading-[1.1]">Rendimiento<br /><span className="text-accent">Analítico</span></h2>
-                <p className="text-[11px] font-bold text-text-dim uppercase tracking-widest mt-2">Métricas avanzadas de tu operación</p>
-            </header>
-
-            <div className="px-4">
-                <div className="bg-white/5 p-1.5 rounded-[20px] flex gap-1 border border-white/5">
-                    {[7, 14, 30, 90].map(r => (
-                        <button key={r} onClick={() => setRange(r)}
-                            className={`flex-1 py-3 rounded-xl text-[10px] font-black tracking-widest uppercase transition-all ${range === r ? 'bg-accent text-black font-extrabold' : 'text-text-dim hover:text-white'}`}>
-                            {r} Días
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 px-4">
-                <div className="card-premium h-44 flex flex-col justify-between py-6 group bg-gradient-to-br from-white/[0.03] to-transparent relative overflow-hidden">
-                    <TrendingUp className="absolute -bottom-6 -right-6 w-32 h-32 text-accent opacity-[0.03]" />
-                    <span className="text-[11px] font-black text-accent tracking-widest uppercase">Neto Total</span>
-                    <div>
-                        <h2 className="text-3xl font-extrabold text-white tracking-tighter leading-none mb-2">{fmtMXN(totalNet)}</h2>
-                        <div className="flex items-center gap-1.5">
-                            <div className="w-1.5 h-1.5 rounded-full bg-accent" />
-                            <p className="text-[10px] font-bold text-text-dim uppercase tracking-widest">Post-Gastos</p>
-                        </div>
-                    </div>
-                </div>
-                <div className="card-premium h-44 flex flex-col justify-between py-6 group bg-gradient-to-br from-white/[0.03] to-transparent relative overflow-hidden">
-                    <Fuel className="absolute -bottom-6 -right-6 w-32 h-32 text-danger opacity-[0.03]" />
-                    <span className="text-[11px] font-black text-danger tracking-widest uppercase">Gasolina</span>
-                    <div>
-                        <h2 className="text-3xl font-extrabold text-white tracking-tighter leading-none mb-2">{fmtMXN(totalGas)}</h2>
-                        <div className="flex items-center gap-1.5">
-                            <div className="w-1.5 h-1.5 rounded-full bg-danger" />
-                            <p className="text-[10px] font-bold text-text-dim uppercase tracking-widest">Consumo</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div className="px-4">
-                <div className="card-premium p-8 border-white/5">
-                    <div className="flex items-center justify-between mb-10">
-                        <h4 className="text-[11px] font-black tracking-widest text-text-muted uppercase">Tendencia de Ingresos</h4>
-                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5">
-                            <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-                            <span className="text-[10px] font-black text-white uppercase tracking-widest">Métricas en vivo</span>
-                        </div>
-                    </div>
-                    <div className="h-48 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={chartData} margin={{ top: 0, right: 0, left: -40, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="12 12" vertical={false} stroke="rgba(255,255,255,0.03)" />
-                                <XAxis dataKey="label" hide />
-                                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 800, fill: 'rgba(255,255,255,0.2)' }} />
-                                <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
-                                <Bar dataKey="net" name="Ganancia" radius={[4, 4, 4, 4]} barSize={24}>
-                                    {chartData.map((e, i) => (
-                                        <Cell key={i} fill={e.net >= 0 ? 'var(--accent)' : 'var(--danger)'} />
-                                    ))}
-                                </Bar>
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                    <div className="mt-10 grid grid-cols-3 gap-4 pt-10 border-t border-white/5">
-                        <div className="text-center">
-                            <span className="text-[9px] font-black text-text-muted uppercase block tracking-widest mb-2">Km Total</span>
-                            <span className="text-base font-extrabold text-white">{fmt(totalKm, 0)}</span>
-                        </div>
-                        <div className="text-center">
-                            <span className="text-[9px] font-black text-text-muted uppercase block tracking-widest mb-2">$/Viaje</span>
-                            <span className="text-base font-extrabold text-accent">{fmtMXN(totalNet / (filtered.length || 1))}</span>
-                        </div>
-                        <div className="text-center">
-                            <span className="text-[9px] font-black text-text-muted uppercase block tracking-widest mb-2">$/KM</span>
-                            <span className="text-base font-extrabold text-accent2">{fmt(totalNet / (totalKm || 1), 2)}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-
-function AITab({ config, trips, days }) {
-    const [messages, setMessages] = useState([{
-        role: "assistant",
-        content: "¡Qué onda! Soy tu analista personal. Mis datos dicen que tu rendimiento actual es estable, pero hay un margen que podemos mejorar optimizando tus zonas de recolección.\n\n¿Quieres saber en qué horarios estás perdiendo más dinero?"
-    }]);
-    const [input, setInput] = useState("");
-    const [isTyping, setIsTyping] = useState(false);
-    const scrollRef = useRef();
-
-    useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, isTyping]);
-
-    const handleSend = async () => {
-        if (!input.trim()) return;
-        const userMsg = { role: "user", content: input };
-        setMessages(prev => [...prev, userMsg]);
-        setInput("");
-        setIsTyping(true);
-
-        setTimeout(() => {
-            const aiMsg = { role: "assistant", content: "Analizando tus últimos viajes... He notado que en Uber estás aceptando viajes de menos de $45 MXN que te toman más de 15 minutos. Si reducimos estos, tu ganancia por hora subirá un 12%." };
-            setMessages(prev => [...prev, aiMsg]);
-            setIsTyping(false);
-        }, 1500);
-    };
-
-    return (
-        <div className="flex flex-col h-[75vh] font-display">
-            <header className="px-4 mb-8">
-                <h2 className="text-[34px] font-extrabold text-white tracking-tighter leading-[1.1]">Asistente<br /><span className="text-accent">Inteligente</span></h2>
-            </header>
-
-            <div className="flex-1 overflow-y-auto space-y-6 px-4 pb-10 scrollbar-hide">
-                {messages.map((m, i) => (
-                    <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2 duration-300`}>
-                        <div className={`max-w-[85%] p-6 ${m.role === 'user'
-                            ? 'bg-accent text-black rounded-3xl rounded-tr-none font-bold shadow-xl shadow-accent/10'
-                            : 'card-premium border-white/5 text-white/90 rounded-3xl rounded-tl-none'
-                            }`}>
-                            <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</p>
-                            <span className={`text-[9px] mt-2 block opacity-40 font-black uppercase tracking-widest ${m.role === 'user' ? 'text-black' : 'text-text-dim'}`}>
-                                {m.role === 'user' ? 'Tú' : 'AI PRO'} • {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                        </div>
-                    </div>
-                ))}
-                {isTyping && (
-                    <div className="flex justify-start animate-pulse">
-                        <div className="card-premium border-accent/20 px-6 py-4 rounded-full flex gap-1.5 items-center">
-                            <div className="w-1.5 h-1.5 bg-accent rounded-full" />
-                            <div className="w-1.5 h-1.5 bg-accent/60 rounded-full" />
-                            <div className="w-1.5 h-1.5 bg-accent/30 rounded-full" />
-                        </div>
-                    </div>
-                )}
-                <div ref={scrollRef} />
-            </div>
-
-            <div className="px-4 pt-4 pb-12">
-                <div className="card-premium p-2 flex gap-4 items-center bg-white/[0.03] border-white/10 shadow-2xl">
-                    <input
-                        type="text"
-                        value={input}
-                        onChange={e => setInput(e.target.value)}
-                        onKeyPress={e => e.key === 'Enter' && handleSend()}
-                        placeholder="Pregunta sobre tu rendimiento..."
-                        className="flex-1 bg-transparent border-none focus:ring-0 text-white placeholder-text-muted px-4 font-bold"
-                    />
-                    <button
-                        onClick={handleSend}
-                        className="w-12 h-12 rounded-2xl bg-accent text-black flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-lg shadow-accent/20"
-                    >
-                        <Zap size={20} fill="currentColor" strokeWidth={0} />
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-
-function ConfigTab({ config, saveConfig }) {
-    const [local, setLocal] = useState(config);
-
-    useEffect(() => {
-        setLocal(config);
-    }, [config]);
-
-    const handleSave = () => {
-        saveConfig(local);
-        alert("¡Motor financiero optimizado y guardado!");
-    };
-
-    const ConfigItem = ({ label, icon: Icon, value, onChange, unit, step = "0.1", subtitle }) => (
-        <div className="card-premium flex flex-col justify-between py-6">
-            <div className="flex items-center justify-between mb-4">
-                <div className="w-10 h-10 rounded-2xl bg-accent-dim flex items-center justify-center text-accent">
-                    <Icon size={18} />
-                </div>
-                <span className="text-[10px] font-black text-white/20 mono">{unit}</span>
-            </div>
-            <div>
-                <input
-                    type="number"
-                    step={step}
-                    value={value}
-                    onChange={e => onChange(parseFloat(e.target.value) || 0)}
-                    className="bg-transparent text-3xl font-black text-white mono italic w-full focus:text-accent transition-colors"
-                    placeholder="0.00"
-                />
-                <p className="text-[10px] font-black text-text-dim uppercase tracking-widest mt-1">{label}</p>
-            </div>
-        </div>
-    );
-
-    return (
-        <div className="py-8 space-y-12 pb-48 font-display px-1">
-            <header className="px-4">
-                <h2 className="text-[34px] font-extrabold text-white tracking-tighter leading-[1.1]">Motor<br /><span className="text-accent">Financiero</span></h2>
-                <p className="text-[11px] font-bold text-text-dim uppercase tracking-widest mt-2">Personaliza tus metas y costos</p>
-            </header>
-
-            <section className="px-4 space-y-6">
-                <div className="flex items-center gap-3">
-                    <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-                    <h3 className="text-[11px] font-black text-white uppercase tracking-[0.3em]">Configuración Base</h3>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                    <ConfigItem label="Gasolina" icon={Fuel} value={local.gasPricePerLiter} onChange={v => setLocal({ ...local, gasPricePerLiter: v })} unit="MXN/L" />
-                    <ConfigItem label="Rendimiento" icon={TrendingUp} value={local.kmPerLiter} onChange={v => setLocal({ ...local, kmPerLiter: v })} unit="KM/L" />
-                    <ConfigItem label="Meta / Hora" icon={Clock} value={local.targetHourlyRate} onChange={v => setLocal({ ...local, targetHourlyRate: v })} unit="MXN/HR" />
-                    <ConfigItem label="Meta / KM" icon={MapPin} value={local.targetPerKm} onChange={v => setLocal({ ...local, targetPerKm: v })} unit="MXN/KM" />
-                </div>
-            </section>
-
-            <section className="space-y-6 px-1">
-                <div className="flex items-center justify-between px-4">
-                    <div className="flex items-center gap-3">
-                        <div className="w-1.5 h-1.5 rounded-full bg-accent2" />
-                        <h3 className="text-[11px] font-black text-white uppercase tracking-[0.3em]">Gastos Pro</h3>
-                    </div>
-                </div>
-
-                <div className="space-y-4 px-2">
-                    {/* RENTA / PAGO AUTO */}
-                    <div className={`card-premium transition-all duration-500 ${local.useRentInCalc ? 'border-accent/40 bg-accent/5 shadow-2xl shadow-accent/10' : 'opacity-40 grayscale border-white/5'}`}>
-                        <div className="flex items-center justify-between mb-8">
-                            <div className="flex items-center gap-4">
-                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${local.useRentInCalc ? 'bg-accent text-black' : 'bg-white/5 text-text-dim'}`}>
-                                    <ShieldCheck size={24} strokeWidth={2.5} />
-                                </div>
-                                <div>
-                                    <span className="text-[13px] font-extrabold text-white tracking-tight block">Pago de Unidad</span>
-                                    <span className="text-[9px] font-bold text-text-muted uppercase tracking-widest">Gasto periódico</span>
-                                </div>
-                            </div>
-                            <button onClick={() => setLocal({ ...local, useRentInCalc: !local.useRentInCalc })} className={`w-12 h-6 rounded-full relative transition-all ${local.useRentInCalc ? 'bg-accent' : 'bg-white/10'}`}>
-                                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all ${local.useRentInCalc ? 'left-7' : 'left-1'}`} />
-                            </button>
-                        </div>
-                        {local.useRentInCalc && (
-                            <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
-                                <div className="space-y-2">
-                                    <label className="text-[9px] font-black text-text-dim uppercase tracking-widest pl-2">Cantidad (MXN)</label>
-                                    <input type="number" value={local.unitCost} onChange={e => setLocal({ ...local, unitCost: parseFloat(e.target.value) || 0 })} className="premium-input w-full text-2xl font-extrabold" />
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-[9px] font-black text-text-dim uppercase tracking-widest pl-2">Frecuencia</label>
-                                    <select value={local.unitPeriod} onChange={e => setLocal({ ...local, unitPeriod: e.target.value })} className="premium-input w-full text-[10px] font-black uppercase appearance-none cursor-pointer">
-                                        <option value="daily">Diario</option>
-                                        <option value="weekly">Semanal</option>
-                                        <option value="monthly">Mensual</option>
-                                    </select>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* SEGURO */}
-                    <div className={`card-premium transition-all duration-500 ${local.useInsuranceInCalc ? 'border-accent/40 bg-accent/5' : 'opacity-40 grayscale border-white/5'}`}>
-                        <div className="flex items-center justify-between mb-8">
-                            <div className="flex items-center gap-4">
-                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${local.useInsuranceInCalc ? 'bg-accent text-black' : 'bg-white/5 text-text-dim'}`}>
-                                    <Shield size={24} strokeWidth={2.5} />
-                                </div>
-                                <div>
-                                    <span className="text-[13px] font-extrabold text-white tracking-tight block">Seguro Auto</span>
-                                    <span className="text-[9px] font-bold text-text-muted uppercase tracking-widest">Protección Activa</span>
-                                </div>
-                            </div>
-                            <button onClick={() => setLocal({ ...local, useInsuranceInCalc: !local.useInsuranceInCalc })} className={`w-12 h-6 rounded-full relative transition-all ${local.useInsuranceInCalc ? 'bg-accent' : 'bg-white/10'}`}>
-                                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all ${local.useInsuranceInCalc ? 'left-7' : 'left-1'}`} />
-                            </button>
-                        </div>
-                        {local.useInsuranceInCalc && (
-                            <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
-                                <div className="space-y-2">
-                                    <label className="text-[9px] font-black text-text-dim uppercase tracking-widest pl-2">Costo (MXN)</label>
-                                    <input type="number" value={local.insuranceCost} onChange={e => setLocal({ ...local, insuranceCost: parseFloat(e.target.value) || 0 })} className="premium-input w-full text-2xl font-extrabold" />
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-[9px] font-black text-text-dim uppercase tracking-widest pl-2">Frecuencia</label>
-                                    <select value={local.insurancePeriod} onChange={e => setLocal({ ...local, insurancePeriod: e.target.value })} className="premium-input w-full text-[10px] font-black uppercase appearance-none cursor-pointer">
-                                        <option value="monthly">Mensual</option>
-                                        <option value="annual">Anual</option>
-                                    </select>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* LLANTAS / MANTENIMIENTO */}
-                    <div className={`card-premium transition-all duration-500 ${local.useTiresInCalc ? 'border-accent/40 bg-accent/5' : 'opacity-40 grayscale border-white/5'}`}>
-                        <div className="flex items-center justify-between mb-8">
-                            <div className="flex items-center gap-4">
-                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${local.useTiresInCalc ? 'bg-accent text-black' : 'bg-white/5 text-text-dim'}`}>
-                                    <TrendingUp size={24} strokeWidth={2.5} />
-                                </div>
-                                <div>
-                                    <span className="text-[13px] font-extrabold text-white tracking-tight block">Insumos (Llantas)</span>
-                                    <span className="text-[9px] font-bold text-text-muted uppercase tracking-widest">Costo por KM</span>
-                                </div>
-                            </div>
-                            <button onClick={() => setLocal({ ...local, useTiresInCalc: !local.useTiresInCalc })} className={`w-12 h-6 rounded-full relative transition-all ${local.useTiresInCalc ? 'bg-accent' : 'bg-white/10'}`}>
-                                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all ${local.useTiresInCalc ? 'left-7' : 'left-1'}`} />
-                            </button>
-                        </div>
-                        {local.useTiresInCalc && (
-                            <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
-                                <div className="space-y-2">
-                                    <label className="text-[9px] font-black text-text-dim uppercase tracking-widest pl-2">Costo Juego</label>
-                                    <input type="number" value={local.tireCost} onChange={e => setLocal({ ...local, tireCost: parseFloat(e.target.value) || 0 })} className="premium-input w-full text-2xl font-extrabold" />
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-[9px] font-black text-text-dim uppercase tracking-widest pl-2">Vida Estimada (KM)</label>
-                                    <input type="number" value={local.tireLifeKm} onChange={e => setLocal({ ...local, tireLifeKm: parseFloat(e.target.value) || 0 })} className="premium-input w-full text-2xl font-extrabold" />
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                    {/* DATOS MÓVILES */}
-                    <div className={`card-premium transition-all duration-500 ${local.useMobileDataInCalc ? 'border-accent/40 bg-accent/5 shadow-2xl shadow-accent/10' : 'opacity-40 grayscale border-white/5'}`}>
-                        <div className="flex items-center justify-between mb-8">
-                            <div className="flex items-center gap-4">
-                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${local.useMobileDataInCalc ? 'bg-accent text-black' : 'bg-white/5 text-text-dim'}`}>
-                                    <Smartphone size={24} strokeWidth={2.5} />
-                                </div>
-                                <div>
-                                    <span className="text-[13px] font-extrabold text-white tracking-tight block">Plan de Datos</span>
-                                    <span className="text-[9px] font-bold text-text-muted uppercase tracking-widest">Internet / Celular</span>
-                                </div>
-                            </div>
-                            <button onClick={() => setLocal({ ...local, useMobileDataInCalc: !local.useMobileDataInCalc })} className={`w-12 h-6 rounded-full relative transition-all ${local.useMobileDataInCalc ? 'bg-accent' : 'bg-white/10'}`}>
-                                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all ${local.useMobileDataInCalc ? 'left-7' : 'left-1'}`} />
-                            </button>
-                        </div>
-                        {local.useMobileDataInCalc && (
-                            <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
-                                <div className="space-y-2">
-                                    <label className="text-[9px] font-black text-text-dim uppercase tracking-widest pl-2">Costo (MXN)</label>
-                                    <input type="number" value={local.mobileDataCost} onChange={e => setLocal({ ...local, mobileDataCost: parseFloat(e.target.value) || 0 })} className="premium-input w-full text-2xl font-extrabold" />
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-[9px] font-black text-text-dim uppercase tracking-widest pl-2">Frecuencia</label>
-                                    <select value={local.mobileDataPeriod} onChange={e => setLocal({ ...local, mobileDataPeriod: e.target.value })} className="premium-input w-full text-[10px] font-black uppercase appearance-none cursor-pointer">
-                                        <option value="monthly">Mensual</option>
-                                        <option value="weekly">Semanal</option>
-                                    </select>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </section>
-
-            <div className="px-4 pb-12">
-                <button onClick={handleSave} className="w-full h-16 rounded-full bg-accent text-black font-extrabold text-lg tracking-tight shadow-xl shadow-accent/20 active:scale-95 transition-all flex items-center justify-center gap-3">
-                    <Check size={24} strokeWidth={3} />
-                    Guardar Configuración
+                <button type="button" onClick={handleGoogle} style={{ padding:"12px", background:"transparent", border:`1px solid ${C.bord2}`, borderRadius:11, color:C.text, fontSize:13, fontWeight:600, display:"flex", alignItems:"center", justifyContent:"center", gap:9 }}>
+                  <svg width="17" height="17" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                  </svg>
+                  Continuar con Google
                 </button>
-            </div>
-        </div>
-    );
+              </>
+            )}
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 }
 
+// ─── ROOT ─────────────────────────────────────────────────────────────────────
+const DEFAULT_CFG = {
+  gasPricePerLiter:24, kmPerLiter:12, targetHourlyRate:200, platformCut:10,
+  rentaEnabled:false,   rentaMonto:0,   rentaPeriodo:"mensual",
+  seguroEnabled:false,  seguroMonto:0,  seguroPeriodo:"mensual",
+  llantasEnabled:false, llantasMonto:0, llantasKmVida:40000,
+  mantenimientoEnabled:false, mantenimientoMonto:0, mantenimientoKmVida:5000,
+};
 
+export default function RutaFlow() {
+  const [tab,       setTab]       = useState("home");
+  const [cfg,       setCfg]       = useState(DEFAULT_CFG);
+  const [trips,     setTrips]     = useState([]);
+  const [days,      setDays]      = useState([]);
+  const [activeDay, setActiveDay] = useState(null);
+  const [session,   setSession]   = useState(null);
+  const [loading,   setLoading]   = useState(true);
 
-function LogrosTab({ config, trips }) {
-    const monthFiltered = trips.filter(t => {
-        const d = new Date(t.timestamp);
-        const now = new Date();
-        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  // ── Auth
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (!session) setLoading(false);
     });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_ev, session) => {
+      setSession(session);
+      if (session) loadCloud(session.user.id);
+      else setLoading(false);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
-    const monthlyGoal = 25000; // Meta mensual estática por ahora
-    const monthlyNet = monthFiltered.reduce((s, t) => s + (calcTrip(t, config).netEarning), 0);
-    const progress = Math.min((monthlyNet / monthlyGoal) * 100, 100);
+  const loadCloud = useCallback(async (uid) => {
+    setLoading(true);
+    try {
+      const [{ data: tr }, { data: pr }, { data: dy }, { data: ad }] = await Promise.all([
+        supabase.from("trips").select("*").eq("user_id",uid).order("created_at",{ascending:false}),
+        supabase.from("profiles").select("*").eq("id",uid).single(),
+        supabase.from("days").select("*").eq("user_id",uid).order("date",{ascending:false}),
+        supabase.from("active_days").select("*").eq("user_id",uid).maybeSingle(),
+      ]);
+      if (tr) setTrips(tr);
+      if (dy) setDays(dy);
+      if (pr?.config) setCfg({ ...DEFAULT_CFG, ...pr.config });
+      if (ad) setActiveDay({ id:ad.id, date:ad.date, startTime:new Date(ad.start_time).getTime(), running:true });
+    } catch(e) { console.error(e); }
+    setLoading(false);
+  }, []);
 
-    const badges = [
-        { id: 1, label: "Ahorrador", icon: Fuel, color: "text-accent", desc: "Eficiencia > 14km/l", active: config.kmPerLiter > 14 },
-        { id: 2, label: "Rey de Propinas", icon: DollarSign, color: "text-accent2", desc: "Más de $500 en extras", active: false },
-        { id: 3, label: "KM Inteligente", icon: MapPin, color: "text-accent", desc: "Meta meta/km superada", active: true },
-        { id: 4, label: "Nocturno", icon: Zap, color: "text-accent2", desc: "50 viajes de noche", active: false },
-    ];
+  // ── Guardar viaje
+  const saveTrip = async (tripData) => {
+    if (!session) return;
+    const { data, error } = await supabase.from("trips").insert([{ ...tripData, user_id:session.user.id }]).select().single();
+    if (!error && data) setTrips(p => [data, ...p]);
+  };
 
-    return (
-        <div className="py-8 space-y-10 pb-32 px-1 font-display">
-            <header className="px-4">
-                <h2 className="text-[34px] font-extrabold text-white tracking-tighter leading-[1.1]">Logros y<br /><span className="text-accent2">Metas</span></h2>
-                <p className="text-[11px] font-bold text-text-dim uppercase tracking-widest mt-2">Gamificación de rentabilidad</p>
-            </header>
+  // ── Eliminar viaje
+  const deleteTrip = async (id) => {
+    if (!window.confirm("¿Eliminar este viaje?")) return;
+    await supabase.from("trips").delete().eq("id",id);
+    setTrips(p => p.filter(t => t.id !== id));
+  };
 
-            {/* Circular Goal Display */}
-            <div className="px-4">
-                <div className="card-premium flex flex-col items-center py-12 relative overflow-hidden">
-                    <div className="absolute inset-0 bg-gradient-to-b from-accent2/5 to-transparent pointer-events-none" />
-                    <div className="relative w-48 h-48 mb-8">
-                        <svg className="w-full h-full -rotate-90">
-                            <circle cx="96" cy="96" r="88" stroke="currentColor" strokeWidth="12" fill="transparent" className="text-white/[0.03]" />
-                            <circle cx="96" cy="96" r="88" stroke="currentColor" strokeWidth="12" fill="transparent" strokeDasharray={552} strokeDashoffset={552 - (552 * progress) / 100} className="text-accent2 transition-all duration-1000 ease-out" strokeLinecap="round" />
-                        </svg>
-                        <div className="absolute inset-0 flex flex-col items-center justify-center">
-                            <span className="text-3xl font-black text-white italic">{Math.round(progress)}%</span>
-                            <span className="text-[9px] font-black text-text-dim uppercase tracking-widest">de la Meta</span>
-                        </div>
-                    </div>
-                    <div className="text-center">
-                        <h3 className="text-xl font-extrabold text-white mb-1">{fmtMXN(monthlyNet)}</h3>
-                        <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Meta Mensual: {fmtMXN(monthlyGoal)}</p>
-                    </div>
-                </div>
-            </div>
+  // ── Día
+  const startDay = async () => {
+    if (!session) return;
+    const { data, error } = await supabase.from("active_days").upsert(
+      { user_id:session.user.id, date:todayStr(), start_time:new Date().toISOString() },
+      { onConflict:"user_id" }
+    ).select().single();
+    if (!error && data) setActiveDay({ id:data.id, date:data.date, startTime:new Date(data.start_time).getTime(), running:true });
+  };
 
-            {/* Badges Grid */}
-            <div className="px-4 space-y-6">
-                <h3 className="text-[11px] font-black text-text-dim uppercase tracking-[0.3em] ml-2">Insignias de Poder</h3>
-                <div className="grid grid-cols-2 gap-4">
-                    {badges.map(b => {
-                        const Icon = b.icon;
-                        return (
-                            <div key={b.id} className={`card-premium p-6 flex flex-col items-center text-center transition-all ${b.active ? 'opacity-100 border-accent2/40' : 'opacity-30 grayscale'}`}>
-                                <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-4 ${b.active ? 'bg-accent2 text-black' : 'bg-white/5 text-text-muted'}`}>
-                                    <Icon size={24} strokeWidth={2.5} />
-                                </div>
-                                <span className="text-[12px] font-extrabold text-white block mb-1">{b.label}</span>
-                                <span className="text-[8px] font-bold text-text-dim uppercase tracking-tighter leading-tight">{b.desc}</span>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
+  const endDay = async () => {
+    if (!activeDay || !session) return;
+    await supabase.from("active_days").delete().eq("user_id",session.user.id);
+    const dayTrips = trips.filter(t => t.date === activeDay.date);
+    const tots = dayTrips.reduce((a,t)=>{ const c=calcTrip(t,cfg); return {net:a.net+c.netEarning,km:a.km+c.totalKm}; },{net:0,km:0});
+    await supabase.from("days").insert([{ user_id:session.user.id, date:activeDay.date, total_net:tots.net, total_km:tots.km, trip_count:dayTrips.length }]);
+    setActiveDay(null);
+  };
 
-            {/* Driver Level */}
-            <div className="px-4">
-                <div className="card-premium p-6">
-                    <div className="flex items-center justify-between mb-6">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-accent2 text-black flex items-center justify-center">
-                                <Trophy size={20} weight="bold" />
-                            </div>
-                            <div>
-                                <span className="text-[12px] font-extrabold text-white block">Rango Oro</span>
-                                <span className="text-[9px] font-bold text-accent2 uppercase tracking-widest">Siguiente: Diamante</span>
-                            </div>
-                        </div>
-                        <span className="text-[10px] font-black text-white/20 uppercase">XP: 2,450 / 5,000</span>
-                    </div>
-                    <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden border border-white/5">
-                        <motion.div
-                            initial={{ width: 0 }}
-                            animate={{ width: "49%" }}
-                            className="h-full bg-gradient-to-r from-accent2 to-accent shadow-[0_0_15px_rgba(34,197,94,0.3)]"
-                        />
-                    </div>
-                </div>
-            </div>
+  // ── Config
+  const saveConfig = async (newCfg) => {
+    setCfg(newCfg);
+    if (!session) return;
+    await supabase.from("profiles").upsert({ id:session.user.id, config:newCfg, updated_at:new Date().toISOString() });
+  };
+
+  // ── Loading
+  if (loading) return (
+    <>
+      <style>{CSS}</style>
+      <div style={{ background:C.bg, minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center" }}>
+        <div className="B" style={{ fontSize:34, fontWeight:900, color:C.accent, letterSpacing:3 }}>RUTAFLOW</div>
+        <div style={{ marginTop:22, width:100, height:2, background:C.border, borderRadius:2, overflow:"hidden" }}>
+          <div className="pu" style={{ width:"60%", height:"100%", background:C.accent }} />
         </div>
-    );
-}
+        <div style={{ marginTop:12, fontSize:9, color:C.dim, letterSpacing:"0.3em" }}>CARGANDO...</div>
+      </div>
+    </>
+  );
 
-function Navigation({ active, onChange }) {
-    const items = [
-        { id: "home", icon: Zap, label: "Hoy" },
-        { id: "trips", icon: FolderOpen, label: "Viajes" },
-        { id: "stats", icon: ChartIcon, label: "Stats" },
-        { id: "logros", icon: Trophy, label: "Logros" },
-        { id: "ai", icon: Bot, label: "IA Pro" },
-        { id: "config", icon: Settings, label: "Motor" },
-    ];
+  if (!session) return <><style>{CSS}</style><Auth /></>;
 
-    return (
-        <nav className="fixed bottom-10 left-1/2 -translate-x-1/2 px-4 py-2 z-[100] max-w-sm pointer-events-none w-full flex justify-center">
-            <div className="glass bg-black/80 backdrop-blur-3xl rounded-[32px] flex items-center gap-1 p-2 pointer-events-auto shadow-2xl shadow-black/80 border border-white/5">
-                {items.map(item => {
-                    const Icon = item.icon;
-                    const isSelected = active === item.id;
-                    return (
-                        <button
-                            key={item.id}
-                            onClick={() => onChange(item.id)}
-                            className="relative flex flex-col items-center justify-center h-14 w-16 transition-all active:scale-90"
-                        >
-                            {isSelected && (
-                                <motion.div
-                                    layoutId="nav-glow"
-                                    className="absolute inset-0 bg-accent/10 rounded-2xl border border-accent/20"
-                                    transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-                                />
-                            )}
-                            <Icon size={22} className={`relative z-10 transition-colors duration-500 ${isSelected ? 'text-accent' : 'text-text-muted'}`} strokeWidth={isSelected ? 3 : 2} />
-                            <span className={`relative z-10 text-[9px] font-bold uppercase mt-1 tracking-widest transition-colors ${isSelected ? 'text-white' : 'text-text-muted opacity-40'}`}>
-                                {item.label}
-                            </span>
-                        </button>
-                    );
-                })}
-            </div>
-        </nav>
-    );
-}
+  const name = session?.user?.user_metadata?.full_name || session?.user?.email?.split("@")[0] || "Driver";
+  const todayNet = trips.filter(t => t.date === todayStr()).reduce((s,t) => s + calcTrip(t,cfg).netEarning, 0);
 
+  const NAV = [
+    { id:"home",   d:IC.home,   l:"Hoy"    },
+    { id:"trips",  d:IC.trips,  l:"Viajes" },
+    { id:"stats",  d:IC.stats,  l:"Stats"  },
+    { id:"ai",     d:IC.ai,     l:"IA"     },
+    { id:"config", d:IC.config, l:"Config" },
+  ];
 
-function AuthScreen() {
-    const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState("");
-    const [showPassword, setShowPassword] = useState(false);
-
-    const handleLogin = async () => {
-        setLoading(true);
-        setError("");
-        const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
-        if (authError) setError("Credenciales incorrectas");
-        setLoading(false);
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black flex flex-col z-[500] overflow-x-hidden font-display bg-pattern selection:bg-accent/30">
-            {/* Top App Bar */}
-            <div className="flex items-center p-4 justify-between sticky top-0 z-10 w-full">
-                <div className="text-slate-100 flex size-12 shrink-0 items-center justify-start cursor-pointer transition-colors hover:text-accent">
-                    <X size={24} strokeWidth={2} />
-                </div>
-                <div className="flex-1 text-center">
-                    <span className="text-[10px] font-black tracking-[0.3em] uppercase text-accent/80">Premium Fintech</span>
-                </div>
-                <div className="size-12"></div>
-            </div>
-
-            <main className="flex flex-col flex-1 px-6 pb-12 max-w-[480px] mx-auto w-full justify-center relative z-10">
-                {/* Logo Section */}
-                <div className="mb-12 text-center">
-                    <motion.div
-                        initial={{ scale: 0.9, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        className="inline-flex items-center justify-center p-6 rounded-3xl bg-accent/10 mb-8 border border-accent/20 shadow-[0_0_30px_rgba(34,197,94,0.1)]"
-                    >
-                        <Wallet className="text-accent" size={42} strokeWidth={2.5} />
-                    </motion.div>
-                    <h1 className="text-white tracking-tight text-[42px] font-extrabold leading-tight mb-3 heading-premium">
-                        Ryde Cash
-                    </h1>
-                    <p className="text-text-dim text-lg font-medium leading-relaxed max-w-[280px] mx-auto opacity-80">
-                        Controla tus ganancias en segundos
-                    </p>
-                </div>
-
-                {/* Login Form */}
-                <div className="space-y-6">
-                    <div className="flex flex-col gap-2.5">
-                        <label className="text-text-dim text-[11px] font-black uppercase tracking-[0.15em] ml-1">Correo electrónico</label>
-                        <div className="glass-panel flex items-center rounded-[20px] overflow-hidden px-5 group focus-within:ring-2 focus-within:ring-accent/40 transition-all duration-500 bg-white/[0.03]">
-                            <Mail className="text-accent/60 mr-4 group-focus-within:text-accent transition-colors" size={20} />
-                            <input
-                                className="flex-1 bg-transparent border-none text-white h-16 placeholder:text-text-muted focus:ring-0 text-base font-bold"
-                                placeholder="ejemplo@rydecash.com"
-                                type="email"
-                                value={email}
-                                onChange={e => setEmail(e.target.value)}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="flex flex-col gap-2.5">
-                        <label className="text-text-dim text-[11px] font-black uppercase tracking-[0.15em] ml-1">Contraseña</label>
-                        <div className="glass-panel flex items-center rounded-[20px] overflow-hidden px-5 group focus-within:ring-2 focus-within:ring-accent/40 transition-all duration-500 bg-white/[0.03]">
-                            <Lock className="text-accent/60 mr-4 group-focus-within:text-accent transition-colors" size={20} />
-                            <input
-                                className="flex-1 bg-transparent border-none text-white h-16 placeholder:text-text-muted focus:ring-0 text-base font-bold"
-                                placeholder="••••••••"
-                                type={showPassword ? "text" : "password"}
-                                value={password}
-                                onChange={e => setPassword(e.target.value)}
-                            />
-                            <button
-                                onClick={() => setShowPassword(!showPassword)}
-                                className="text-text-muted hover:text-accent transition-colors p-2"
-                            >
-                                <Eye size={20} strokeWidth={2.5} />
-                            </button>
-                        </div>
-                    </div>
-
-                    {error && (
-                        <motion.p
-                            initial={{ y: -10, opacity: 0 }}
-                            animate={{ y: 0, opacity: 1 }}
-                            className="text-center text-[10px] font-black text-danger uppercase tracking-widest bg-danger/10 py-3 rounded-xl border border-danger/20"
-                        >
-                            {error}
-                        </motion.p>
-                    )}
-
-                    {/* Forgot Password */}
-                    <div className="flex justify-end pt-1">
-                        <button className="text-accent text-[11px] font-black uppercase tracking-widest hover:text-white transition-colors">
-                            ¿Olvidaste tu contraseña?
-                        </button>
-                    </div>
-
-                    {/* Action Button */}
-                    <div className="pt-8">
-                        <button
-                            onClick={handleLogin}
-                            disabled={loading}
-                            className="w-full bg-accent text-black font-black text-lg h-16 rounded-[24px] shadow-[0_10px_30px_rgba(34,197,94,0.3)] hover:shadow-[0_15px_40px_rgba(34,197,94,0.5)] hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 disabled:opacity-50 flex items-center justify-center gap-3"
-                        >
-                            {loading ? (
-                                <div className="w-6 h-6 border-4 border-black/30 border-t-black rounded-full animate-spin" />
-                            ) : (
-                                "Comenzar"
-                            )}
-                        </button>
-                    </div>
-                </div>
-
-                {/* Footer Section */}
-                <div className="mt-16 text-center">
-                    <p className="text-text-muted text-[12px] font-bold">
-                        ¿No tienes una cuenta?
-                        <button className="text-accent font-black ml-2 hover:underline decoration-2 underline-offset-4">Regístrate</button>
-                    </p>
-
-                    <div className="mt-12 flex items-center justify-center gap-6">
-                        <div className="h-[1px] flex-1 bg-white/5"></div>
-                        <span className="text-text-muted text-[9px] uppercase font-black tracking-[0.3em] opacity-40">O accede con</span>
-                        <div className="h-[1px] flex-1 bg-white/5"></div>
-                    </div>
-
-                    <div className="mt-10 flex justify-center gap-6">
-                        <button className="size-16 rounded-[24px] glass-panel flex items-center justify-center border-white/5 hover:border-accent/40 hover:bg-accent/5 transition-all active:scale-90">
-                            <svg className="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M17.05 20.28c-.96.95-2.14 1.72-3.55 1.72-1.35 0-2.45-.63-3.5-1.72-1.05 1.09-2.15 1.72-3.5 1.72-1.41 0-2.59-.77-3.55-1.72-3.35-3.32-3.35-8.7 0-12.03.96-.95 2.14-1.72 3.55-1.72 1.35 0 2.45.63 3.5 1.72 1.05-1.09 2.15-1.72 3.5-1.72 1.41 0 2.59.77 3.55 1.72 3.35 3.33 3.35 8.71 0 12.03zM12 11c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"></path>
-                            </svg>
-                        </button>
-                        <button className="size-16 rounded-[24px] glass-panel flex items-center justify-center border-white/5 hover:border-accent/40 hover:bg-accent/5 transition-all active:scale-90">
-                            <svg className="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M12.545,10.239v3.821h5.445c-0.712,2.315-2.647,3.972-5.445,3.972c-3.332,0-6.033-2.701-6.033-6.032s2.701-6.032,6.033-6.032c1.498,0,2.866,0.549,3.921,1.453l2.814-2.814C17.503,2.988,15.139,2,12.545,2C7.021,2,2.543,6.477,2.543,12s4.478,10,10.002,10c8.396,0,10.249-7.85,9.426-11.748L12.545,10.239z"></path>
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-            </main>
-
-            {/* Decorative elements */}
-            <div className="absolute -bottom-20 -left-20 size-96 bg-accent/5 rounded-full blur-[120px] pointer-events-none"></div>
-            <div className="absolute top-1/4 -right-20 size-[500px] bg-accent/10 rounded-full blur-[150px] pointer-events-none"></div>
+  return (
+    <>
+      <style>{CSS}</style>
+      <div style={{ background:C.bg, minHeight:"100vh", maxWidth:480, margin:"0 auto", position:"relative" }}>
+        {/* Header */}
+        <div style={{ background:C.card, borderBottom:`1px solid ${C.border}`, padding:"13px 15px 11px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:10 }}>
+          <div>
+            <div className="B" style={{ fontSize:19, fontWeight:900, color:C.accent, letterSpacing:1.5 }}>RUTAFLOW</div>
+            <div style={{ fontSize:9, color:C.dim, letterSpacing:"0.18em" }}>{name.toUpperCase()}</div>
+          </div>
+          <div style={{ textAlign:"right" }}>
+            <div style={{ fontSize:10, color:C.muted }}>hoy neto</div>
+            <div className="B" style={{ fontSize:21, fontWeight:800, color:todayNet>=0?C.teal:C.danger }}>{fmtMXN(todayNet)}</div>
+          </div>
         </div>
-    );
+
+        {/* Contenido */}
+        {tab==="home"   && <HomeTab   cfg={cfg} trips={trips} days={days} activeDay={activeDay} saveTrip={saveTrip} startDay={startDay} endDay={endDay} />}
+        {tab==="trips"  && <TripsTab  cfg={cfg} trips={trips} saveTrip={saveTrip} deleteTrip={deleteTrip} />}
+        {tab==="stats"  && <StatsTab  cfg={cfg} trips={trips} />}
+        {tab==="ai"     && <AITab     cfg={cfg} trips={trips} />}
+        {tab==="config" && <ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={() => supabase.auth.signOut()} />}
+
+        {/* Nav */}
+        <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:C.card, borderTop:`1px solid ${C.border}`, display:"flex", zIndex:100 }}>
+          {NAV.map(n => (
+            <button key={n.id} onClick={() => setTab(n.id)} style={{ flex:1, padding:"9px 0 13px", display:"flex", flexDirection:"column", alignItems:"center", gap:4, color:tab===n.id?C.accent:C.dim, transition:"color .15s" }}>
+              <SVG d={n.d} size={18} color={tab===n.id?C.accent:C.dim} />
+              <span style={{ fontSize:9, letterSpacing:"0.1em", fontWeight:tab===n.id?700:400 }}>{n.l}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  );
 }
