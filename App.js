@@ -176,6 +176,7 @@ useEffect(() => {
     };
     const saveActiveDay = async (d) => { setActiveDay(d); await store.set(STORAGE_KEYS.ACTIVE_DAY, d); };
 
+   // 1. Primero revisamos si la App está cargando datos
     if (loading) return (
         <div style={{ background: BG, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "monospace", color: ACCENT }}>
             <div style={{ textAlign: "center" }}>
@@ -185,6 +186,15 @@ useEffect(() => {
         </div>
     );
 
+    // 2. Si ya terminó de cargar, revisamos si hay alguien logueado.
+    // SI NO HAY SESIÓN, mostramos la pantalla de Auth (Login)
+    if (!session) {
+        return <Auth />;
+    }
+
+    // 3. Si hay sesión, pasamos al diseño principal de la App
+    const todayTrips = trips.filter(t => t.date === todayStr());
+    // ... sigue el resto de tu código ...
     const todayTrips = trips.filter(t => t.date === todayStr());
     const todayNet = todayTrips.reduce((s, t) => s + (calcTrip(t, config).netEarning), 0);
 
