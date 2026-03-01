@@ -63,7 +63,7 @@ export default function RutaFlow() {
 
         try {
             const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return; // Si no hay usuario, no buscamos nada
+        if (!user) { setLoading(false); return; }
 
             // 1. Traer los VIAJES
             const { data: tripsData, error: tripsErr } = await supabase
