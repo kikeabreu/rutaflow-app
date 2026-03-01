@@ -223,7 +223,7 @@ const saveActiveDay = async (d) => { setActiveDay(d); await store.set(STORAGE_KE
       `}</style>
 
             {/* Header */}
-            <div style={{ background: CARD, borderBottom: `1px solid ${BORDER}`, padding: "16px 20px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 50 }}>
+            <div style={{ background: CARD, borderBottom: `1px solid ${BORDER}`, padding: "16px 20px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 10 }}>
                 <div>
                     <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 22, fontWeight: 800, color: ACCENT, letterSpacing: 1 }}>RUTAFLOW</div>
                     <div style={{ fontSize: 10, color: "#404060", letterSpacing: 2 }}>GESTOR DE CONDUCTOR</div>
