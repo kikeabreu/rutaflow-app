@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { createPortal } from "react-dom";
 import { supabase } from "./supabaseClient";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from "recharts";
 
@@ -454,7 +453,8 @@ function TripModal({ config, fixedCosts, trips, saveTrips, activeDay, onClose })
             ? { color: ACCENT, label: "⚠️ Regular" }
             : { color: DANGER, label: "❌ No conviene" };
 
-    return createPortal(
+    return (
+        <div style={{ position: "fixed", inset: 0
         <div style={{ position: "fixed", inset: 0, background: "#000000dd", zIndex: 9999, display: "flex", alignItems: "flex-end" }} onClick={onClose}>
             <div onClick={e => e.stopPropagation()} style={{ background: CARD, borderRadius: "20px 20px 0 0", width: "100%", maxWidth: 480, margin: "0 auto", padding: "24px 20px", maxHeight: "92vh", overflowY: "auto", borderTop: `2px solid ${BORDER}` }}>
 
@@ -593,8 +593,7 @@ function TripInput({ label, value, onChange, unit, big }) {
                     onBlur={e => e.target.style.borderColor = BORDER} />
                 <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", fontSize: 10, color: "#404060" }}>{unit}</span>
             </div>
-        </div>,
-document.body
+        </div>
     );
 }
 
