@@ -4,7 +4,7 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContai
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const STORAGE_KEYS = { TRIPS: "rutaflow:trips", DAYS: "rutaflow:days", CONFIG: "rutaflow:config", ACTIVE_DAY: "rutaflow:activeday" };
-const DEFAULT_CONFIG = { gasPricePerLiter: 24.5, kmPerLiter: 12, targetHourlyRate: 150, platformCut: 25 };
+const DEFAULT_CONFIG = { gasPricePerLiter: 24, kmPerLiter: 12, targetHourlyRate: 200, platformCut: 10 };
 const ACCENT = "#f0a500";
 const ACCENT2 = "#00d4aa";
 const DANGER = "#ff4757";
@@ -51,13 +51,13 @@ const NAV_ITEMS = [
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function RutaFlow() {
-    const [session, setSession] = useState(null);
     const [tab, setTab] = useState("home");
     const [config, setConfig] = useState(DEFAULT_CONFIG);
     const [trips, setTrips] = useState([]);
     const [days, setDays] = useState([]);
     const [activeDay, setActiveDay] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [session, setSession] = useState(null);
     const loadDataFromCloud = async () => {
         setLoading(true); // Ponemos la pantalla de "Cargando..."
 
@@ -98,23 +98,23 @@ export default function RutaFlow() {
     };
 
     // Load all data
-useEffect(() => {
-  // 1. Revisar si ya hay una sesión activa al abrir la app
-  supabase.auth.getSession().then(({ data: { session } }) => {
-    setSession(session);
-  });
+    useEffect(() => {
+        // 1. Revisar si ya hay una sesión activa al abrir la app
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            setSession(session);
+        });
 
-  // 2. Escuchar si el usuario entra (Login) o sale (Logout)
-  const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-    setSession(session);
-    // Si el usuario acaba de entrar, cargamos sus datos de la nube
-    if (session) {
-      loadDataFromCloud(); 
-    }
-  });
+        // 2. Escuchar si el usuario entra (Login) o sale (Logout)
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setSession(session);
+            // Si el usuario acaba de entrar, cargamos sus datos de la nube
+            if (session) {
+                loadDataFromCloud();
+            }
+        });
 
-  return () => subscription.unsubscribe();
-}, []);
+        return () => subscription.unsubscribe();
+    }, []);
 
     const saveTripToCloud = async (tripData) => {
         // 1. Obtenemos el ID del usuario que tiene la sesión iniciada
@@ -176,7 +176,7 @@ useEffect(() => {
     };
     const saveActiveDay = async (d) => { setActiveDay(d); await store.set(STORAGE_KEYS.ACTIVE_DAY, d); };
 
-   // 1. Primero revisamos si la App está cargando datos
+    // 1. Primero revisamos si la App está cargando datos
     if (loading) return (
         <div style={{ background: BG, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "monospace", color: ACCENT }}>
             <div style={{ textAlign: "center" }}>
@@ -193,8 +193,6 @@ useEffect(() => {
     }
 
     // 3. Si hay sesión, pasamos al diseño principal de la App
-    const todayTrips = trips.filter(t => t.date === todayStr());
-    // ... sigue el resto de tu código ...
     const todayTrips = trips.filter(t => t.date === todayStr());
     const todayNet = todayTrips.reduce((s, t) => s + (calcTrip(t, config).netEarning), 0);
 
@@ -965,82 +963,42 @@ function ConfigTab({ config, saveConfig }) {
 }
 // --- COMPONENTE DE LOGIN (AUTH) ---
 function Auth() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [isSignUp, setIsSignUp] = useState(false);
+    const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
+    const [loading, setLoading] = useState(false);
+    const [isSignUp, setIsSignUp] = useState(false);
 
-  const handleAuth = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    const { error } = isSignUp 
-      ? await supabase.auth.signUp({ email, password })
-      : await supabase.auth.signInWithPassword({ email, password });
+    const handleAuth = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        const { error } = isSignUp
+            ? await supabase.auth.signUp({ email, password })
+            : await supabase.auth.signInWithPassword({ email, password });
 
-    if (error) alert(error.message);
-    setLoading(false);
-  };
+        if (error) alert(error.message);
+        setLoading(false);
+    };
 
-  return (
-    <div style={{ background: "#07080d", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "monospace" }}>
-      <div style={{ background: "#0e1018", border: "1px solid #1c1f2e", padding: 32, borderRadius: 20, width: "100%", maxWidth: 400 }}>
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ fontSize: 28, fontWeight: 800, color: "#f0a500" }}>RUTAFLOW</div>
-          <div style={{ fontSize: 10, color: "#404060", letterSpacing: 2 }}>ACCESO DE CONDUCTOR</div>
+    return (
+        <div style={{ background: "#07080d", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "monospace" }}>
+            <div style={{ background: "#0e1018", border: "1px solid #1c1f2e", padding: 32, borderRadius: 20, width: "100%", maxWidth: 400 }}>
+                <div style={{ textAlign: "center", marginBottom: 32 }}>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: "#f0a500" }}>RUTAFLOW</div>
+                    <div style={{ fontSize: 10, color: "#404060", letterSpacing: 2 }}>ACCESO DE CONDUCTOR</div>
+                </div>
+                <form onSubmit={handleAuth} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required
+                        style={{ width: "100%", background: "#0a0b12", border: "1px solid #1c1f2e", borderRadius: 8, padding: 14, color: "#fff" }} />
+                    <input type="password" placeholder="Contraseña" value={password} onChange={e => setPassword(e.target.value)} required
+                        style={{ width: "100%", background: "#0a0b12", border: "1px solid #1c1f2e", borderRadius: 8, padding: 14, color: "#fff" }} />
+                    <button type="submit" disabled={loading} style={{ padding: 16, background: "#f0a50022", border: "2px solid #f0a500", borderRadius: 12, color: "#f0a500", fontWeight: 700 }}>
+                        {loading ? "CARGANDO..." : isSignUp ? "REGISTRARME" : "ENTRAR"}
+                    </button>
+                </form>
+                <button onClick={() => setIsSignUp(!isSignUp)} style={{ width: "100%", background: "none", border: "none", color: "#606080", fontSize: 11, marginTop: 20, textDecoration: "underline" }}>
+                    {isSignUp ? "¿Ya tienes cuenta? Inicia sesión" : "¿Eres nuevo? Crea una cuenta"}
+                </button>
+            </div>
         </div>
-        <form onSubmit={handleAuth} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required 
-            style={{ width: "100%", background: "#0a0b12", border: "1px solid #1c1f2e", borderRadius: 8, padding: 14, color: "#fff" }} />
-          <input type="password" placeholder="Contraseña" value={password} onChange={e => setPassword(e.target.value)} required
-            style={{ width: "100%", background: "#0a0b12", border: "1px solid #1c1f2e", borderRadius: 8, padding: 14, color: "#fff" }} />
-          <button type="submit" disabled={loading} style={{ padding: 16, background: "#f0a50022", border: "2px solid #f0a500", borderRadius: 12, color: "#f0a500", fontWeight: 700 }}>
-            {loading ? "CARGANDO..." : isSignUp ? "REGISTRARME" : "ENTRAR"}
-          </button>
-        </form>
-        <button onClick={() => setIsSignUp(!isSignUp)} style={{ width: "100%", background: "none", border: "none", color: "#606080", fontSize: 11, marginTop: 20, textDecoration: "underline" }}>
-          {isSignUp ? "¿Ya tienes cuenta? Inicia sesión" : "¿Eres nuevo? Crea una cuenta"}
-        </button>
-      </div>
-    </div>
-  );
-}
-function Auth() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [isSignUp, setIsSignUp] = useState(false);
-
-  const handleAuth = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    const { error } = isSignUp 
-      ? await supabase.auth.signUp({ email, password })
-      : await supabase.auth.signInWithPassword({ email, password });
-
-    if (error) alert("Error: " + error.message);
-    setLoading(false);
-  };
-
-  return (
-    <div style={{ background: "#07080d", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "monospace" }}>
-      <div style={{ background: "#0e1018", border: "1px solid #1c1f2e", padding: 32, borderRadius: 20, width: "100%", maxWidth: 400 }}>
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ fontSize: 28, fontWeight: 800, color: "#f0a500", letterSpacing: 2 }}>RUTAFLOW</div>
-          <div style={{ fontSize: 10, color: "#404060", letterSpacing: 2 }}>ACCESO DE CONDUCTOR</div>
-        </div>
-        <form onSubmit={handleAuth} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required 
-            style={{ width: "100%", background: "#0a0b12", border: "1px solid #1c1f2e", borderRadius: 8, padding: 14, color: "#fff", outline: "none" }} />
-          <input type="password" placeholder="Contraseña" value={password} onChange={e => setPassword(e.target.value)} required
-            style={{ width: "100%", background: "#0a0b12", border: "1px solid #1c1f2e", borderRadius: 8, padding: 14, color: "#fff", outline: "none" }} />
-          <button type="submit" disabled={loading} style={{ padding: 16, background: "#f0a50022", border: "2px solid #f0a500", borderRadius: 12, color: "#f0a500", fontWeight: 700, cursor: "pointer" }}>
-            {loading ? "PROCESANDO..." : isSignUp ? "CREAR CUENTA" : "ENTRAR ✓"}
-          </button>
-        </form>
-        <button onClick={() => setIsSignUp(!isSignUp)} style={{ width: "100%", background: "none", border: "none", color: "#606080", fontSize: 11, marginTop: 20, cursor: "pointer", textDecoration: "underline" }}>
-          {isSignUp ? "¿Ya tienes cuenta? Inicia sesión" : "¿Eres nuevo? Regístrate aquí"}
-        </button>
-      </div>
-    </div>
-  );
+    );
 }
