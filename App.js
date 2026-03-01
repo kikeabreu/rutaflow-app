@@ -1004,3 +1004,43 @@ function Auth() {
     </div>
   );
 }
+function Auth() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
+
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    const { error } = isSignUp 
+      ? await supabase.auth.signUp({ email, password })
+      : await supabase.auth.signInWithPassword({ email, password });
+
+    if (error) alert("Error: " + error.message);
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ background: "#07080d", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "monospace" }}>
+      <div style={{ background: "#0e1018", border: "1px solid #1c1f2e", padding: 32, borderRadius: 20, width: "100%", maxWidth: 400 }}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div style={{ fontSize: 28, fontWeight: 800, color: "#f0a500", letterSpacing: 2 }}>RUTAFLOW</div>
+          <div style={{ fontSize: 10, color: "#404060", letterSpacing: 2 }}>ACCESO DE CONDUCTOR</div>
+        </div>
+        <form onSubmit={handleAuth} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required 
+            style={{ width: "100%", background: "#0a0b12", border: "1px solid #1c1f2e", borderRadius: 8, padding: 14, color: "#fff", outline: "none" }} />
+          <input type="password" placeholder="Contraseña" value={password} onChange={e => setPassword(e.target.value)} required
+            style={{ width: "100%", background: "#0a0b12", border: "1px solid #1c1f2e", borderRadius: 8, padding: 14, color: "#fff", outline: "none" }} />
+          <button type="submit" disabled={loading} style={{ padding: 16, background: "#f0a50022", border: "2px solid #f0a500", borderRadius: 12, color: "#f0a500", fontWeight: 700, cursor: "pointer" }}>
+            {loading ? "PROCESANDO..." : isSignUp ? "CREAR CUENTA" : "ENTRAR ✓"}
+          </button>
+        </form>
+        <button onClick={() => setIsSignUp(!isSignUp)} style={{ width: "100%", background: "none", border: "none", color: "#606080", fontSize: 11, marginTop: 20, cursor: "pointer", textDecoration: "underline" }}>
+          {isSignUp ? "¿Ya tienes cuenta? Inicia sesión" : "¿Eres nuevo? Regístrate aquí"}
+        </button>
+      </div>
+    </div>
+  );
+}
