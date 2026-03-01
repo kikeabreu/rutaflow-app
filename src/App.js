@@ -367,11 +367,10 @@ function TripModal({ config, fixedCosts, trips, saveTrips, activeDay, onClose })
     const setField = (k, v) => setTrip(p => ({ ...p, [k]: v }));
 
     useEffect(() => {
-        if (tripRunning) {
-            timerRef.current = setInterval(() => setTripElapsed(now() - tripStartRef.current), 1000);
-        } else clearInterval(timerRef.current);
-        return () => clearInterval(timerRef.current);
-    }, [tripRunning]);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+}, []);
 
     const haversine = (a, b) => {
         const R = 6371, dLat = (b.lat - a.lat) * Math.PI / 180, dLon = (b.lon - a.lon) * Math.PI / 180;
@@ -453,10 +452,10 @@ function TripModal({ config, fixedCosts, trips, saveTrips, activeDay, onClose })
             ? { color: ACCENT, label: "⚠️ Regular" }
             : { color: DANGER, label: "❌ No conviene" };
 
-    return (
-        <div style={{ position: "fixed", inset: 0, background: "#000000dd", zIndex: 9999, display: "flex", alignItems: "flex-end" }} onClick={onClose}>
-            <div onClick={e => e.stopPropagation()} style={{ background: CARD, borderRadius: "20px 20px 0 0", width: "100%", maxWidth: 480, margin: "0 auto", padding: "24px 20px", maxHeight: "92vh", overflowY: "auto", borderTop: `2px solid ${BORDER}` }}>
-
+   return (
+    <div style={{ position: "fixed", inset: 0, background: "#000000dd", zIndex: 9999, display: "flex", alignItems: "flex-end", paddingTop: 78, boxSizing: "border-box" }} onClick={onClose}>
+        <div onClick={e => e.stopPropagation()} style={{ background: CARD, borderRadius: "20px 20px 0 0", width: "100%", maxWidth: 480, margin: "0 auto", padding: "24px 20px", maxHeight: "calc(100dvh - 78px)", overflowY: "auto", WebkitOverflowScrolling: "touch", paddingBottom: "calc(24px + env(safe-area-inset-bottom))", borderTop: `2px solid ${BORDER}` }}>
+    
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
                     <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 22, fontWeight: 800, color: ACCENT }}>NUEVO VIAJE</div>
                     <button className="btn" onClick={onClose} style={{ background: "none", border: "none", color: "#606080", fontSize: 24 }}>✕</button>
