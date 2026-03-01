@@ -578,8 +578,7 @@ function TripModal({ config, fixedCosts, trips, saveTrips, activeDay, onClose })
                     </button>
                 </div>
             </div>
-        </div>,
-        document.body
+        </div>
     );
 }
 
@@ -594,7 +593,8 @@ function TripInput({ label, value, onChange, unit, big }) {
                     onBlur={e => e.target.style.borderColor = BORDER} />
                 <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", fontSize: 10, color: "#404060" }}>{unit}</span>
             </div>
-        </div>
+        </div>,
+document.body
     );
 }
 
