@@ -1,996 +1,1659 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import {
+    LineChart, Line, BarChart, Bar,
+    XAxis, YAxis, Tooltip, ResponsiveContainer,
+    PieChart, Pie, Cell, CartesianGrid, Legend
+} from "recharts";
+import {
+    Zap, FolderOpen, PieChart as ChartIcon,
+    Bot, Settings, Plus, Play, Square,
+    ChevronRight, Camera, Trash2,
+    AlertCircle, TrendingUp, DollarSign, Wallet, ShieldCheck,
+    Fuel, Clock, MapPin, Check, X, Shield, Trophy, Smartphone,
+    Mail, Lock, Eye
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "./supabaseClient";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from "recharts";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
+const STORAGE_KEYS = { TRIPS: "rydecash:trips", DAYS: "rydecash:days", CONFIG: "rydecash:config", ACTIVE_DAY: "rydecash:activeday", ACTIVE_TRIP: "rydecash:activetrip" };
 const DEFAULT_CONFIG = {
-    gasPricePerLiter: 24, kmPerLiter: 12, targetHourlyRate: 200, platformCut: 10,
+    gasPricePerLiter: 24.5,
+    kmPerLiter: 12,
+    targetHourlyRate: 150,
+    targetPerKm: 5,
+    platformCut: 25,
+    unitCost: 0,
+    unitPeriod: 'monthly',
+    insuranceCost: 0,
+    insurancePeriod: 'monthly',
+    tireCost: 0,
+    tireLifeKm: 50000,
+    maintenanceCost: 0,
+    maintenanceIntervalKm: 10000,
+    mobileDataCost: 0,
+    mobileDataPeriod: 'monthly',
+    useRentInCalc: false,
+    useInsuranceInCalc: false,
+    useTiresInCalc: false,
+    useMaintenanceInCalc: false,
+    useMobileDataInCalc: false
 };
-const DEFAULT_FIXED_COSTS = {
-    rentaEnabled: false, rentaMonto: 0, rentaPeriodo: "mensual",
-    seguroEnabled: false, seguroMonto: 0, seguroPeriodo: "mensual",
-    llantasEnabled: false, llantasMonto: 0, llantasKmVida: 40000,
-    mantenimientoEnabled: false, mantenimientoMonto: 0, mantenimientoKmVida: 5000,
-};
-const ACCENT = "#f0a500";
-const ACCENT2 = "#00d4aa";
-const DANGER = "#ff4757";
-const BG = "#07080d";
-const CARD = "#0e1018";
-const BORDER = "#1c1f2e";
+
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
-const fmt = (n, d = 2) => (parseFloat(n) || 0).toFixed(d);
+const fmt = (n, d = 2) => (parseFloat(n) || 0).toLocaleString("es-MX", { minimumFractionDigits: d, maximumFractionDigits: d });
 const fmtMXN = (n) => `$${fmt(n)}`;
-const now = () => Date.now();
-const todayStr = () => new Date().toISOString().split("T")[0];
+const fmtDate = (d) => new Date(d).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" });
 const fmtTime = (ms) => {
-    const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    const s = Math.floor(ms / 1000);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const ss = s % 60;
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 };
-const fmtDate = (d) => new Date(d).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" });
+const now = () => Date.now();
+const todayStr = () => new Date().toISOString().split("T")[0];
 
-const calcFixedCostPerKm = (fixedCosts, totalKm) => {
-    if (!totalKm || totalKm === 0 || !fixedCosts) return 0;
-    let cost = 0;
-    const p2d = { diario: 1, semanal: 7, mensual: 30, trimestral: 90, semestral: 180, anual: 365 };
-    if (fixedCosts.rentaEnabled) cost += (fixedCosts.rentaMonto || 0) / (p2d[fixedCosts.rentaPeriodo] || 30);
-    if (fixedCosts.seguroEnabled) cost += (fixedCosts.seguroMonto || 0) / (p2d[fixedCosts.seguroPeriodo] || 30);
-    if (fixedCosts.llantasEnabled) cost += ((fixedCosts.llantasMonto || 0) / (fixedCosts.llantasKmVida || 40000)) * totalKm;
-    if (fixedCosts.mantenimientoEnabled) cost += ((fixedCosts.mantenimientoMonto || 0) / (fixedCosts.mantenimientoKmVida || 5000)) * totalKm;
-    return cost;
+const getDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371; // km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
 };
 
-const calcTrip = (trip, cfg, fixedCosts) => {
-    const gpsKm = parseFloat(trip.gps_km || trip.gpsKm) || 0;
-    const gpsMin = parseFloat(trip.gps_min || trip.gpsMin) || 0;
-    const totalKm = gpsKm > 0 ? gpsKm : (parseFloat(trip.pickup_km || trip.pickupKm) || 0) + (parseFloat(trip.dest_km || trip.destKm) || 0);
-    const totalMin = gpsMin > 0 ? gpsMin : (parseFloat(trip.pickup_min || trip.pickupMin) || 0) + (parseFloat(trip.dest_min || trip.destMin) || 0);
-    const gasCost = (totalKm / (cfg.kmPerLiter || 12)) * (cfg.gasPricePerLiter || 24);
-    const platformFee = (parseFloat(trip.fare) || 0) * ((cfg.platformCut || 10) / 100);
-    const fixedCost = calcFixedCostPerKm(fixedCosts, totalKm);
-    const netEarning = (parseFloat(trip.fare) || 0) - platformFee - gasCost - fixedCost;
+const calcTrip = (trip, cfg) => {
+    const totalKm = trip.trackedKm || (parseFloat(trip.pickupKm) || 0) + (parseFloat(trip.destKm) || 0);
+    const totalMin = trip.trackedMin || (parseFloat(trip.pickupMin) || 0) + (parseFloat(trip.destMin) || 0);
     const hours = totalMin / 60;
+
+    const gasCost = (totalKm / cfg.kmPerLiter) * cfg.gasPricePerLiter;
+    const platformFee = (parseFloat(trip.fare) || 0) * (cfg.platformCut / 100);
+
+    // Amortized costs (Time-based or Distance-based)
+    let amortizedCosts = 0;
+
+    // Fixed Time Costs (Assumption: 8 working hours per day)
+    const getDaily = (cost, period) => {
+        if (period === 'daily') return cost;
+        if (period === 'weekly') return cost / 7;
+        if (period === 'monthly') return cost / 30;
+        if (period === 'annual') return cost / 365;
+        return 0;
+    };
+
+    if (cfg.useRentInCalc) {
+        const dailyRent = getDaily(cfg.unitCost, cfg.unitPeriod);
+        amortizedCosts += (dailyRent / 8) * hours;
+    }
+    if (cfg.useInsuranceInCalc) {
+        const dailyIns = getDaily(cfg.insuranceCost, cfg.insurancePeriod);
+        amortizedCosts += (dailyIns / 8) * hours;
+    }
+    if (cfg.useMobileDataInCalc) {
+        const dailyData = getDaily(cfg.mobileDataCost, cfg.mobileDataPeriod);
+        amortizedCosts += (dailyData / 8) * hours;
+    }
+
+    // Usage Based Costs
+    if (cfg.useTiresInCalc) {
+        const costPerKm = cfg.tireCost / (cfg.tireLifeKm || 1);
+        amortizedCosts += costPerKm * totalKm;
+    }
+    if (cfg.useMaintenanceInCalc) {
+        const costPerKm = cfg.maintenanceCost / (cfg.maintenanceIntervalKm || 1);
+        amortizedCosts += costPerKm * totalKm;
+    }
+
+    const netEarning = (parseFloat(trip.fare) || 0) - platformFee - gasCost - amortizedCosts;
     const netPerHour = hours > 0 ? netEarning / hours : 0;
     const netPerKm = totalKm > 0 ? netEarning / totalKm : 0;
-    return { totalKm, totalMin, gasCost, platformFee, netEarning, netPerHour, netPerKm, hours, fixedCost };
+
+    // Metas: Si cumple con ambas es "Muy Bueno", si cumple una es "Regular", si ninguna es "Bajo"
+    const score = (netPerHour >= cfg.targetHourlyRate ? 1 : 0) + (netPerKm >= cfg.targetPerKm ? 1 : 0);
+
+    return { totalKm, totalMin, gasCost, amortizedCosts, platformFee, netEarning, netPerHour, netPerKm, hours, score };
 };
 
-// ─── NAV ─────────────────────────────────────────────────────────────────────
-const NAV_ITEMS = [
-    { id: "home", icon: "⚡", label: "Hoy" },
-    { id: "trips", icon: "🗂", label: "Viajes" },
-    { id: "stats", icon: "📊", label: "Stats" },
-    { id: "ai", icon: "🤖", label: "IA" },
-    { id: "config", icon: "⚙️", label: "Config" },
-];
 
-// ─── MAIN APP ─────────────────────────────────────────────────────────────────
-export default function RutaFlow() {
+// ─── STORAGE ─────────────────────────────────────────────────────────────────
+const store = {
+    get: (key) => {
+        try {
+            const v = localStorage.getItem(key);
+            return v ? JSON.parse(v) : null;
+        } catch { return null; }
+    },
+    set: (key, val) => {
+        try {
+            localStorage.setItem(key, JSON.stringify(val));
+        } catch { }
+    }
+};
+
+// ─── COMPONENTS ──────────────────────────────────────────────────────────────
+
+export default function App() {
     const [tab, setTab] = useState("home");
     const [config, setConfig] = useState(DEFAULT_CONFIG);
-    const [fixedCosts, setFixedCosts] = useState(DEFAULT_FIXED_COSTS);
     const [trips, setTrips] = useState([]);
     const [days, setDays] = useState([]);
     const [activeDay, setActiveDay] = useState(null);
+    const [activeTrip, setActiveTrip] = useState(null);
     const [loading, setLoading] = useState(true);
     const [session, setSession] = useState(null);
+    const lastPos = useRef(null);
 
-    const loadDataFromCloud = useCallback(async () => {
-        setLoading(true);
-        try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) { setLoading(false); return; }
-
-            const { data: tripsData } = await supabase.from('trips').select('*').order('created_at', { ascending: false });
-            if (tripsData) setTrips(tripsData);
-
-            const { data: profileData } = await supabase.from('profiles').select('config, fixed_costs').eq('id', user.id).single();
-            if (profileData?.config) setConfig(profileData.config);
-            if (profileData?.fixed_costs) setFixedCosts(profileData.fixed_costs);
-
-            const { data: daysData } = await supabase.from('days').select('*').order('date', { ascending: false });
-            if (daysData) setDays(daysData);
-
-            // Restaurar día activo desde la nube
-            const { data: activeDayData } = await supabase.from('active_days').select('*').eq('user_id', user.id).single();
-            if (activeDayData) {
-                setActiveDay({
-                    id: activeDayData.id,
-                    date: activeDayData.date,
-                    startTime: new Date(activeDayData.start_time).getTime(),
-                    running: true,
-                });
-            }
-        } catch (err) {
-            console.error("Error cargando datos:", err);
-        } finally {
-            setLoading(false);
-        }
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
+    // Auth & Load data
     useEffect(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
             setSession(session);
-            if (!session) setLoading(false);
         });
+
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
             setSession(session);
-            if (session) loadDataFromCloud();
-            else setLoading(false);
         });
+
+        const loadInitial = async () => {
+            const cfg = store.get(STORAGE_KEYS.CONFIG);
+            const tr = store.get(STORAGE_KEYS.TRIPS);
+            const dy = store.get(STORAGE_KEYS.DAYS);
+            const ad = store.get(STORAGE_KEYS.ACTIVE_DAY);
+            const at = store.get(STORAGE_KEYS.ACTIVE_TRIP);
+
+            if (cfg) setConfig(cfg);
+            if (tr) setTrips(tr);
+            if (dy) setDays(dy);
+            if (ad) setActiveDay(ad);
+            if (at) setActiveTrip(at);
+
+            setTimeout(() => setLoading(false), 1500);
+        };
+
+        loadInitial();
         return () => subscription.unsubscribe();
-    }, [loadDataFromCloud]);
+    }, []);
 
-    const saveTrips = async (nuevosViajes) => {
-        setTrips(nuevosViajes);
-        const ultimo = nuevosViajes[nuevosViajes.length - 1];
-        if (!ultimo) return;
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        await supabase.from('trips').insert([{
-            user_id: user.id,
-            fare: parseFloat(ultimo.fare),
-            pickup_km: parseFloat(ultimo.pickupKm || 0),
-            dest_km: parseFloat(ultimo.destKm || 0),
-            gps_km: parseFloat(ultimo.gpsKm || 0),
-            gps_min: parseFloat(ultimo.gpsMin || 0),
-            platform: ultimo.platform,
-            date: todayStr(),
-        }]);
-    };
+    // Geolocation Tracking
+    useEffect(() => {
+        if (!activeDay) {
+            lastPos.current = null;
+            return;
+        }
 
-    const saveDays = async (listaDias) => {
-        setDays(listaDias);
-        const ultimo = listaDias[listaDias.length - 1];
-        const { data: { user } } = await supabase.auth.getUser();
-        await supabase.from('days').insert([{
-            user_id: user.id, date: ultimo.date,
-            total_net: ultimo.totalNet, total_km: ultimo.totalKm, trip_count: ultimo.tripCount
-        }]);
-    };
+        const watchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                const { latitude: lat, longitude: lon } = pos.coords;
+                if (lastPos.current) {
+                    const d = getDistance(lastPos.current.lat, lastPos.current.lon, lat, lon);
+                    if (d > 0.01) { // 10 meters threshold
+                        // Update activeDay
+                        setActiveDay(prev => {
+                            const updated = { ...prev, trackedTotalKm: (prev.trackedTotalKm || 0) + d };
+                            store.set(STORAGE_KEYS.ACTIVE_DAY, updated);
+                            return updated;
+                        });
 
-    const saveConfig = async (nuevaConfig, nuevosFixed) => {
-        setConfig(nuevaConfig);
-        if (nuevosFixed) setFixedCosts(nuevosFixed);
-        const { data: { user } } = await supabase.auth.getUser();
-        await supabase.from('profiles').upsert({
-            id: user.id, config: nuevaConfig,
-            fixed_costs: nuevosFixed || fixedCosts,
-            updated_at: new Date()
-        });
-    };
+                        // Update activeTrip if any
+                        if (activeTrip) {
+                            setActiveTrip(prev => {
+                                const updated = { ...prev, trackedKm: (prev.trackedKm || 0) + d };
+                                store.set(STORAGE_KEYS.ACTIVE_TRIP, updated);
+                                return updated;
+                            });
+                        }
+                    }
+                }
+                lastPos.current = { lat, lon };
+            },
+            (err) => console.error("GPS Error:", err),
+            { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
+        );
 
-    const startActiveDay = async () => {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        const { data, error } = await supabase.from('active_days').upsert(
-            { user_id: user.id, date: todayStr(), start_time: new Date().toISOString() },
-            { onConflict: 'user_id' }
-        ).select().single();
-        if (!error && data) {
-            setActiveDay({ id: data.id, date: data.date, startTime: new Date(data.start_time).getTime(), running: true });
+        return () => navigator.geolocation.clearWatch(watchId);
+    }, [activeDay, !!activeTrip]);
+
+    const syncFromSupabase = async () => {
+
+        try {
+            const { data: tr } = await supabase.from('trips').select('*').order('timestamp', { ascending: false });
+            const { data: dy } = await supabase.from('days').select('*');
+            const { data: pr } = await supabase.from('profiles').select('*').single();
+
+            if (tr) setTrips(tr);
+            if (dy) setDays(dy);
+            if (pr) setConfig({
+                gasPricePerLiter: parseFloat(pr.gas_price_per_liter) || 18,
+                kmPerLiter: parseFloat(pr.km_per_liter) || 12,
+                targetHourlyRate: parseFloat(pr.target_hourly_rate) || 150,
+                targetPerKm: parseFloat(pr.target_per_km) || 5,
+                platformCut: parseFloat(pr.platform_cut) || 25,
+                unitCost: parseFloat(pr.unit_cost || pr.monthly_rent) || 0,
+                unitPeriod: pr.unit_period || 'monthly',
+                insuranceCost: parseFloat(pr.insurance_cost) || 0,
+                insurancePeriod: pr.insurance_period || 'monthly',
+                tireCost: parseFloat(pr.tire_cost) || 0,
+                tireLifeKm: parseFloat(pr.tire_life_km) || 50000,
+                maintenanceCost: parseFloat(pr.maintenance_cost) || (parseFloat(pr.maintenance_cost_per_km) * 10000) || 0,
+                maintenanceIntervalKm: parseFloat(pr.maintenance_interval_km) || 10000,
+                useRentInCalc: pr.use_rent_in_calc,
+                useInsuranceInCalc: pr.use_insurance_in_calc,
+                useTiresInCalc: pr.use_tires_in_calc,
+                useMaintenanceInCalc: pr.use_maintenance_in_calc
+            });
+        } catch (e) {
+            console.error("Sync error:", e);
         }
     };
 
-    const endActiveDay = async () => {
-        if (!activeDay) return;
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        await supabase.from('active_days').delete().eq('user_id', user.id);
-        const dayTrips = trips.filter(t => t.date === activeDay.date);
-        const totalNet = dayTrips.reduce((s, t) => s + calcTrip(t, config, fixedCosts).netEarning, 0);
-        const totalKm = dayTrips.reduce((s, t) => s + calcTrip(t, config, fixedCosts).totalKm, 0);
-        await saveDays([...days, { date: activeDay.date, totalNet, totalKm, tripCount: dayTrips.length }]);
-        setActiveDay(null);
+
+    const saveTrips = async (t) => {
+        setTrips(t);
+        store.set(STORAGE_KEYS.TRIPS, t);
+        if (session) {
+            const lastTrip = t[t.length - 1];
+            if (lastTrip) {
+                await supabase.from('trips').upsert({
+                    ...lastTrip,
+                    user_id: session.user.id
+                });
+            }
+        }
     };
 
-    if (loading) return (
-        <div style={{ background: BG, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "monospace", color: ACCENT }}>
-            <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>🚗</div>
-                <div style={{ letterSpacing: 4, fontSize: 12 }}>CARGANDO...</div>
-            </div>
-        </div>
-    );
+    const saveDays = async (d) => {
+        setDays(d);
+        store.set(STORAGE_KEYS.DAYS, d);
+        if (session) {
+            const lastDay = d[d.length - 1];
+            if (lastDay) {
+                await supabase.from('days').upsert({
+                    ...lastDay,
+                    user_id: session.user.id
+                });
+            }
+        }
+    };
 
-    if (!session) return <Auth />;
+    const saveConfig = async (c) => {
+        setConfig(c);
+        store.set(STORAGE_KEYS.CONFIG, c);
+        if (session) {
+            await supabase.from('profiles').upsert({
+                id: session.user.id,
+                gas_price_per_liter: c.gasPricePerLiter,
+                km_per_liter: c.kmPerLiter,
+                target_hourly_rate: c.targetHourlyRate,
+                target_per_km: c.targetPerKm,
+                platform_cut: c.platformCut,
+                unit_cost: c.unitCost,
+                unit_period: c.unitPeriod,
+                monthly_rent: c.unitCost, // Legacy
+                insurance_cost: c.insuranceCost,
+                insurance_period: c.insurancePeriod,
+                tire_cost: c.tireCost,
+                tire_life_km: c.tireLifeKm,
+                maintenance_cost: c.maintenanceCost,
+                maintenance_interval_km: c.maintenanceIntervalKm,
+                use_rent_in_calc: c.useRentInCalc,
+                use_insurance_in_calc: c.useInsuranceInCalc,
+                use_tires_in_calc: c.useTiresInCalc,
+                use_maintenance_in_calc: c.useMaintenanceInCalc,
+                updated_at: new Date().toISOString()
+            });
+        }
+    };
+
+    const saveActiveDay = (d) => {
+        setActiveDay(d);
+        store.set(STORAGE_KEYS.ACTIVE_DAY, d);
+    };
+
+    const saveActiveTrip = (t) => {
+        setActiveTrip(t);
+        store.set(STORAGE_KEYS.ACTIVE_TRIP, t);
+    };
+
+
+    if (loading) return <LoadingScreen />;
 
     const todayTrips = trips.filter(t => t.date === todayStr());
-    const todayNet = todayTrips.reduce((s, t) => s + calcTrip(t, config, fixedCosts).netEarning, 0);
+    const todayNet = todayTrips.reduce((s, t) => s + (calcTrip(t, config).netEarning), 0);
+
+    if (!session) return <AuthScreen />;
 
     return (
-        <div style={{ background: BG, minHeight: "100vh", fontFamily: "'IBM Plex Mono', 'Courier New', monospace", color: "#e8eaf0", maxWidth: 480, margin: "0 auto", position: "relative", paddingBottom: 80 }}>
-            <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Barlow+Condensed:wght@600;700;800&display=swap');
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        ::-webkit-scrollbar { width: 0; }
-        input, textarea, select { font-family: inherit; color: #fff; }
-        input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
-        .btn { cursor: pointer; border: none; font-family: inherit; transition: all 0.15s; }
-        .btn:active { transform: scale(0.97); }
-        .tab-btn { cursor: pointer; transition: all 0.2s; }
-        .trip-card { transition: transform 0.2s; }
-        .trip-card:hover { transform: translateX(3px); }
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
-        @keyframes fadeUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
-        .fade-up { animation: fadeUp 0.4s ease forwards; }
-        .recording { animation: pulse 2s infinite; }
-      `}</style>
+        <div className="container-responsive relative min-h-screen flex flex-col bg-bg">
+            <Header session={session} />
 
-            <div style={{ background: CARD, borderBottom: `1px solid ${BORDER}`, padding: "16px 20px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 10 }}>
-                <div>
-                    <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 22, fontWeight: 800, color: ACCENT, letterSpacing: 1 }}>RUTAFLOW</div>
-                    <div style={{ fontSize: 10, color: "#404060", letterSpacing: 2 }}>GESTOR DE CONDUCTOR</div>
+
+            <main className="flex-1 pb-32">
+                <AnimatePresence mode="wait">
+                    <motion.div
+                        key={tab}
+                        initial={{ opacity: 0, y: 15 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -15 }}
+                        transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                    >
+                        {tab === "home" && <HomeTab
+                            config={config}
+                            trips={trips}
+                            days={days}
+                            activeDay={activeDay}
+                            activeTrip={activeTrip}
+                            saveTrips={saveTrips}
+                            saveDays={saveDays}
+                            saveActiveDay={saveActiveDay}
+                            saveActiveTrip={saveActiveTrip}
+                        />}
+                        {tab === "trips" && <TripsTab config={config} trips={trips} saveTrips={saveTrips} />}
+                        {tab === "stats" && <StatsTab config={config} trips={trips} days={days} />}
+                        {tab === "logros" && <LogrosTab config={config} trips={trips} days={days} />}
+                        {tab === "ai" && <AITab config={config} trips={trips} days={days} />}
+                        {tab === "config" && <ConfigTab config={config} saveConfig={saveConfig} />}
+                    </motion.div>
+                </AnimatePresence>
+            </main>
+
+            <Navigation active={tab} onChange={setTab} />
+        </div>
+    );
+}
+
+function LoadingScreen() {
+    return (
+        <div className="fixed inset-0 flex flex-col items-center justify-center bg-black z-[1000] font-display">
+            <motion.div
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ duration: 0.8, ease: "easeOut" }}
+                className="mb-8"
+            >
+                <div className="w-20 h-20 rounded-[32px] bg-accent/10 border border-accent/20 flex items-center justify-center float">
+                    <Wallet size={36} className="text-accent" strokeWidth={2.5} />
                 </div>
-                <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 11, color: "#606080" }}>hoy neto</div>
-                    <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 22, fontWeight: 700, color: todayNet >= 0 ? ACCENT2 : DANGER }}>{fmtMXN(todayNet)}</div>
+            </motion.div>
+            <div className="flex flex-col items-center gap-6">
+                <div className="h-1.5 w-40 bg-white/5 overflow-hidden relative rounded-full border border-white/5">
+                    <motion.div
+                        className="absolute left-0 top-0 h-full bg-accent shadow-[0_0_15px_rgba(34,197,94,0.5)]"
+                        initial={{ width: "0%" }}
+                        animate={{ width: "100%" }}
+                        transition={{ duration: 2, ease: "easeInOut", repeat: Infinity }}
+                    />
                 </div>
-            </div>
-
-            <div style={{ padding: "0 0 8px" }}>
-                {tab === "home" && <HomeTab config={config} fixedCosts={fixedCosts} trips={trips} days={days} activeDay={activeDay} saveTrips={saveTrips} saveDays={saveDays} startActiveDay={startActiveDay} endActiveDay={endActiveDay} />}
-                {tab === "trips" && <TripsTab config={config} fixedCosts={fixedCosts} trips={trips} saveTrips={saveTrips} />}
-                {tab === "stats" && <StatsTab config={config} fixedCosts={fixedCosts} trips={trips} days={days} />}
-                {tab === "ai" && <AITab config={config} trips={trips} />}
-                {tab === "config" && <ConfigTab config={config} fixedCosts={fixedCosts} saveConfig={saveConfig} onLogout={() => supabase.auth.signOut()} />}
-            </div>
-
-            <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: CARD, borderTop: `1px solid ${BORDER}`, display: "flex", zIndex: 100 }}>
-                {NAV_ITEMS.map(n => (
-                    <button key={n.id} className="tab-btn btn" onClick={() => setTab(n.id)}
-                        style={{ flex: 1, padding: "10px 0 12px", background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, color: tab === n.id ? ACCENT : "#404060" }}>
-                        <span style={{ fontSize: 18 }}>{n.icon}</span>
-                        <span style={{ fontSize: 9, letterSpacing: 1, fontWeight: tab === n.id ? 600 : 400 }}>{n.label}</span>
-                    </button>
-                ))}
+                <div className="text-center">
+                    <h3 className="text-white font-extrabold tracking-tight uppercase text-sm mb-1">Ryde Cash</h3>
+                    <p className="text-[10px] font-bold text-accent uppercase tracking-[0.2em] animate-pulse">Optimizando rutas...</p>
+                </div>
             </div>
         </div>
     );
 }
 
-// ─── HOME TAB ─────────────────────────────────────────────────────────────────
-function HomeTab({ config, fixedCosts, trips, days, activeDay, saveTrips, startActiveDay, endActiveDay }) {
+function Header({ session }) {
+    return (
+        <header className="px-6 py-10 flex items-center justify-between font-display">
+            <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-[24px] overflow-hidden border border-white/10 ring-4 ring-accent-dim shadow-2xl">
+                    <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${session?.user?.id}`} alt="avatar" className="w-full h-full object-cover" />
+                </div>
+                <div>
+                    <h1 className="text-xl font-extrabold text-white tracking-tight">Driver Center</h1>
+                    <p className="text-[10px] font-black text-accent uppercase tracking-[0.2em] flex items-center gap-1.5">
+                        <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                        Sistema Activo
+                    </p>
+                </div>
+            </div>
+            <div className="flex items-center gap-3">
+                {session && (
+                    <button onClick={() => supabase.auth.signOut()} className="w-12 h-12 rounded-2xl glass border border-white/5 flex items-center justify-center text-text-dim/60 hover:text-danger hover:bg-danger/10 transition-all">
+                        <X size={20} strokeWidth={2.5} />
+                    </button>
+                )}
+            </div>
+        </header>
+    );
+}
+
+
+
+function TripModal({ config, trips, saveTrips, activeDay, activeTrip, saveActiveTrip, onClose }) {
+    const [mode, setMode] = useState("live"); // live | manual | photo
+    const [phase, setPhase] = useState(0);
+    const [trip, setTrip] = useState({ fare: "", pickupKm: "", pickupMin: "", destKm: "", destMin: "", platform: "uber", notes: "" });
+    const fileRef = useRef();
+
+    const handleStartLive = () => {
+        if (!trip.fare) return;
+        const newTrip = {
+            ...trip,
+            id: `trip-${now()}`,
+            date: todayStr(),
+            timestamp: now(),
+            dayId: activeDay?.id || null,
+            trackedKm: 0,
+            trackedMin: 0
+        };
+        saveActiveTrip(newTrip);
+        onClose();
+    };
+
+    const handleManualSave = () => {
+        if (!trip.fare) return;
+        const newTrip = {
+            ...trip,
+            id: `trip-${now()}`,
+            date: todayStr(),
+            timestamp: now(),
+            dayId: activeDay?.id || null,
+            trackedKm: (parseFloat(trip.pickupKm) || 0) + (parseFloat(trip.destKm) || 0),
+            trackedMin: (parseFloat(trip.pickupMin) || 0) + (parseFloat(trip.destMin) || 0),
+        };
+        saveTrips([...trips, newTrip]);
+        onClose();
+    };
+
+    const calc = useMemo(() => calcTrip(trip, config), [trip, config]);
+    const isGood = calc.netPerHour >= config.targetHourlyRate;
+
+    return (
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xl flex items-end justify-center"
+            onClick={onClose}
+        >
+            <motion.div
+                initial={{ y: "100%" }}
+                animate={{ y: 0 }}
+                exit={{ y: "100%" }}
+                transition={{ type: "spring", damping: 25, stiffness: 200 }}
+                className="w-full max-w-lg glass-bright rounded-t-[32px] border-t border-white/10 flex flex-col"
+                style={{ maxHeight: "88vh" }}
+                onClick={e => e.stopPropagation()}
+            >
+                {/* Handle fijo arriba */}
+                <div className="flex-shrink-0 pt-5 pb-2 px-8">
+                    <div className="w-10 h-1 rounded-full bg-white/10 mx-auto mb-5" />
+                    <div className="flex gap-2 p-1.5 rounded-[20px] glass border border-white/5">
+                        {[
+                            { id: 'live', icon: Play, label: 'En Vivo' },
+                            { id: 'manual', icon: FolderOpen, label: 'Manual' },
+                            { id: 'photo', icon: Camera, label: 'IA Photo' }
+                        ].map(m => (
+                            <button key={m.id} onClick={() => setMode(m.id)}
+                                className={`flex-1 py-3 flex items-center justify-center gap-2 rounded-[14px] text-[10px] font-black tracking-widest uppercase transition-all ${mode === m.id ? 'bg-white text-black shadow-xl' : 'text-text-dim/50 hover:text-white'}`}>
+                                <m.icon size={11} fill={mode === m.id ? 'currentColor' : 'none'} />
+                                {m.label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Contenido con scroll */}
+                <div className="flex-1 overflow-y-auto px-8 pb-2" style={{ WebkitOverflowScrolling: 'touch' }}>
+                    <div className="space-y-5 py-2">
+                        {/* Tarifa */}
+                        <div className="space-y-3">
+                            <label className="text-[10px] font-black text-text-dim tracking-[0.4em] uppercase pl-1">Tarifa Bruta</label>
+                            <input
+                                type="number"
+                                placeholder="0.00"
+                                value={trip.fare}
+                                onChange={e => setTrip({ ...trip, fare: e.target.value })}
+                                className="w-full bg-white/5 border border-white/5 rounded-2xl px-6 py-5 text-5xl font-black mono text-accent placeholder:text-white/10 outline-none focus:border-accent/30 transition-all text-center"
+                            />
+                        </div>
+
+                        {/* Campos manuales */}
+                        {mode === 'manual' && (
+                            <div className="grid grid-cols-2 gap-4">
+                                {[
+                                    { label: 'KM recolección', key: 'pickupKm' },
+                                    { label: 'MIN recolección', key: 'pickupMin' },
+                                    { label: 'KM al destino', key: 'destKm' },
+                                    { label: 'MIN al destino', key: 'destMin' },
+                                ].map(f => (
+                                    <div key={f.key} className="space-y-2">
+                                        <label className="text-[8px] font-black text-text-dim uppercase tracking-widest">{f.label}</label>
+                                        <input
+                                            type="number"
+                                            value={trip[f.key]}
+                                            onChange={e => setTrip({ ...trip, [f.key]: e.target.value })}
+                                            className="premium-input w-full text-xl font-black mono"
+                                            placeholder="0"
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Plataforma */}
+                        <div className="flex gap-2 p-1.5 rounded-[20px] glass border border-white/5">
+                            {['uber', 'didi', 'beat', 'otra'].map(p => (
+                                <button key={p} onClick={() => setTrip({ ...trip, platform: p })}
+                                    className={`flex-1 py-3 rounded-[14px] text-[9px] font-black tracking-widest uppercase transition-all ${trip.platform === p ? 'bg-accent/10 text-accent border border-accent/20' : 'text-text-dim/40'}`}>
+                                    {p}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Foto IA */}
+                        {mode === 'photo' && (
+                            <div onClick={() => fileRef.current?.click()} className="w-full border-2 border-dashed border-white/10 rounded-[24px] p-10 flex flex-col items-center gap-3 cursor-pointer hover:border-accent/40 transition-all bg-white/[0.02]">
+                                <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center text-text-dim hover:text-accent transition-all">
+                                    <Camera size={22} />
+                                </div>
+                                <div className="text-center">
+                                    <p className="text-[10px] font-black text-white uppercase tracking-[0.2em] mb-1">Sube el recibo</p>
+                                    <p className="text-[8px] font-bold text-text-dim uppercase tracking-widest">Uber, Didi o Indriver</p>
+                                </div>
+                                <input ref={fileRef} type="file" className="hidden" accept="image/*" />
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Botón guardar fijo abajo */}
+                <div className="flex-shrink-0 px-8 pt-4 pb-8">
+                    <button
+                        onClick={mode === 'live' ? handleStartLive : handleManualSave}
+                        disabled={mode !== 'photo' && !trip.fare}
+                        className="btn-accent w-full flex items-center justify-center gap-3 disabled:opacity-20 disabled:grayscale transition-all"
+                        style={{ height: 56, borderRadius: 16, fontSize: 14 }}
+                    >
+                        {mode === 'live' ? <><Play size={18} fill="currentColor" /> INICIAR VIAJE</> : mode === 'photo' ? 'PROCESAR CON IA' : 'GUARDAR REGISTRO'}
+                    </button>
+                </div>
+            </motion.div>
+        </motion.div>
+    );
+}
+
+
+function HomeTab({ config, trips, days, activeDay, activeTrip, saveTrips, saveDays, saveActiveDay, saveActiveTrip }) {
     const [elapsed, setElapsed] = useState(0);
-    const [tripModal, setTripModal] = useState(false);
+    const [tripModalOpen, setTripModalOpen] = useState(false);
     const timerRef = useRef(null);
 
     useEffect(() => {
         if (activeDay?.running) {
-            const tick = () => setElapsed(now() - activeDay.startTime);
-            tick();
-            timerRef.current = setInterval(tick, 1000);
-        } else setElapsed(0);
+            timerRef.current = setInterval(() => setElapsed(now() - activeDay.startTime), 1000);
+        } else {
+            clearInterval(timerRef.current);
+            setElapsed(0);
+        }
         return () => clearInterval(timerRef.current);
     }, [activeDay]);
 
+    const startDay = () => {
+        const d = { id: `day-${now()}`, date: todayStr(), startTime: now(), running: true, startKm: 0, trackedTotalKm: 0, trips: [] };
+        saveActiveDay(d);
+    };
+
+    const endDay = () => {
+        if (!activeDay) return;
+        const dayTrips = trips.filter(t => t.dayId === activeDay.id);
+        const dayStats = dayTrips.reduce((acc, t) => {
+            const c = calcTrip(t, config);
+            return { net: acc.net + c.netEarning, km: acc.km + c.totalKm };
+        }, { net: 0, km: 0 });
+
+        const totalMin = (now() - activeDay.startTime) / 60000;
+        const finished = {
+            ...activeDay,
+            endTime: now(),
+            running: false,
+            totalNet: dayStats.net,
+            totalKm: activeDay.trackedTotalKm || dayStats.km,
+            totalMin,
+            tripCount: dayTrips.length
+        };
+        saveDays([...days, finished]);
+        saveActiveDay(null);
+        saveActiveTrip(null);
+    };
+
+    const startTrip = () => {
+        setTripModalOpen(true);
+    };
+
+    const endTrip = () => {
+        if (!activeTrip) return;
+        const finishedTrip = {
+            ...activeTrip,
+            trackedMin: (now() - activeTrip.timestamp) / 60000,
+        };
+        saveTrips([...trips, finishedTrip]);
+        saveActiveTrip(null);
+    };
+
     const todayTrips = trips.filter(t => t.date === todayStr());
-    const todayStats = todayTrips.reduce((acc, t) => {
-        const c = calcTrip(t, config, fixedCosts);
-        return { net: acc.net + c.netEarning, km: acc.km + c.totalKm, trips: acc.trips + 1 };
-    }, { net: 0, km: 0, trips: 0 });
+
+    // Detailed Stats for Home
+    const homeStats = useMemo(() => {
+        return todayTrips.reduce((acc, t) => {
+            const c = calcTrip(t, config);
+            return {
+                net: acc.net + c.netEarning,
+                km: acc.km + c.totalKm,
+                min: acc.min + c.totalMin,
+                gas: acc.gas + c.gasCost,
+                fees: acc.fees + c.platformFee,
+                count: acc.count + 1,
+                gross: acc.gross + (parseFloat(t.fare) || 0)
+            };
+        }, { net: 0, km: 0, min: 0, gas: 0, fees: 0, count: 0, gross: 0 });
+    }, [todayTrips, config]);
+
+    const gasPct = homeStats.gross > 0 ? (homeStats.gas / homeStats.gross) * 100 : 0;
+    const feesPct = homeStats.gross > 0 ? (homeStats.fees / homeStats.gross) * 100 : 0;
+    const netPct = homeStats.gross > 0 ? (homeStats.net / homeStats.gross) * 100 : 0;
 
     return (
-        <div style={{ padding: "20px 16px" }} className="fade-up">
-            <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 16, padding: 20, marginBottom: 16 }}>
-                <div style={{ fontSize: 10, color: "#505070", letterSpacing: 3, marginBottom: 16 }}>JORNADA DE HOY</div>
-                {!activeDay ? (
-                    <button className="btn" onClick={startActiveDay}
-                        style={{ width: "100%", padding: "18px", background: `${ACCENT}22`, border: `2px solid ${ACCENT}`, borderRadius: 12, color: ACCENT, fontFamily: "'Barlow Condensed', sans-serif", fontSize: 22, fontWeight: 700, letterSpacing: 2 }}>
-                        🚀 INICIAR DÍA
-                    </button>
-                ) : (
+        <div className="pb-40 animate-in fade-in slide-in-from-bottom-6 duration-700">
+            {/* Main Stats Card */}
+            <section className="px-6 mb-12">
+                <p className="text-[14px] font-extrabold text-text-dim tracking-tight mb-2">Ingresos del Día</p>
+                <div className="flex items-baseline gap-2 mb-4">
+                    <h2 className="text-[56px] font-extrabold text-white tracking-tighter leading-none heading-premium">
+                        {fmtMXN(homeStats.net).split('.')[0]}
+                        <span className="text-3xl opacity-20">.{fmtMXN(homeStats.net).split('.')[1]}</span>
+                    </h2>
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-accent/10 border border-accent/20 text-accent text-[12px] font-extrabold">
+                        <TrendingUp size={14} strokeWidth={3} />
+                        <span>PRO</span>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 rounded-full bg-accent animate-pulse" />
+                    <span className="text-[11px] font-black text-accent uppercase tracking-widest">Actualizado en tiempo real</span>
+                </div>
+            </section>
+
+            {/* Allocation Bar */}
+            <section className="px-6 mb-12">
+                <div className="flex justify-between items-end mb-4">
                     <div>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                            <div>
-                                <div className="recording" style={{ fontSize: 10, color: DANGER, letterSpacing: 2, marginBottom: 4 }}>● GRABANDO</div>
-                                <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 42, fontWeight: 800, color: ACCENT2, lineHeight: 1 }}>{fmtTime(elapsed)}</div>
-                            </div>
-                            <div style={{ textAlign: "right" }}>
-                                <div style={{ fontSize: 10, color: "#505070", marginBottom: 4 }}>viajes hoy</div>
-                                <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 32, fontWeight: 700 }}>{todayTrips.length}</div>
-                            </div>
+                        <span className="text-[12px] font-black text-text-dim uppercase tracking-widest block mb-1">Distribución</span>
+                        <span className="text-lg font-extrabold text-white tracking-tight">Costo vs Ganancia</span>
+                    </div>
+                    <span className="text-lg font-black text-white mono">{fmtMXN(homeStats.gross)}</span>
+                </div>
+                <div className="spending-bar w-full h-[18px] mb-6 rounded-full p-1 bg-white/5 border border-white/5">
+                    <div className="bg-accent rounded-full transition-all duration-1000 shadow-[0_0_15px_rgba(34,197,94,0.3)]" style={{ width: `${netPct}%` }} />
+                    <div className="bg-accent-cyan rounded-full mx-1 transition-all duration-1000" style={{ width: `${gasPct}%` }} />
+                    <div className="bg-white/10 rounded-full transition-all duration-1000" style={{ width: `${feesPct}%` }} />
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                    <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-accent shadow-lg shadow-accent/20" />
+                        <span className="text-[10px] font-black text-text-dim uppercase tracking-widest">Neto</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-accent-cyan" />
+                        <span className="text-[10px] font-black text-text-dim uppercase tracking-widest">Gas</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-white/10" />
+                        <span className="text-[10px] font-black text-text-dim uppercase tracking-widest">Fee</span>
+                    </div>
+                </div>
+            </section>
+
+            {/* Info Cards Row */}
+            <div className="grid grid-cols-2 gap-4 px-6 mb-12">
+                <div className="card-premium h-44 flex flex-col justify-between py-6 group bg-gradient-to-br from-white/[0.03] to-transparent">
+                    <div className="w-12 h-12 rounded-2xl bg-accent/10 flex items-center justify-center text-accent group-hover:scale-110 transition-transform">
+                        <MapPin size={22} strokeWidth={2.5} />
+                    </div>
+                    <div>
+                        <p className="text-[11px] font-black text-text-dim uppercase tracking-widest mb-1">KM Totales</p>
+                        <p className="text-3xl font-extrabold text-white tracking-tighter">{fmt(activeDay?.trackedTotalKm || homeStats.km, 1)}</p>
+                    </div>
+                </div>
+                <div className="card-premium h-44 flex flex-col justify-between py-6 group bg-gradient-to-br from-white/[0.03] to-transparent">
+                    <div className="w-12 h-12 rounded-2xl bg-accent2/10 flex items-center justify-center text-accent2 group-hover:scale-110 transition-transform">
+                        <Clock size={22} strokeWidth={2.5} />
+                    </div>
+                    <div>
+                        <p className="text-[11px] font-black text-text-dim uppercase tracking-widest mb-1">Sesión</p>
+                        <p className="text-3xl font-extrabold text-white tracking-tighter">{activeDay ? fmtTime(elapsed).split(':').slice(0, 2).join('h ') + 'm' : `${Math.floor(homeStats.min / 60)}h ${Math.floor(homeStats.min % 60)}m`}</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Quick Actions / Status */}
+            <section className="px-6 mb-12">
+                <div className={`card-premium p-1 transition-all duration-700 ${activeDay ? 'bg-accent/5 border-accent/20' : 'bg-white/[0.02]'}`}>
+                    <div className="flex items-center justify-between p-7">
+                        <div>
+                            <h3 className="text-lg font-extrabold text-white tracking-tight mb-0.5">{activeDay ? 'Turno Iniciado' : 'Fuera de Línea'}</h3>
+                            <p className="text-[11px] font-bold text-text-dim uppercase tracking-[0.1em]">{activeDay ? 'Analizando métricas en vivo...' : 'Toca para empezar a ganar'}</p>
                         </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
-                            <StatMini label="Neto acumulado" value={fmtMXN(todayStats.net)} color={todayStats.net >= 0 ? ACCENT2 : DANGER} />
-                            <StatMini label="Km recorridos" value={`${fmt(todayStats.km, 1)} km`} color="#a0a0c0" />
+                        {activeDay ? (
+                            <button onClick={endDay} className="w-14 h-14 rounded-2xl bg-danger/10 border border-danger/20 text-danger flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg shadow-danger/10">
+                                <Square size={22} strokeWidth={3} />
+                            </button>
+                        ) : (
+                            <button onClick={startDay} className="w-14 h-14 rounded-2xl bg-accent text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-xl shadow-accent/40">
+                                <Play size={24} fill="currentColor" />
+                            </button>
+                        )
+                        }
+                    </div>
+                </div>
+            </section>
+
+            {/* Recent Trips List */}
+            {todayTrips.length > 0 && (
+                <section className="px-6 space-y-6">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h3 className="text-xl font-extrabold tracking-tight text-white mb-0.5">Actividad</h3>
+                            <p className="text-[11px] font-bold text-text-dim uppercase tracking-widest">Tus últimos servicios</p>
                         </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 8 }}>
-                            <button className="btn" onClick={() => setTripModal(true)}
-                                style={{ padding: "14px", background: `${ACCENT}22`, border: `2px solid ${ACCENT}`, borderRadius: 10, color: ACCENT, fontFamily: "'Barlow Condensed', sans-serif", fontSize: 18, fontWeight: 700, letterSpacing: 1 }}>
-                                + INICIAR VIAJE
-                            </button>
-                            <button className="btn" onClick={endActiveDay}
-                                style={{ padding: "14px", background: `${DANGER}15`, border: `1px solid ${DANGER}`, borderRadius: 10, color: DANGER, fontFamily: "'Barlow Condensed', sans-serif", fontSize: 16, fontWeight: 700 }}>
-                                FIN DÍA
-                            </button>
+                        <button className="text-accent text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-full glass border border-accent/20">Ver todo</button>
+                    </div>
+
+                    <div className="space-y-4">
+                        {todayTrips.slice().reverse().slice(0, 5).map(t => {
+                            const c = calcTrip(t, config);
+                            const colorClass = c.score === 2 ? 'text-accent' : c.score === 1 ? 'text-accent2' : 'text-danger';
+
+                            return (
+                                <div key={t.id} className="card-premium flex items-center justify-between group p-6 border-white/5 hover:border-white/10">
+                                    <div className="flex items-center gap-4">
+                                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center bg-white/5 border border-white/5 transition-transform group-active:scale-95 group-hover:bg-white/10`}>
+                                            <Wallet size={24} className={colorClass} />
+                                        </div>
+                                        <div>
+                                            <div className="font-extrabold text-lg text-white tracking-tight uppercase">{t.platform}</div>
+                                            <div className="text-[10px] text-text-dim font-bold uppercase tracking-widest opacity-60">{fmtDate(t.timestamp)} • {Math.round(c.totalMin)}min</div>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className={`text-xl font-extrabold tracking-tighter ${colorClass}`}>{fmtMXN(c.netEarning)}</div>
+                                        <div className="text-[10px] text-text-dim font-bold uppercase tracking-widest opacity-40">NETO</div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    {activeDay && !activeTrip && (
+                        <button onClick={startTrip} className="w-full h-20 rounded-[32px] border-2 border-dashed border-white/10 flex items-center justify-center gap-3 text-white/40 hover:text-white hover:border-accent/40 transition-all bg-white/[0.01] hover:bg-accent/[0.02]">
+                            <Plus size={22} />
+                            <span className="text-[12px] font-black tracking-[0.3em] uppercase">Registrar Nuevo Viaje</span>
+                        </button>
+                    )}
+                </section>
+            )}
+
+            {activeDay && activeTrip && (
+                <div className="fixed bottom-36 left-6 right-6 z-[80] glass-bright border border-accent/30 rounded-[32px] p-6 shadow-2xl animate-float">
+                    <div className="flex justify-between items-center mb-6">
+                        <div className="flex items-center gap-3">
+                            <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                            <span className="text-[10px] font-black text-accent uppercase tracking-widest">Escaneando Ruta...</span>
+                        </div>
+                        <span className="text-[12px] font-black text-white mono">{fmtTime(now() - activeTrip.timestamp).split(':').slice(1).join(':')}m</span>
+                    </div>
+                    <div className="flex justify-between items-end mb-6">
+                        <div>
+                            <p className="text-[8px] font-black text-text-dim uppercase tracking-widest mb-1">Tarifa Actual</p>
+                            <p className="text-3xl font-black text-white italic mono">{fmtMXN(activeTrip.fare)}</p>
+                        </div>
+                        <div className="text-right">
+                            <p className="text-[8px] font-black text-text-dim uppercase tracking-widest mb-1">Km Track</p>
+                            <p className="text-2xl font-black text-white mono">{fmt(activeTrip.trackedKm || 0, 2)}</p>
+                        </div>
+                    </div>
+                    <button onClick={endTrip} className="w-full py-4 rounded-2xl bg-white text-black font-black text-xs tracking-widest uppercase">
+                        FINALIZAR VIAJE
+                    </button>
+                </div>
+            )}
+
+            {tripModalOpen && <TripModal config={config} trips={trips} saveTrips={saveTrips} activeDay={activeDay} activeTrip={activeTrip} saveActiveTrip={saveActiveTrip} onClose={() => setTripModalOpen(false)} />}
+        </div>
+    );
+}
+
+function StatsMini({ label, value, color, icon: Icon }) {
+    return (
+        <div className="glass p-5 rounded-[28px] border border-white/5 flex flex-col items-center text-center group hover:bg-white/[0.03] transition-all">
+            <div className={`w-10 h-10 rounded-2xl mb-3 flex items-center justify-center`} style={{ backgroundColor: `${color}15`, color }}>
+                <Icon size={18} />
+            </div>
+            <p className="text-[8px] font-black text-text-dim uppercase tracking-[0.2em] mb-1">{label}</p>
+            <p className="text-sm font-black mono text-white truncate w-full">{value}</p>
+        </div>
+    );
+}
+
+function TripsTab({ config, trips, saveTrips }) {
+    const [filter, setFilter] = useState("all");
+    const [modalOpen, setModalOpen] = useState(false);
+
+    const filtered = trips.filter(t => {
+        if (filter === "today") return t.date === todayStr();
+        if (filter === "week") {
+            const d = new Date(); d.setDate(d.getDate() - 7);
+            return new Date(t.timestamp) >= d;
+        }
+        return true;
+    }).sort((a, b) => b.timestamp - a.timestamp);
+
+    const deleteTrip = (id) => {
+        if (confirm("¿Eliminar registro?")) {
+            saveTrips(trips.filter(t => t.id !== id));
+        }
+    };
+
+    return (
+        <div className="py-8 space-y-8 pb-32">
+            <header className="px-2">
+                <h2 className="text-3xl font-black italic tracking-tighter">HISTORIAL DE<br /><span className="accent-text NOT-italic">VIAJES</span></h2>
+            </header>
+
+            <div className="glass p-1.5 rounded-2xl flex gap-1 border border-white/5">
+                {["all", "week", "today"].map(f => (
+                    <button key={f} onClick={() => setFilter(f)}
+                        className={`flex-1 py-3 rounded-xl text-[10px] font-black tracking-widest uppercase transition-all ${filter === f ? 'bg-white text-black shadow-xl' : 'text-text-dim hover:text-white'}`}>
+                        {f === 'all' ? 'Ver Todos' : f === 'week' ? 'Semana' : 'Hoy'}
+                    </button>
+                ))}
+            </div>
+
+            <button onClick={() => setModalOpen(true)} className="w-full card-item border-dashed flex items-center justify-center gap-3 text-text-dim hover:text-accent group">
+                <Plus size={18} strokeWidth={3} className="group-hover:scale-125 transition-all" />
+                <span className="text-[10px] font-black tracking-[0.2em] uppercase">Registrar Manual</span>
+            </button>
+
+            <div className="space-y-4 px-2">
+                {filtered.length === 0 ? (
+                    <div className="py-20 flex flex-col items-center justify-center opacity-20">
+                        <FolderOpen size={48} className="mb-4" />
+                        <p className="text-[12px] font-extrabold tracking-[0.4em] uppercase">Sin registros</p>
+                    </div>
+                ) : (
+                    filtered.map(t => {
+                        const c = calcTrip(t, config);
+                        const label = c.score === 2 ? 'Rendimiento Alto' : c.score === 1 ? 'Neutral' : 'Bajo Impacto';
+                        const colorClass = c.score === 2 ? 'text-accent' : c.score === 1 ? 'text-accent2' : 'text-danger';
+                        const bgColorClass = c.score === 2 ? 'bg-accent/20' : c.score === 1 ? 'bg-accent2/20' : 'bg-danger/20';
+
+                        return (
+                            <div key={t.id} className="card-premium group relative border-white/5 hover:border-accent/30 transition-all">
+                                <div className="flex justify-between items-start mb-6">
+                                    <div className="flex items-center gap-4">
+                                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center bg-white/5 border border-white/5 group-hover:bg-white/10 transition-colors`}>
+                                            <Wallet size={24} className={colorClass} />
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-black text-text-dim tracking-widest uppercase">{fmtDate(t.timestamp)} • {t.platform}</span>
+                                            <h4 className="text-2xl font-extrabold text-white tracking-tight">{fmtMXN(t.fare)}</h4>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => deleteTrip(t.id)} className="w-10 h-10 flex items-center justify-center text-text-muted hover:text-danger hover:bg-danger/10 rounded-xl transition-all">
+                                        <Trash2 size={18} />
+                                    </button>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-6 py-4 border-t border-white/5">
+                                    <div>
+                                        <p className="text-[10px] font-black text-text-dim uppercase tracking-widest mb-1">Recorrido</p>
+                                        <p className="text-xl font-extrabold text-white tracking-tight">{fmt(c.totalKm, 1)} <span className="text-xs text-text-muted">KM</span></p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-[10px] font-black text-text-dim uppercase tracking-widest mb-1">Neto Real</p>
+                                        <p className={`text-xl font-extrabold tracking-tight ${colorClass}`}>{fmtMXN(c.netEarning)}</p>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center justify-between pt-4 border-t border-white/5">
+                                    <div className="flex gap-4">
+                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/5">
+                                            <Fuel size={12} className="text-danger" />
+                                            <span className="text-[10px] font-black text-white">{fmtMXN(c.gasCost)}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/5">
+                                            <Clock size={12} className="text-accent" />
+                                            <span className="text-[10px] font-black text-white">{Math.round(c.totalMin)}m</span>
+                                        </div>
+                                    </div>
+                                    <div className={`px-4 py-1.5 rounded-full text-[10px] font-black tracking-widest uppercase ${bgColorClass} ${colorClass}`}>
+                                        {label}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })
+                )}
+            </div>
+            {modalOpen && <TripModal config={config} trips={trips} saveTrips={saveTrips} onClose={() => setModalOpen(false)} />}
+        </div>
+    );
+}
+
+
+function StatsTab({ config, trips, days }) {
+    const [range, setRange] = useState(30);
+
+    const cutoff = Date.now() - range * 24 * 3600 * 1000;
+    const filtered = trips.filter(t => t.timestamp >= cutoff);
+
+    const byDate = {};
+    filtered.forEach(t => {
+        const c = calcTrip(t, config);
+        if (!byDate[t.date]) byDate[t.date] = { date: t.date, net: 0, km: 0, trips: 0, minutes: 0, gas: 0 };
+        byDate[t.date].net += c.netEarning;
+        byDate[t.date].km += c.totalKm;
+        byDate[t.date].trips += 1;
+        byDate[t.date].minutes += c.totalMin;
+        byDate[t.date].gas += c.gasCost;
+    });
+
+    const chartData = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)).map(d => ({
+        ...d,
+        netPerHour: d.minutes > 0 ? (d.net / (d.minutes / 60)) : 0,
+        label: new Date(d.date).toLocaleDateString("es-MX", { day: "numeric", month: "short" })
+    }));
+
+    const totals = filtered.reduce((acc, t) => {
+        const c = calcTrip(t, config);
+        return {
+            net: acc.net + c.netEarning,
+            km: acc.km + c.totalKm,
+            gas: acc.gas + c.gasCost,
+            amortized: acc.amortized + c.amortizedCosts
+        };
+    }, { net: 0, km: 0, gas: 0, amortized: 0 });
+
+    const totalNet = totals.net;
+    const totalKm = totals.km;
+    const totalGas = totals.gas;
+
+    const CustomTooltip = ({ active, payload, label }) => {
+        if (!active || !payload?.length) return null;
+        return (
+            <div className="card-premium !bg-black border-accent/20 p-5 shadow-2xl backdrop-blur-3xl">
+                <div className="text-[10px] font-black text-accent uppercase tracking-widest mb-4 pb-3 border-b border-white/5">{label}</div>
+                <div className="space-y-3">
+                    {payload.map((p, i) => (
+                        <div key={i} className="flex items-center justify-between gap-8">
+                            <span className="text-[10px] font-black text-text-dim uppercase tracking-tighter">{p.name}</span>
+                            <span className="text-sm font-extrabold" style={{ color: p.color }}>{p.name.includes("km") ? `${fmt(p.value, 1)}` : fmtMXN(p.value)}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    };
+
+    return (
+        <div className="py-8 space-y-10 pb-32 px-1">
+            <header className="px-4">
+                <h2 className="text-[34px] font-extrabold text-white tracking-tighter leading-[1.1]">Rendimiento<br /><span className="text-accent">Analítico</span></h2>
+                <p className="text-[11px] font-bold text-text-dim uppercase tracking-widest mt-2">Métricas avanzadas de tu operación</p>
+            </header>
+
+            <div className="px-4">
+                <div className="bg-white/5 p-1.5 rounded-[20px] flex gap-1 border border-white/5">
+                    {[7, 14, 30, 90].map(r => (
+                        <button key={r} onClick={() => setRange(r)}
+                            className={`flex-1 py-3 rounded-xl text-[10px] font-black tracking-widest uppercase transition-all ${range === r ? 'bg-accent text-black font-extrabold' : 'text-text-dim hover:text-white'}`}>
+                            {r} Días
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 px-4">
+                <div className="card-premium h-44 flex flex-col justify-between py-6 group bg-gradient-to-br from-white/[0.03] to-transparent relative overflow-hidden">
+                    <TrendingUp className="absolute -bottom-6 -right-6 w-32 h-32 text-accent opacity-[0.03]" />
+                    <span className="text-[11px] font-black text-accent tracking-widest uppercase">Neto Total</span>
+                    <div>
+                        <h2 className="text-3xl font-extrabold text-white tracking-tighter leading-none mb-2">{fmtMXN(totalNet)}</h2>
+                        <div className="flex items-center gap-1.5">
+                            <div className="w-1.5 h-1.5 rounded-full bg-accent" />
+                            <p className="text-[10px] font-bold text-text-dim uppercase tracking-widest">Post-Gastos</p>
+                        </div>
+                    </div>
+                </div>
+                <div className="card-premium h-44 flex flex-col justify-between py-6 group bg-gradient-to-br from-white/[0.03] to-transparent relative overflow-hidden">
+                    <Fuel className="absolute -bottom-6 -right-6 w-32 h-32 text-danger opacity-[0.03]" />
+                    <span className="text-[11px] font-black text-danger tracking-widest uppercase">Gasolina</span>
+                    <div>
+                        <h2 className="text-3xl font-extrabold text-white tracking-tighter leading-none mb-2">{fmtMXN(totalGas)}</h2>
+                        <div className="flex items-center gap-1.5">
+                            <div className="w-1.5 h-1.5 rounded-full bg-danger" />
+                            <p className="text-[10px] font-bold text-text-dim uppercase tracking-widest">Consumo</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="px-4">
+                <div className="card-premium p-8 border-white/5">
+                    <div className="flex items-center justify-between mb-10">
+                        <h4 className="text-[11px] font-black tracking-widest text-text-muted uppercase">Tendencia de Ingresos</h4>
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5">
+                            <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                            <span className="text-[10px] font-black text-white uppercase tracking-widest">Métricas en vivo</span>
+                        </div>
+                    </div>
+                    <div className="h-48 w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={chartData} margin={{ top: 0, right: 0, left: -40, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="12 12" vertical={false} stroke="rgba(255,255,255,0.03)" />
+                                <XAxis dataKey="label" hide />
+                                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 800, fill: 'rgba(255,255,255,0.2)' }} />
+                                <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+                                <Bar dataKey="net" name="Ganancia" radius={[4, 4, 4, 4]} barSize={24}>
+                                    {chartData.map((e, i) => (
+                                        <Cell key={i} fill={e.net >= 0 ? 'var(--accent)' : 'var(--danger)'} />
+                                    ))}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                    <div className="mt-10 grid grid-cols-3 gap-4 pt-10 border-t border-white/5">
+                        <div className="text-center">
+                            <span className="text-[9px] font-black text-text-muted uppercase block tracking-widest mb-2">Km Total</span>
+                            <span className="text-base font-extrabold text-white">{fmt(totalKm, 0)}</span>
+                        </div>
+                        <div className="text-center">
+                            <span className="text-[9px] font-black text-text-muted uppercase block tracking-widest mb-2">$/Viaje</span>
+                            <span className="text-base font-extrabold text-accent">{fmtMXN(totalNet / (filtered.length || 1))}</span>
+                        </div>
+                        <div className="text-center">
+                            <span className="text-[9px] font-black text-text-muted uppercase block tracking-widest mb-2">$/KM</span>
+                            <span className="text-base font-extrabold text-accent2">{fmt(totalNet / (totalKm || 1), 2)}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+
+function AITab({ config, trips, days }) {
+    const [messages, setMessages] = useState([{
+        role: "assistant",
+        content: "¡Qué onda! Soy tu analista personal. Mis datos dicen que tu rendimiento actual es estable, pero hay un margen que podemos mejorar optimizando tus zonas de recolección.\n\n¿Quieres saber en qué horarios estás perdiendo más dinero?"
+    }]);
+    const [input, setInput] = useState("");
+    const [isTyping, setIsTyping] = useState(false);
+    const scrollRef = useRef();
+
+    useEffect(() => { scrollRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, isTyping]);
+
+    const handleSend = async () => {
+        if (!input.trim()) return;
+        const userMsg = { role: "user", content: input };
+        setMessages(prev => [...prev, userMsg]);
+        setInput("");
+        setIsTyping(true);
+
+        setTimeout(() => {
+            const aiMsg = { role: "assistant", content: "Analizando tus últimos viajes... He notado que en Uber estás aceptando viajes de menos de $45 MXN que te toman más de 15 minutos. Si reducimos estos, tu ganancia por hora subirá un 12%." };
+            setMessages(prev => [...prev, aiMsg]);
+            setIsTyping(false);
+        }, 1500);
+    };
+
+    return (
+        <div className="flex flex-col h-[75vh] font-display">
+            <header className="px-4 mb-8">
+                <h2 className="text-[34px] font-extrabold text-white tracking-tighter leading-[1.1]">Asistente<br /><span className="text-accent">Inteligente</span></h2>
+            </header>
+
+            <div className="flex-1 overflow-y-auto space-y-6 px-4 pb-10 scrollbar-hide">
+                {messages.map((m, i) => (
+                    <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2 duration-300`}>
+                        <div className={`max-w-[85%] p-6 ${m.role === 'user'
+                            ? 'bg-accent text-black rounded-3xl rounded-tr-none font-bold shadow-xl shadow-accent/10'
+                            : 'card-premium border-white/5 text-white/90 rounded-3xl rounded-tl-none'
+                            }`}>
+                            <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</p>
+                            <span className={`text-[9px] mt-2 block opacity-40 font-black uppercase tracking-widest ${m.role === 'user' ? 'text-black' : 'text-text-dim'}`}>
+                                {m.role === 'user' ? 'Tú' : 'AI PRO'} • {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                        </div>
+                    </div>
+                ))}
+                {isTyping && (
+                    <div className="flex justify-start animate-pulse">
+                        <div className="card-premium border-accent/20 px-6 py-4 rounded-full flex gap-1.5 items-center">
+                            <div className="w-1.5 h-1.5 bg-accent rounded-full" />
+                            <div className="w-1.5 h-1.5 bg-accent/60 rounded-full" />
+                            <div className="w-1.5 h-1.5 bg-accent/30 rounded-full" />
                         </div>
                     </div>
                 )}
+                <div ref={scrollRef} />
             </div>
 
-            {todayTrips.length > 0 && (
-                <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 16, padding: 20 }}>
-                    <div style={{ fontSize: 10, color: "#505070", letterSpacing: 3, marginBottom: 14 }}>VIAJES DE HOY</div>
-                    {todayTrips.slice(-5).reverse().map(t => {
-                        const c = calcTrip(t, config, fixedCosts);
-                        const col = c.netPerHour >= config.targetHourlyRate ? ACCENT2 : c.netPerHour >= config.targetHourlyRate * 0.8 ? ACCENT : DANGER;
-                        return (
-                            <div key={t.id} className="trip-card" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${BORDER}` }}>
+            <div className="px-4 pt-4 pb-12">
+                <div className="card-premium p-2 flex gap-4 items-center bg-white/[0.03] border-white/10 shadow-2xl">
+                    <input
+                        type="text"
+                        value={input}
+                        onChange={e => setInput(e.target.value)}
+                        onKeyPress={e => e.key === 'Enter' && handleSend()}
+                        placeholder="Pregunta sobre tu rendimiento..."
+                        className="flex-1 bg-transparent border-none focus:ring-0 text-white placeholder-text-muted px-4 font-bold"
+                    />
+                    <button
+                        onClick={handleSend}
+                        className="w-12 h-12 rounded-2xl bg-accent text-black flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-lg shadow-accent/20"
+                    >
+                        <Zap size={20} fill="currentColor" strokeWidth={0} />
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+
+function ConfigTab({ config, saveConfig }) {
+    const [local, setLocal] = useState(config);
+
+    useEffect(() => {
+        setLocal(config);
+    }, [config]);
+
+    const handleSave = () => {
+        saveConfig(local);
+        alert("¡Motor financiero optimizado y guardado!");
+    };
+
+    const ConfigItem = ({ label, icon: Icon, value, onChange, unit, step = "0.1", subtitle }) => (
+        <div className="card-premium flex flex-col justify-between py-6">
+            <div className="flex items-center justify-between mb-4">
+                <div className="w-10 h-10 rounded-2xl bg-accent-dim flex items-center justify-center text-accent">
+                    <Icon size={18} />
+                </div>
+                <span className="text-[10px] font-black text-white/20 mono">{unit}</span>
+            </div>
+            <div>
+                <input
+                    type="number"
+                    step={step}
+                    value={value}
+                    onChange={e => onChange(parseFloat(e.target.value) || 0)}
+                    className="bg-transparent text-3xl font-black text-white mono italic w-full focus:text-accent transition-colors"
+                    placeholder="0.00"
+                />
+                <p className="text-[10px] font-black text-text-dim uppercase tracking-widest mt-1">{label}</p>
+            </div>
+        </div>
+    );
+
+    return (
+        <div className="py-8 space-y-12 pb-48 font-display px-1">
+            <header className="px-4">
+                <h2 className="text-[34px] font-extrabold text-white tracking-tighter leading-[1.1]">Motor<br /><span className="text-accent">Financiero</span></h2>
+                <p className="text-[11px] font-bold text-text-dim uppercase tracking-widest mt-2">Personaliza tus metas y costos</p>
+            </header>
+
+            <section className="px-4 space-y-6">
+                <div className="flex items-center gap-3">
+                    <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                    <h3 className="text-[11px] font-black text-white uppercase tracking-[0.3em]">Configuración Base</h3>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                    <ConfigItem label="Gasolina" icon={Fuel} value={local.gasPricePerLiter} onChange={v => setLocal({ ...local, gasPricePerLiter: v })} unit="MXN/L" />
+                    <ConfigItem label="Rendimiento" icon={TrendingUp} value={local.kmPerLiter} onChange={v => setLocal({ ...local, kmPerLiter: v })} unit="KM/L" />
+                    <ConfigItem label="Meta / Hora" icon={Clock} value={local.targetHourlyRate} onChange={v => setLocal({ ...local, targetHourlyRate: v })} unit="MXN/HR" />
+                    <ConfigItem label="Meta / KM" icon={MapPin} value={local.targetPerKm} onChange={v => setLocal({ ...local, targetPerKm: v })} unit="MXN/KM" />
+                </div>
+            </section>
+
+            <section className="space-y-6 px-1">
+                <div className="flex items-center justify-between px-4">
+                    <div className="flex items-center gap-3">
+                        <div className="w-1.5 h-1.5 rounded-full bg-accent2" />
+                        <h3 className="text-[11px] font-black text-white uppercase tracking-[0.3em]">Gastos Pro</h3>
+                    </div>
+                </div>
+
+                <div className="space-y-4 px-2">
+                    {/* RENTA / PAGO AUTO */}
+                    <div className={`card-premium transition-all duration-500 ${local.useRentInCalc ? 'border-accent/40 bg-accent/5 shadow-2xl shadow-accent/10' : 'opacity-40 grayscale border-white/5'}`}>
+                        <div className="flex items-center justify-between mb-8">
+                            <div className="flex items-center gap-4">
+                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${local.useRentInCalc ? 'bg-accent text-black' : 'bg-white/5 text-text-dim'}`}>
+                                    <ShieldCheck size={24} strokeWidth={2.5} />
+                                </div>
                                 <div>
-                                    <div style={{ fontSize: 12, color: "#c0c0e0" }}>{fmtMXN(t.fare)} · {fmt(c.totalKm, 1)} km</div>
-                                    <div style={{ fontSize: 10, color: "#505070" }}>{c.totalMin.toFixed(0)} min · gas {fmtMXN(c.gasCost)}</div>
+                                    <span className="text-[13px] font-extrabold text-white tracking-tight block">Pago de Unidad</span>
+                                    <span className="text-[9px] font-bold text-text-muted uppercase tracking-widest">Gasto periódico</span>
                                 </div>
-                                <div style={{ textAlign: "right" }}>
-                                    <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 18, fontWeight: 700, color: col }}>{fmtMXN(c.netEarning)}</div>
-                                    <div style={{ fontSize: 9, color: "#505070" }}>{fmtMXN(c.netPerHour)}/hr</div>
+                            </div>
+                            <button onClick={() => setLocal({ ...local, useRentInCalc: !local.useRentInCalc })} className={`w-12 h-6 rounded-full relative transition-all ${local.useRentInCalc ? 'bg-accent' : 'bg-white/10'}`}>
+                                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all ${local.useRentInCalc ? 'left-7' : 'left-1'}`} />
+                            </button>
+                        </div>
+                        {local.useRentInCalc && (
+                            <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black text-text-dim uppercase tracking-widest pl-2">Cantidad (MXN)</label>
+                                    <input type="number" value={local.unitCost} onChange={e => setLocal({ ...local, unitCost: parseFloat(e.target.value) || 0 })} className="premium-input w-full text-2xl font-extrabold" />
                                 </div>
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black text-text-dim uppercase tracking-widest pl-2">Frecuencia</label>
+                                    <select value={local.unitPeriod} onChange={e => setLocal({ ...local, unitPeriod: e.target.value })} className="premium-input w-full text-[10px] font-black uppercase appearance-none cursor-pointer">
+                                        <option value="daily">Diario</option>
+                                        <option value="weekly">Semanal</option>
+                                        <option value="monthly">Mensual</option>
+                                    </select>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* SEGURO */}
+                    <div className={`card-premium transition-all duration-500 ${local.useInsuranceInCalc ? 'border-accent/40 bg-accent/5' : 'opacity-40 grayscale border-white/5'}`}>
+                        <div className="flex items-center justify-between mb-8">
+                            <div className="flex items-center gap-4">
+                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${local.useInsuranceInCalc ? 'bg-accent text-black' : 'bg-white/5 text-text-dim'}`}>
+                                    <Shield size={24} strokeWidth={2.5} />
+                                </div>
+                                <div>
+                                    <span className="text-[13px] font-extrabold text-white tracking-tight block">Seguro Auto</span>
+                                    <span className="text-[9px] font-bold text-text-muted uppercase tracking-widest">Protección Activa</span>
+                                </div>
+                            </div>
+                            <button onClick={() => setLocal({ ...local, useInsuranceInCalc: !local.useInsuranceInCalc })} className={`w-12 h-6 rounded-full relative transition-all ${local.useInsuranceInCalc ? 'bg-accent' : 'bg-white/10'}`}>
+                                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all ${local.useInsuranceInCalc ? 'left-7' : 'left-1'}`} />
+                            </button>
+                        </div>
+                        {local.useInsuranceInCalc && (
+                            <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black text-text-dim uppercase tracking-widest pl-2">Costo (MXN)</label>
+                                    <input type="number" value={local.insuranceCost} onChange={e => setLocal({ ...local, insuranceCost: parseFloat(e.target.value) || 0 })} className="premium-input w-full text-2xl font-extrabold" />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black text-text-dim uppercase tracking-widest pl-2">Frecuencia</label>
+                                    <select value={local.insurancePeriod} onChange={e => setLocal({ ...local, insurancePeriod: e.target.value })} className="premium-input w-full text-[10px] font-black uppercase appearance-none cursor-pointer">
+                                        <option value="monthly">Mensual</option>
+                                        <option value="annual">Anual</option>
+                                    </select>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* LLANTAS / MANTENIMIENTO */}
+                    <div className={`card-premium transition-all duration-500 ${local.useTiresInCalc ? 'border-accent/40 bg-accent/5' : 'opacity-40 grayscale border-white/5'}`}>
+                        <div className="flex items-center justify-between mb-8">
+                            <div className="flex items-center gap-4">
+                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${local.useTiresInCalc ? 'bg-accent text-black' : 'bg-white/5 text-text-dim'}`}>
+                                    <TrendingUp size={24} strokeWidth={2.5} />
+                                </div>
+                                <div>
+                                    <span className="text-[13px] font-extrabold text-white tracking-tight block">Insumos (Llantas)</span>
+                                    <span className="text-[9px] font-bold text-text-muted uppercase tracking-widest">Costo por KM</span>
+                                </div>
+                            </div>
+                            <button onClick={() => setLocal({ ...local, useTiresInCalc: !local.useTiresInCalc })} className={`w-12 h-6 rounded-full relative transition-all ${local.useTiresInCalc ? 'bg-accent' : 'bg-white/10'}`}>
+                                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all ${local.useTiresInCalc ? 'left-7' : 'left-1'}`} />
+                            </button>
+                        </div>
+                        {local.useTiresInCalc && (
+                            <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black text-text-dim uppercase tracking-widest pl-2">Costo Juego</label>
+                                    <input type="number" value={local.tireCost} onChange={e => setLocal({ ...local, tireCost: parseFloat(e.target.value) || 0 })} className="premium-input w-full text-2xl font-extrabold" />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black text-text-dim uppercase tracking-widest pl-2">Vida Estimada (KM)</label>
+                                    <input type="number" value={local.tireLifeKm} onChange={e => setLocal({ ...local, tireLifeKm: parseFloat(e.target.value) || 0 })} className="premium-input w-full text-2xl font-extrabold" />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                    {/* DATOS MÓVILES */}
+                    <div className={`card-premium transition-all duration-500 ${local.useMobileDataInCalc ? 'border-accent/40 bg-accent/5 shadow-2xl shadow-accent/10' : 'opacity-40 grayscale border-white/5'}`}>
+                        <div className="flex items-center justify-between mb-8">
+                            <div className="flex items-center gap-4">
+                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${local.useMobileDataInCalc ? 'bg-accent text-black' : 'bg-white/5 text-text-dim'}`}>
+                                    <Smartphone size={24} strokeWidth={2.5} />
+                                </div>
+                                <div>
+                                    <span className="text-[13px] font-extrabold text-white tracking-tight block">Plan de Datos</span>
+                                    <span className="text-[9px] font-bold text-text-muted uppercase tracking-widest">Internet / Celular</span>
+                                </div>
+                            </div>
+                            <button onClick={() => setLocal({ ...local, useMobileDataInCalc: !local.useMobileDataInCalc })} className={`w-12 h-6 rounded-full relative transition-all ${local.useMobileDataInCalc ? 'bg-accent' : 'bg-white/10'}`}>
+                                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all ${local.useMobileDataInCalc ? 'left-7' : 'left-1'}`} />
+                            </button>
+                        </div>
+                        {local.useMobileDataInCalc && (
+                            <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black text-text-dim uppercase tracking-widest pl-2">Costo (MXN)</label>
+                                    <input type="number" value={local.mobileDataCost} onChange={e => setLocal({ ...local, mobileDataCost: parseFloat(e.target.value) || 0 })} className="premium-input w-full text-2xl font-extrabold" />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black text-text-dim uppercase tracking-widest pl-2">Frecuencia</label>
+                                    <select value={local.mobileDataPeriod} onChange={e => setLocal({ ...local, mobileDataPeriod: e.target.value })} className="premium-input w-full text-[10px] font-black uppercase appearance-none cursor-pointer">
+                                        <option value="monthly">Mensual</option>
+                                        <option value="weekly">Semanal</option>
+                                    </select>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </section>
+
+            <div className="px-4 pb-12">
+                <button onClick={handleSave} className="w-full h-16 rounded-full bg-accent text-black font-extrabold text-lg tracking-tight shadow-xl shadow-accent/20 active:scale-95 transition-all flex items-center justify-center gap-3">
+                    <Check size={24} strokeWidth={3} />
+                    Guardar Configuración
+                </button>
+            </div>
+        </div>
+    );
+}
+
+
+
+function LogrosTab({ config, trips }) {
+    const monthFiltered = trips.filter(t => {
+        const d = new Date(t.timestamp);
+        const now = new Date();
+        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    });
+
+    const monthlyGoal = 25000; // Meta mensual estática por ahora
+    const monthlyNet = monthFiltered.reduce((s, t) => s + (calcTrip(t, config).netEarning), 0);
+    const progress = Math.min((monthlyNet / monthlyGoal) * 100, 100);
+
+    const badges = [
+        { id: 1, label: "Ahorrador", icon: Fuel, color: "text-accent", desc: "Eficiencia > 14km/l", active: config.kmPerLiter > 14 },
+        { id: 2, label: "Rey de Propinas", icon: DollarSign, color: "text-accent2", desc: "Más de $500 en extras", active: false },
+        { id: 3, label: "KM Inteligente", icon: MapPin, color: "text-accent", desc: "Meta meta/km superada", active: true },
+        { id: 4, label: "Nocturno", icon: Zap, color: "text-accent2", desc: "50 viajes de noche", active: false },
+    ];
+
+    return (
+        <div className="py-8 space-y-10 pb-32 px-1 font-display">
+            <header className="px-4">
+                <h2 className="text-[34px] font-extrabold text-white tracking-tighter leading-[1.1]">Logros y<br /><span className="text-accent2">Metas</span></h2>
+                <p className="text-[11px] font-bold text-text-dim uppercase tracking-widest mt-2">Gamificación de rentabilidad</p>
+            </header>
+
+            {/* Circular Goal Display */}
+            <div className="px-4">
+                <div className="card-premium flex flex-col items-center py-12 relative overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-b from-accent2/5 to-transparent pointer-events-none" />
+                    <div className="relative w-48 h-48 mb-8">
+                        <svg className="w-full h-full -rotate-90">
+                            <circle cx="96" cy="96" r="88" stroke="currentColor" strokeWidth="12" fill="transparent" className="text-white/[0.03]" />
+                            <circle cx="96" cy="96" r="88" stroke="currentColor" strokeWidth="12" fill="transparent" strokeDasharray={552} strokeDashoffset={552 - (552 * progress) / 100} className="text-accent2 transition-all duration-1000 ease-out" strokeLinecap="round" />
+                        </svg>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                            <span className="text-3xl font-black text-white italic">{Math.round(progress)}%</span>
+                            <span className="text-[9px] font-black text-text-dim uppercase tracking-widest">de la Meta</span>
+                        </div>
+                    </div>
+                    <div className="text-center">
+                        <h3 className="text-xl font-extrabold text-white mb-1">{fmtMXN(monthlyNet)}</h3>
+                        <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Meta Mensual: {fmtMXN(monthlyGoal)}</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Badges Grid */}
+            <div className="px-4 space-y-6">
+                <h3 className="text-[11px] font-black text-text-dim uppercase tracking-[0.3em] ml-2">Insignias de Poder</h3>
+                <div className="grid grid-cols-2 gap-4">
+                    {badges.map(b => {
+                        const Icon = b.icon;
+                        return (
+                            <div key={b.id} className={`card-premium p-6 flex flex-col items-center text-center transition-all ${b.active ? 'opacity-100 border-accent2/40' : 'opacity-30 grayscale'}`}>
+                                <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-4 ${b.active ? 'bg-accent2 text-black' : 'bg-white/5 text-text-muted'}`}>
+                                    <Icon size={24} strokeWidth={2.5} />
+                                </div>
+                                <span className="text-[12px] font-extrabold text-white block mb-1">{b.label}</span>
+                                <span className="text-[8px] font-bold text-text-dim uppercase tracking-tighter leading-tight">{b.desc}</span>
                             </div>
                         );
                     })}
                 </div>
-            )}
+            </div>
 
-            {tripModal && <TripModal config={config} fixedCosts={fixedCosts} trips={trips} saveTrips={saveTrips} activeDay={activeDay} onClose={() => setTripModal(false)} />}
-        </div>
-    );
-}
-
-function StatMini({ label, value, color }) {
-    return (
-        <div style={{ background: "#0a0b12", borderRadius: 8, padding: "10px 12px" }}>
-            <div style={{ fontSize: 9, color: "#505070", letterSpacing: 1, marginBottom: 4 }}>{label}</div>
-            <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 20, fontWeight: 700, color }}>{value}</div>
-        </div>
-    );
-}
-
-// ─── TRIP MODAL ───────────────────────────────────────────────────────────────
-function TripModal({ config, fixedCosts, trips, saveTrips, activeDay, onClose }) {
-    const [mode, setMode] = useState("manual");
-    const [phase, setPhase] = useState(0);
-    const [trip, setTrip] = useState({ fare: "", pickupKm: "", pickupMin: "", destKm: "", destMin: "", platform: "uber", gpsKm: 0, gpsMin: 0 });
-    const [processing, setProcessing] = useState(false);
-    const [img, setImg] = useState(null);
-    const [gpsActive, setGpsActive] = useState(false);
-    const [gpsStatus, setGpsStatus] = useState("");
-    const [tripRunning, setTripRunning] = useState(false);
-    const [tripElapsed, setTripElapsed] = useState(0);
-    const timerRef = useRef(null);
-    const watchRef = useRef(null);
-    const tripStartRef = useRef(null);
-    const distRef = useRef(0);
-    const lastPosRef = useRef(null);
-    const fileRef = useRef();
-
-    const setField = (k, v) => setTrip(p => ({ ...p, [k]: v }));
-
-    useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
-}, []);
-
-    const haversine = (a, b) => {
-        const R = 6371, dLat = (b.lat - a.lat) * Math.PI / 180, dLon = (b.lon - a.lon) * Math.PI / 180;
-        const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-        return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-    };
-
-    const startGps = () => {
-        if (!navigator.geolocation) { setGpsStatus("GPS no disponible en este dispositivo"); return; }
-        distRef.current = 0;
-        lastPosRef.current = null;
-        tripStartRef.current = now();
-        setTripRunning(true);
-        setGpsActive(true);
-        setGpsStatus("📍 Iniciando...");
-        watchRef.current = navigator.geolocation.watchPosition(
-            (pos) => {
-                const cur = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-                if (lastPosRef.current) distRef.current += haversine(lastPosRef.current, cur);
-                lastPosRef.current = cur;
-                setGpsStatus(`📍 ${distRef.current.toFixed(2)} km`);
-            },
-            () => setGpsStatus("⚠️ Error GPS — verifica permisos"),
-            { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
-        );
-    };
-
-    const stopGps = () => {
-        if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
-        const mins = ((now() - tripStartRef.current) / 60000).toFixed(0);
-        setTrip(p => ({ ...p, gpsKm: distRef.current.toFixed(2), gpsMin: mins }));
-        setTripRunning(false);
-        setGpsActive(false);
-        setGpsStatus(`✅ ${distRef.current.toFixed(2)} km · ${mins} min`);
-    };
-
-    const handlePhoto = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        setProcessing(true);
-        const reader = new FileReader();
-        reader.onload = async (ev) => {
-            const b64 = ev.target.result.split(",")[1];
-            setImg(ev.target.result);
-            try {
-                const res = await fetch("https://api.anthropic.com/v1/messages", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        model: "claude-sonnet-4-20250514", max_tokens: 500,
-                        messages: [{ role: "user", content: [
-                            { type: "image", source: { type: "base64", media_type: file.type || "image/jpeg", data: b64 } },
-                            { type: "text", text: `Analiza esta captura de Uber/Didi. Extrae SOLO: tarifa (número), km al destino (número), minutos al destino (número). Responde SOLO en JSON: {"fare":0,"destKm":0,"destMin":0}` }
-                        ]}]
-                    })
-                });
-                const data = await res.json();
-                const txt = data.content?.find(b => b.type === "text")?.text || "{}";
-                const parsed = JSON.parse(txt.replace(/```json|```/g, "").trim());
-                setTrip(p => ({ ...p, fare: parsed.fare || "", destKm: parsed.destKm || "", destMin: parsed.destMin || "" }));
-                setMode("manual"); setPhase(1);
-            } catch { alert("No pude leer la imagen. Intenta manualmente."); setMode("manual"); }
-            setProcessing(false);
-        };
-        reader.readAsDataURL(file);
-    };
-
-    const saveTrip = async () => {
-        const newTrip = { ...trip, id: `trip-${now()}`, date: todayStr(), timestamp: now(), dayId: activeDay?.id || null };
-        await saveTrips([...trips, newTrip]);
-        onClose();
-    };
-
-    const calc = calcTrip(trip, config, fixedCosts);
-    const hasData = trip.fare && (trip.destKm || trip.destMin || parseFloat(trip.gpsKm) > 0);
-    const verdict = calc.netPerHour >= config.targetHourlyRate
-        ? { color: ACCENT2, label: "✅ Buen viaje" }
-        : calc.netPerHour >= config.targetHourlyRate * 0.8
-            ? { color: ACCENT, label: "⚠️ Regular" }
-            : { color: DANGER, label: "❌ No conviene" };
-
-   return (
-    <div style={{ position: "fixed", inset: 0, background: "#000000dd", zIndex: 9999, display: "flex", flexDirection: "column", justifyContent: "flex-end" }} onClick={onClose}>
-        <div onClick={e => e.stopPropagation()} style={{ background: CARD, borderRadius: "20px 20px 0 0", width: "100%", padding: "24px 20px", maxHeight: "85vh", overflowY: "auto", borderTop: `2px solid ${BORDER}` }}>
-    
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                    <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 22, fontWeight: 800, color: ACCENT }}>NUEVO VIAJE</div>
-                    <button className="btn" onClick={onClose} style={{ background: "none", border: "none", color: "#606080", fontSize: 24 }}>✕</button>
+            {/* Driver Level */}
+            <div className="px-4">
+                <div className="card-premium p-6">
+                    <div className="flex items-center justify-between mb-6">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-accent2 text-black flex items-center justify-center">
+                                <Trophy size={20} weight="bold" />
+                            </div>
+                            <div>
+                                <span className="text-[12px] font-extrabold text-white block">Rango Oro</span>
+                                <span className="text-[9px] font-bold text-accent2 uppercase tracking-widest">Siguiente: Diamante</span>
+                            </div>
+                        </div>
+                        <span className="text-[10px] font-black text-white/20 uppercase">XP: 2,450 / 5,000</span>
+                    </div>
+                    <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden border border-white/5">
+                        <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: "49%" }}
+                            className="h-full bg-gradient-to-r from-accent2 to-accent shadow-[0_0_15px_rgba(34,197,94,0.3)]"
+                        />
+                    </div>
                 </div>
+            </div>
+        </div>
+    );
+}
 
-                {/* Plataforma */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginBottom: 16 }}>
-                    {["uber", "didi", "beat", "otra"].map(p => (
-                        <button key={p} className="btn" onClick={() => setField("platform", p)}
-                            style={{ padding: "8px", background: trip.platform === p ? `${ACCENT}22` : "transparent", border: `1px solid ${trip.platform === p ? ACCENT : BORDER}`, borderRadius: 8, color: trip.platform === p ? ACCENT : "#505070", fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>
-                            {p}
+function Navigation({ active, onChange }) {
+    const items = [
+        { id: "home", icon: Zap, label: "Hoy" },
+        { id: "trips", icon: FolderOpen, label: "Viajes" },
+        { id: "stats", icon: ChartIcon, label: "Stats" },
+        { id: "logros", icon: Trophy, label: "Logros" },
+        { id: "ai", icon: Bot, label: "IA Pro" },
+        { id: "config", icon: Settings, label: "Motor" },
+    ];
+
+    return (
+        <nav className="fixed bottom-10 left-1/2 -translate-x-1/2 px-4 py-2 z-[100] max-w-sm pointer-events-none w-full flex justify-center">
+            <div className="glass bg-black/80 backdrop-blur-3xl rounded-[32px] flex items-center gap-1 p-2 pointer-events-auto shadow-2xl shadow-black/80 border border-white/5">
+                {items.map(item => {
+                    const Icon = item.icon;
+                    const isSelected = active === item.id;
+                    return (
+                        <button
+                            key={item.id}
+                            onClick={() => onChange(item.id)}
+                            className="relative flex flex-col items-center justify-center h-14 w-16 transition-all active:scale-90"
+                        >
+                            {isSelected && (
+                                <motion.div
+                                    layoutId="nav-glow"
+                                    className="absolute inset-0 bg-accent/10 rounded-2xl border border-accent/20"
+                                    transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                                />
+                            )}
+                            <Icon size={22} className={`relative z-10 transition-colors duration-500 ${isSelected ? 'text-accent' : 'text-text-muted'}`} strokeWidth={isSelected ? 3 : 2} />
+                            <span className={`relative z-10 text-[9px] font-bold uppercase mt-1 tracking-widest transition-colors ${isSelected ? 'text-white' : 'text-text-muted opacity-40'}`}>
+                                {item.label}
+                            </span>
                         </button>
-                    ))}
-                </div>
-
-                {/* Tarifa */}
-                <TripInput label="💰 TARIFA DEL VIAJE (MXN)" value={trip.fare} onChange={v => setField("fare", v)} unit="$" big />
-
-                {/* Modo */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, margin: "16px 0 12px" }}>
-                    {[{ id: "gps", label: "📍 GPS" }, { id: "manual", label: "✍️ Manual" }, { id: "photo", label: "📸 Foto" }].map(m => (
-                        <button key={m.id} className="btn" onClick={() => setMode(m.id)}
-                            style={{ padding: "10px", background: mode === m.id ? `${ACCENT2}22` : "transparent", border: `1px solid ${mode === m.id ? ACCENT2 : BORDER}`, borderRadius: 8, color: mode === m.id ? ACCENT2 : "#505070", fontSize: 11, letterSpacing: 1 }}>
-                            {m.label}
-                        </button>
-                    ))}
-                </div>
-
-                {mode === "gps" && (
-                    <div style={{ background: "#0a0b12", borderRadius: 12, padding: 16, marginBottom: 8 }}>
-                        <div style={{ fontSize: 10, color: "#505070", letterSpacing: 2, marginBottom: 12 }}>RASTREO GPS EN TIEMPO REAL</div>
-                        {gpsStatus && <div style={{ fontSize: 13, color: ACCENT2, marginBottom: 12 }}>{gpsStatus}</div>}
-                        {tripRunning && <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 32, color: ACCENT, marginBottom: 12 }}>{fmtTime(tripElapsed)}</div>}
-                        {!gpsActive ? (
-                            <button className="btn" onClick={startGps}
-                                style={{ width: "100%", padding: "14px", background: `${ACCENT2}22`, border: `2px solid ${ACCENT2}`, borderRadius: 10, color: ACCENT2, fontFamily: "'Barlow Condensed', sans-serif", fontSize: 18, fontWeight: 700 }}>
-                                ▶ INICIAR GPS
-                            </button>
-                        ) : (
-                            <button className="btn" onClick={stopGps}
-                                style={{ width: "100%", padding: "14px", background: `${DANGER}15`, border: `2px solid ${DANGER}`, borderRadius: 10, color: DANGER, fontFamily: "'Barlow Condensed', sans-serif", fontSize: 18, fontWeight: 700 }}>
-                                ⏹ FINALIZAR VIAJE
-                            </button>
-                        )}
-                    </div>
-                )}
-
-                {mode === "manual" && (
-                    <div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
-                            {[{ id: 0, label: "📍 RECOLECCIÓN" }, { id: 1, label: "🏁 DESTINO" }].map(ph => (
-                                <button key={ph.id} className="btn" onClick={() => setPhase(ph.id)}
-                                    style={{ padding: "10px", background: phase === ph.id ? `${ACCENT2}22` : "transparent", border: `1px solid ${phase === ph.id ? ACCENT2 : BORDER}`, borderRadius: 8, color: phase === ph.id ? ACCENT2 : "#505070", fontSize: 11, letterSpacing: 1 }}>
-                                    {ph.label}
-                                </button>
-                            ))}
-                        </div>
-                        {phase === 0 && (
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                                <TripInput label="km para recoger" value={trip.pickupKm} onChange={v => setField("pickupKm", v)} unit="km" />
-                                <TripInput label="minutos para recoger" value={trip.pickupMin} onChange={v => setField("pickupMin", v)} unit="min" />
-                            </div>
-                        )}
-                        {phase === 1 && (
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                                <TripInput label="km al destino" value={trip.destKm} onChange={v => setField("destKm", v)} unit="km" />
-                                <TripInput label="minutos al destino" value={trip.destMin} onChange={v => setField("destMin", v)} unit="min" />
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {mode === "photo" && (
-                    <div>
-                        <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{ display: "none" }} />
-                        {processing ? (
-                            <div style={{ textAlign: "center", padding: 40, color: ACCENT }}>
-                                <div style={{ fontSize: 30, marginBottom: 8 }}>🔍</div>
-                                <div style={{ fontSize: 12, letterSpacing: 2 }}>ANALIZANDO IMAGEN...</div>
-                            </div>
-                        ) : (
-                            <button className="btn" onClick={() => fileRef.current?.click()}
-                                style={{ width: "100%", padding: 40, background: `${ACCENT}11`, border: `2px dashed ${ACCENT}55`, borderRadius: 12, color: ACCENT, fontSize: 14, letterSpacing: 1 }}>
-                                📱 SUBE CAPTURA DE UBER/DIDI<br />
-                                <span style={{ fontSize: 11, color: "#606080", fontWeight: 400 }}>La IA extrae tarifa, km y tiempo</span>
-                            </button>
-                        )}
-                        {img && <img src={img} style={{ width: "100%", borderRadius: 8, marginTop: 12, opacity: 0.6 }} alt="preview" />}
-                    </div>
-                )}
-
-                {hasData && (
-                    <div style={{ background: `${verdict.color}15`, border: `1px solid ${verdict.color}44`, borderRadius: 12, padding: 16, margin: "20px 0 0" }}>
-                        <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 18, color: verdict.color, marginBottom: 12 }}>{verdict.label}</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                            {[
-                                { l: "NETO", v: fmtMXN(calc.netEarning), c: calc.netEarning >= 0 ? ACCENT2 : DANGER },
-                                { l: "POR HORA", v: fmtMXN(calc.netPerHour), c: verdict.color },
-                                { l: "POR KM", v: fmtMXN(calc.netPerKm), c: "#a0a0c0" },
-                            ].map(({ l, v, c }) => (
-                                <div key={l} style={{ textAlign: "center" }}>
-                                    <div style={{ fontSize: 9, color: "#505070", letterSpacing: 1, marginBottom: 3 }}>{l}</div>
-                                    <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 18, fontWeight: 700, color: c }}>{v}</div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 20 }}>
-                    <button className="btn" onClick={onClose}
-                        style={{ padding: "14px", background: "transparent", border: `1px solid ${BORDER}`, borderRadius: 10, color: "#606080", fontFamily: "'Barlow Condensed', sans-serif", fontSize: 16, letterSpacing: 1 }}>
-                        CANCELAR
-                    </button>
-                    <button className="btn" onClick={saveTrip} disabled={!trip.fare}
-                        style={{ padding: "14px", background: trip.fare ? `${ACCENT}22` : "#1c1f2e", border: `2px solid ${trip.fare ? ACCENT : BORDER}`, borderRadius: 10, color: trip.fare ? ACCENT : "#404060", fontFamily: "'Barlow Condensed', sans-serif", fontSize: 16, fontWeight: 700, letterSpacing: 1 }}>
-                        GUARDAR ✓
-                    </button>
-                </div>
+                    );
+                })}
             </div>
-        </div>
+        </nav>
     );
 }
 
-function TripInput({ label, value, onChange, unit, big }) {
-    return (
-        <div>
-            <div style={{ fontSize: 9, color: "#505070", letterSpacing: 1, marginBottom: 6 }}>{label.toUpperCase()}</div>
-            <div style={{ position: "relative" }}>
-                <input type="number" step="0.1" value={value} onChange={e => onChange(e.target.value)}
-                    style={{ width: "100%", background: "#0a0b12", border: `1px solid ${BORDER}`, borderRadius: 8, padding: `${big ? 14 : 10}px 40px ${big ? 14 : 10}px 14px`, color: "#fff", fontSize: big ? 24 : 18, fontFamily: "inherit", outline: "none" }}
-                    onFocus={e => e.target.style.borderColor = ACCENT}
-                    onBlur={e => e.target.style.borderColor = BORDER} />
-                <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", fontSize: 10, color: "#404060" }}>{unit}</span>
-            </div>
-        </div>
-    );
-}
 
-// ─── TRIPS TAB ────────────────────────────────────────────────────────────────
-function TripsTab({ config, fixedCosts, trips, saveTrips }) {
-    const [filter, setFilter] = useState("all");
-    const [addModal, setAddModal] = useState(false);
-
-    const filtered = trips.filter(t => {
-        if (filter === "today") return t.date === todayStr();
-        if (filter === "week") { const d = new Date(); d.setDate(d.getDate() - 7); return new Date(t.created_at || t.timestamp) >= d; }
-        return true;
-    });
-
-    const deleteTrip = async (id) => {
-        await supabase.from('trips').delete().eq('id', id);
-        saveTrips(trips.filter(t => t.id !== id));
-    };
-
-    return (
-        <div style={{ padding: "20px 16px" }} className="fade-up">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 16 }}>
-                {["all", "week", "today"].map(f => (
-                    <button key={f} className="btn" onClick={() => setFilter(f)}
-                        style={{ padding: "8px", background: filter === f ? `${ACCENT}22` : "transparent", border: `1px solid ${filter === f ? ACCENT : BORDER}`, borderRadius: 8, color: filter === f ? ACCENT : "#505070", fontSize: 11, letterSpacing: 1 }}>
-                        {f === "all" ? "TODOS" : f === "week" ? "SEMANA" : "HOY"}
-                    </button>
-                ))}
-            </div>
-            <button className="btn" onClick={() => setAddModal(true)}
-                style={{ width: "100%", padding: "12px", background: `${ACCENT}15`, border: `1px solid ${ACCENT}44`, borderRadius: 10, color: ACCENT, fontFamily: "'Barlow Condensed', sans-serif", fontSize: 16, letterSpacing: 1, marginBottom: 16 }}>
-                + AGREGAR VIAJE MANUALMENTE
-            </button>
-            {filtered.length === 0 ? (
-                <div style={{ textAlign: "center", padding: 40, color: "#404060" }}>
-                    <div style={{ fontSize: 32 }}>🚗</div>
-                    <div style={{ fontSize: 12, letterSpacing: 2, marginTop: 8 }}>SIN VIAJES</div>
-                </div>
-            ) : filtered.map(t => {
-                const c = calcTrip(t, config, fixedCosts);
-                const col = c.netPerHour >= config.targetHourlyRate ? ACCENT2 : c.netPerHour >= config.targetHourlyRate * 0.8 ? ACCENT : DANGER;
-                return (
-                    <div key={t.id} className="trip-card" style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 14, marginBottom: 8 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 10, color: "#505070", letterSpacing: 1, marginBottom: 4 }}>{fmtDate(t.created_at || t.timestamp)} · {(t.platform || "uber").toUpperCase()}</div>
-                                <div style={{ fontSize: 13, color: "#c0c0e0" }}>{fmtMXN(t.fare)} · {fmt(c.totalKm, 1)} km · {c.totalMin.toFixed(0)} min</div>
-                                {(t.gps_km > 0) && <div style={{ fontSize: 10, color: ACCENT2, marginTop: 2 }}>📍 GPS: {fmt(t.gps_km, 2)} km reales</div>}
-                            </div>
-                            <div style={{ textAlign: "right" }}>
-                                <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 20, fontWeight: 700, color: col }}>{fmtMXN(c.netEarning)}</div>
-                                <div style={{ fontSize: 9, color: "#505070" }}>{fmtMXN(c.netPerHour)}/hr · {fmtMXN(c.netPerKm)}/km</div>
-                                <button className="btn" onClick={() => deleteTrip(t.id)} style={{ background: "none", border: "none", color: "#404060", fontSize: 12, marginTop: 4 }}>✕</button>
-                            </div>
-                        </div>
-                    </div>
-                );
-            })}
-            {addModal && <TripModal config={config} fixedCosts={fixedCosts} trips={trips} saveTrips={saveTrips} activeDay={null} onClose={() => setAddModal(false)} />}
-        </div>
-    );
-}
-
-// ─── STATS TAB ────────────────────────────────────────────────────────────────
-function StatsTab({ config, fixedCosts, trips }) {
-    const [range, setRange] = useState(30);
-    const cutoff = Date.now() - range * 24 * 3600 * 1000;
-    const filtered = trips.filter(t => new Date(t.created_at || t.timestamp).getTime() >= cutoff);
-
-    const byDate = {};
-    filtered.forEach(t => {
-        const c = calcTrip(t, config, fixedCosts);
-        const date = t.date || todayStr();
-        if (!byDate[date]) byDate[date] = { date, net: 0, km: 0, trips: 0, minutes: 0, gas: 0 };
-        byDate[date].net += c.netEarning;
-        byDate[date].km += c.totalKm;
-        byDate[date].trips += 1;
-        byDate[date].minutes += c.totalMin;
-        byDate[date].gas += c.gasCost;
-    });
-    const chartData = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)).map(d => ({
-        ...d,
-        netPerHour: d.minutes > 0 ? d.net / (d.minutes / 60) : 0,
-        label: new Date(d.date).toLocaleDateString("es-MX", { day: "numeric", month: "short" })
-    }));
-
-    const totalNet = filtered.reduce((s, t) => s + calcTrip(t, config, fixedCosts).netEarning, 0);
-    const totalKm = filtered.reduce((s, t) => s + calcTrip(t, config, fixedCosts).totalKm, 0);
-    const totalGas = filtered.reduce((s, t) => s + calcTrip(t, config, fixedCosts).gasCost, 0);
-    const bestDay = chartData.length > 0 ? chartData.reduce((b, d) => d.net > b.net ? d : b) : null;
-
-    const platformData = filtered.reduce((acc, t) => {
-        const p = t.platform || "uber";
-        if (!acc[p]) acc[p] = { name: p.toUpperCase(), value: 0 };
-        acc[p].value += calcTrip(t, config, fixedCosts).netEarning;
-        return acc;
-    }, {});
-    const pieData = Object.values(platformData);
-    const PIE_COLORS = [ACCENT, ACCENT2, "#a855f7", "#f43f5e"];
-
-    const Tip = ({ active, payload, label }) => {
-        if (!active || !payload?.length) return null;
-        return <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 8, padding: "10px 14px", fontSize: 11 }}>
-            <div style={{ color: "#a0a0c0", marginBottom: 4 }}>{label}</div>
-            {payload.map((p, i) => <div key={i} style={{ color: p.color }}>{p.name}: {fmtMXN(p.value)}</div>)}
-        </div>;
-    };
-
-    return (
-        <div style={{ padding: "20px 16px" }} className="fade-up">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginBottom: 20 }}>
-                {[7, 14, 30, 60].map(r => (
-                    <button key={r} className="btn" onClick={() => setRange(r)}
-                        style={{ padding: "8px", background: range === r ? `${ACCENT}22` : "transparent", border: `1px solid ${range === r ? ACCENT : BORDER}`, borderRadius: 8, color: range === r ? ACCENT : "#505070", fontSize: 11, letterSpacing: 1 }}>
-                        {r}D
-                    </button>
-                ))}
-            </div>
-            {filtered.length < 1 ? (
-                <div style={{ textAlign: "center", padding: 60, color: "#404060" }}>
-                    <div style={{ fontSize: 32 }}>📊</div>
-                    <div style={{ fontSize: 12, letterSpacing: 2, marginTop: 8 }}>REGISTRA VIAJES PARA VER ESTADÍSTICAS</div>
-                </div>
-            ) : <>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-                    {[
-                        { l: "GANANCIA NETA", v: fmtMXN(totalNet), c: totalNet >= 0 ? ACCENT2 : DANGER },
-                        { l: "VIAJES TOTALES", v: filtered.length, c: "#c0c0e0" },
-                        { l: "KM RECORRIDOS", v: `${fmt(totalKm, 0)} km`, c: ACCENT },
-                        { l: "PROMEDIO/VIAJE", v: fmtMXN(filtered.length > 0 ? totalNet / filtered.length : 0), c: ACCENT2 },
-                    ].map(({ l, v, c }) => (
-                        <div key={l} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "14px 16px" }}>
-                            <div style={{ fontSize: 9, color: "#505070", letterSpacing: 2, marginBottom: 6 }}>{l}</div>
-                            <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 26, fontWeight: 700, color: c }}>{v}</div>
-                        </div>
-                    ))}
-                </div>
-                {bestDay && (
-                    <div style={{ background: `${ACCENT}11`, border: `1px solid ${ACCENT}33`, borderRadius: 12, padding: "12px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <div>
-                            <div style={{ fontSize: 9, color: ACCENT, letterSpacing: 2 }}>🏆 MEJOR DÍA</div>
-                            <div style={{ fontSize: 13, marginTop: 4 }}>{fmtDate(bestDay.date)}</div>
-                        </div>
-                        <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 28, fontWeight: 800, color: ACCENT }}>{fmtMXN(bestDay.net)}</div>
-                    </div>
-                )}
-                <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
-                    <div style={{ fontSize: 10, color: "#505070", letterSpacing: 2, marginBottom: 14 }}>GANANCIA DIARIA</div>
-                    <ResponsiveContainer width="100%" height={160}>
-                        <BarChart data={chartData} margin={{ left: -20 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
-                            <XAxis dataKey="label" tick={{ fill: "#404060", fontSize: 9 }} />
-                            <YAxis tick={{ fill: "#404060", fontSize: 9 }} />
-                            <Tooltip content={<Tip />} />
-                            <Bar dataKey="net" name="neto $" radius={[3, 3, 0, 0]}>
-                                {chartData.map((e, i) => <Cell key={i} fill={e.net >= 0 ? ACCENT : DANGER} />)}
-                            </Bar>
-                        </BarChart>
-                    </ResponsiveContainer>
-                </div>
-                <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
-                    <div style={{ fontSize: 10, color: "#505070", letterSpacing: 2, marginBottom: 14 }}>$/HORA VS META ({fmtMXN(config.targetHourlyRate)})</div>
-                    <ResponsiveContainer width="100%" height={140}>
-                        <LineChart data={chartData} margin={{ left: -20 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke={BORDER} />
-                            <XAxis dataKey="label" tick={{ fill: "#404060", fontSize: 9 }} />
-                            <YAxis tick={{ fill: "#404060", fontSize: 9 }} />
-                            <Tooltip content={<Tip />} />
-                            <Line type="monotone" dataKey="netPerHour" stroke={ACCENT2} strokeWidth={2} dot={false} name="$/hr" />
-                        </LineChart>
-                    </ResponsiveContainer>
-                </div>
-                {pieData.length > 1 && (
-                    <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
-                        <div style={{ fontSize: 10, color: "#505070", letterSpacing: 2, marginBottom: 14 }}>GANANCIA POR PLATAFORMA</div>
-                        <div style={{ display: "flex", alignItems: "center" }}>
-                            <ResponsiveContainer width="50%" height={120}>
-                                <PieChart><Pie data={pieData} cx="50%" cy="50%" innerRadius={30} outerRadius={55} paddingAngle={3} dataKey="value">
-                                    {pieData.map((e, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                                </Pie></PieChart>
-                            </ResponsiveContainer>
-                            <div style={{ flex: 1, paddingLeft: 8 }}>
-                                {pieData.map((p, i) => (
-                                    <div key={p.name} style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                            <div style={{ width: 8, height: 8, borderRadius: "50%", background: PIE_COLORS[i] }} />
-                                            <span style={{ fontSize: 11 }}>{p.name}</span>
-                                        </div>
-                                        <span style={{ fontSize: 11, color: PIE_COLORS[i] }}>{fmtMXN(p.value)}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                )}
-                <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 16 }}>
-                    <div style={{ fontSize: 10, color: "#505070", letterSpacing: 2, marginBottom: 14 }}>GASTO EN GASOLINA</div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <div>
-                            <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 28, color: DANGER }}>{fmtMXN(totalGas)}</div>
-                            <div style={{ fontSize: 10, color: "#505070" }}>en {range} días</div>
-                        </div>
-                        <div style={{ textAlign: "right" }}>
-                            <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 20, color: "#a0a0c0" }}>{fmtMXN(totalGas / (range || 1))}</div>
-                            <div style={{ fontSize: 10, color: "#505070" }}>por día</div>
-                        </div>
-                    </div>
-                    <div style={{ marginTop: 12, background: "#0a0b12", borderRadius: 6, height: 6 }}>
-                        <div style={{ height: "100%", width: `${Math.min(100, (totalGas / (totalNet + totalGas || 1)) * 100)}%`, background: DANGER, borderRadius: 6 }} />
-                    </div>
-                    <div style={{ fontSize: 10, color: "#505070", marginTop: 6 }}>Gas = {fmt((totalGas / (totalNet + totalGas || 1)) * 100, 1)}% de ingresos brutos</div>
-                </div>
-            </>}
-        </div>
-    );
-}
-
-// ─── AI TAB ───────────────────────────────────────────────────────────────────
-function AITab({ config, trips }) {
-    const [messages, setMessages] = useState([{ role: "assistant", content: "¡Hola! Soy tu asesor de rentabilidad 🚗\n\nPuedo analizar tus datos para ayudarte a ganar más:\n• ¿Cuándo son mis mejores horas?\n• ¿Cuál plataforma me conviene más?\n• ¿Cómo optimizo mis viajes?" }]);
-    const [input, setInput] = useState("");
-    const [loading, setLoading] = useState(false);
-    const endRef = useRef();
-    const monthAgo = Date.now() - 30 * 24 * 3600 * 1000;
-    const recent = trips.filter(t => new Date(t.created_at || t.timestamp).getTime() >= monthAgo);
-
-    useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
-
-    const send = async () => {
-        if (!input.trim() || loading) return;
-        const userMsg = { role: "user", content: input };
-        const newMsgs = [...messages, userMsg];
-        setMessages(newMsgs);
-        setInput(""); setLoading(true);
-        const stats = recent.reduce((a, t) => { const c = calcTrip(t, config, {}); return { net: a.net + c.netEarning, km: a.km + c.totalKm, count: a.count + 1, gas: a.gas + c.gasCost, mins: a.mins + c.totalMin }; }, { net: 0, km: 0, count: 0, gas: 0, mins: 0 });
-        try {
-            const res = await fetch("https://api.anthropic.com/v1/messages", {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    model: "claude-sonnet-4-20250514", max_tokens: 1000,
-                    system: `Asesor de rentabilidad para conductores Uber/Didi México. Consejos concisos y accionables. Español mexicano informal. Datos: ${recent.length} viajes últimos 30 días, neto $${fmt(stats.net)} MXN, ${fmt(stats.km, 0)} km, $${fmt(stats.gas)} gas, ${(stats.mins / 60).toFixed(1)} hrs. Meta/hr: $${config.targetHourlyRate}.`,
-                    messages: newMsgs.map(m => ({ role: m.role, content: m.content }))
-                })
-            });
-            const data = await res.json();
-            setMessages(p => [...p, { role: "assistant", content: data.content?.find(b => b.type === "text")?.text || "No pude responder." }]);
-        } catch { setMessages(p => [...p, { role: "assistant", content: "Error de conexión." }]); }
-        setLoading(false);
-    };
-
-    return (
-        <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 160px)" }} className="fade-up">
-            {recent.length < 5 && (
-                <div style={{ margin: "12px 16px 0", background: `${ACCENT}15`, border: `1px solid ${ACCENT}44`, borderRadius: 10, padding: "10px 14px", fontSize: 11, color: ACCENT }}>
-                    ⚠️ Necesitas más datos para análisis óptimo ({recent.length} viajes — meta: 30 días)
-                </div>
-            )}
-            <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-                {messages.map((m, i) => (
-                    <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
-                        <div style={{ maxWidth: "85%", padding: "12px 14px", borderRadius: m.role === "user" ? "16px 16px 4px 16px" : "16px 16px 16px 4px", background: m.role === "user" ? `${ACCENT}22` : CARD, border: `1px solid ${m.role === "user" ? ACCENT + "44" : BORDER}`, fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                            {m.content}
-                        </div>
-                    </div>
-                ))}
-                {loading && <div style={{ display: "flex" }}><div style={{ padding: "12px 16px", background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12 }}><div className="recording" style={{ color: ACCENT2, fontSize: 12, letterSpacing: 2 }}>ANALIZANDO...</div></div></div>}
-                <div ref={endRef} />
-            </div>
-            <div style={{ padding: "12px 16px", borderTop: `1px solid ${BORDER}`, display: "flex", gap: 8 }}>
-                <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && !e.shiftKey && send()} placeholder="¿Cómo mejoro mi rentabilidad?"
-                    style={{ flex: 1, background: CARD, border: `1px solid ${BORDER}`, borderRadius: 10, padding: "12px 14px", color: "#e8eaf0", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
-                <button className="btn" onClick={send} disabled={!input.trim() || loading}
-                    style={{ padding: "12px 16px", background: input.trim() ? `${ACCENT}22` : "transparent", border: `1px solid ${input.trim() ? ACCENT : BORDER}`, borderRadius: 10, color: input.trim() ? ACCENT : "#404060", fontSize: 16 }}>➤</button>
-            </div>
-        </div>
-    );
-}
-
-// ─── CONFIG TAB ───────────────────────────────────────────────────────────────
-function ConfigTab({ config, fixedCosts, saveConfig, onLogout }) {
-    const [local, setLocal] = useState(config);
-    const [lf, setLf] = useState(fixedCosts || DEFAULT_FIXED_COSTS);
-    const [saved, setSaved] = useState(false);
-    const set = (k, v) => setLocal(p => ({ ...p, [k]: parseFloat(v) || 0 }));
-    const sf = (k, v) => setLf(p => ({ ...p, [k]: v }));
-
-    const save = async () => { await saveConfig(local, lf); setSaved(true); setTimeout(() => setSaved(false), 2000); };
-    const periods = ["diario", "semanal", "mensual", "trimestral", "semestral", "anual"];
-
-    const FCRow = ({ ek, mk, pk, label, xk, xl }) => (
-        <div style={{ background: CARD, border: `1px solid ${lf[ek] ? ACCENT + "44" : BORDER}`, borderRadius: 12, padding: "14px 16px", marginBottom: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: lf[ek] ? 12 : 0 }}>
-                <div style={{ fontSize: 11, color: lf[ek] ? ACCENT : "#505070" }}>{label}</div>
-                <button className="btn" onClick={() => sf(ek, !lf[ek])}
-                    style={{ padding: "4px 12px", background: lf[ek] ? `${ACCENT}22` : "transparent", border: `1px solid ${lf[ek] ? ACCENT : BORDER}`, borderRadius: 20, color: lf[ek] ? ACCENT : "#505070", fontSize: 10 }}>
-                    {lf[ek] ? "✓ ACTIVO" : "ACTIVAR"}
-                </button>
-            </div>
-            {lf[ek] && (
-                <div style={{ display: "grid", gridTemplateColumns: xk ? "1fr 1fr 1fr" : "1fr 1fr", gap: 8 }}>
-                    <div>
-                        <div style={{ fontSize: 9, color: "#505070", marginBottom: 4 }}>MONTO $MXN</div>
-                        <input type="number" value={lf[mk]} onChange={e => sf(mk, parseFloat(e.target.value) || 0)}
-                            style={{ width: "100%", background: "#0a0b12", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "8px 10px", color: "#fff", fontSize: 14, fontFamily: "inherit" }} />
-                    </div>
-                    {pk && <div>
-                        <div style={{ fontSize: 9, color: "#505070", marginBottom: 4 }}>PERIODO</div>
-                        <select value={lf[pk]} onChange={e => sf(pk, e.target.value)}
-                            style={{ width: "100%", background: "#0a0b12", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "8px 10px", color: "#fff", fontSize: 11, fontFamily: "inherit" }}>
-                            {periods.map(p => <option key={p} value={p}>{p}</option>)}
-                        </select>
-                    </div>}
-                    {xk && <div>
-                        <div style={{ fontSize: 9, color: "#505070", marginBottom: 4 }}>{xl}</div>
-                        <input type="number" value={lf[xk]} onChange={e => sf(xk, parseFloat(e.target.value) || 0)}
-                            style={{ width: "100%", background: "#0a0b12", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "8px 10px", color: "#fff", fontSize: 14, fontFamily: "inherit" }} />
-                    </div>}
-                </div>
-            )}
-        </div>
-    );
-
-    return (
-        <div style={{ padding: "20px 16px" }} className="fade-up">
-            <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 22, fontWeight: 800, color: ACCENT, marginBottom: 20, letterSpacing: 1 }}>CONFIGURACIÓN</div>
-
-            <div style={{ fontSize: 10, color: "#505070", letterSpacing: 3, marginBottom: 12 }}>VARIABLES BÁSICAS</div>
-            {[
-                { key: "gasPricePerLiter", label: "Precio de gasolina", unit: "MXN/L", step: "0.5" },
-                { key: "kmPerLiter", label: "Rendimiento de tu auto", unit: "km/L", step: "0.5" },
-                { key: "targetHourlyRate", label: "Meta por hora", unit: "MXN/hr", step: "10" },
-                { key: "platformCut", label: "Comisión plataforma", unit: "%", step: "1" },
-            ].map(({ key, label, unit, step }) => (
-                <div key={key} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "14px 16px", marginBottom: 10 }}>
-                    <div style={{ fontSize: 10, color: "#505070", letterSpacing: 2, marginBottom: 8 }}>{label.toUpperCase()}</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <input type="number" step={step} value={local[key]} onChange={e => set(key, e.target.value)}
-                            style={{ flex: 1, background: "#0a0b12", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "10px 14px", color: "#fff", fontSize: 20, fontFamily: "inherit", outline: "none" }}
-                            onFocus={e => e.target.style.borderColor = ACCENT} onBlur={e => e.target.style.borderColor = BORDER} />
-                        <div style={{ fontSize: 12, color: "#505070", minWidth: 50 }}>{unit}</div>
-                    </div>
-                </div>
-            ))}
-
-            <div style={{ fontSize: 10, color: "#505070", letterSpacing: 3, margin: "20px 0 12px" }}>GASTOS FIJOS (OPCIONALES)</div>
-            <FCRow ek="rentaEnabled" mk="rentaMonto" pk="rentaPeriodo" label="🚗 RENTA / CRÉDITO DEL AUTO" />
-            <FCRow ek="seguroEnabled" mk="seguroMonto" pk="seguroPeriodo" label="🛡️ SEGURO DEL AUTO" />
-            <FCRow ek="llantasEnabled" mk="llantasMonto" xk="llantasKmVida" xl="VIDA (KM)" label="🔧 DESGASTE DE LLANTAS" />
-            <FCRow ek="mantenimientoEnabled" mk="mantenimientoMonto" xk="mantenimientoKmVida" xl="CADA (KM)" label="🔩 MANTENIMIENTO" />
-
-            <button className="btn" onClick={save}
-                style={{ width: "100%", padding: "16px", background: saved ? `${ACCENT2}22` : `${ACCENT}22`, border: `2px solid ${saved ? ACCENT2 : ACCENT}`, borderRadius: 12, color: saved ? ACCENT2 : ACCENT, fontFamily: "'Barlow Condensed', sans-serif", fontSize: 20, fontWeight: 700, letterSpacing: 2, marginTop: 10 }}>
-                {saved ? "✓ GUARDADO" : "GUARDAR CAMBIOS"}
-            </button>
-
-            <button className="btn" onClick={onLogout}
-                style={{ width: "100%", padding: "12px", background: "transparent", border: `1px solid ${DANGER}44`, borderRadius: 12, color: DANGER, fontFamily: "'Barlow Condensed', sans-serif", fontSize: 14, letterSpacing: 2, marginTop: 10 }}>
-                CERRAR SESIÓN
-            </button>
-        </div>
-    );
-}
-
-// ─── AUTH ─────────────────────────────────────────────────────────────────────
-function Auth() {
+function AuthScreen() {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [loading, setLoading] = useState(false);
-    const [isSignUp, setIsSignUp] = useState(false);
+    const [error, setError] = useState("");
+    const [showPassword, setShowPassword] = useState(false);
 
-    const handleAuth = async (e) => {
-        e.preventDefault(); setLoading(true);
-        const { error } = isSignUp
-            ? await supabase.auth.signUp({ email, password })
-            : await supabase.auth.signInWithPassword({ email, password });
-        if (error) alert(error.message);
+    const handleLogin = async () => {
+        setLoading(true);
+        setError("");
+        const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
+        if (authError) setError("Credenciales incorrectas");
         setLoading(false);
     };
 
     return (
-        <div style={{ background: "#07080d", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "monospace" }}>
-            <div style={{ background: "#0e1018", border: "1px solid #1c1f2e", padding: 32, borderRadius: 20, width: "100%", maxWidth: 400 }}>
-                <div style={{ textAlign: "center", marginBottom: 32 }}>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: "#f0a500" }}>RUTAFLOW</div>
-                    <div style={{ fontSize: 10, color: "#404060", letterSpacing: 2 }}>ACCESO DE CONDUCTOR</div>
+        <div className="fixed inset-0 bg-black flex flex-col z-[500] overflow-x-hidden font-display bg-pattern selection:bg-accent/30">
+            {/* Top App Bar */}
+            <div className="flex items-center p-4 justify-between sticky top-0 z-10 w-full">
+                <div className="text-slate-100 flex size-12 shrink-0 items-center justify-start cursor-pointer transition-colors hover:text-accent">
+                    <X size={24} strokeWidth={2} />
                 </div>
-                <form onSubmit={handleAuth} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                    <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required
-                        style={{ width: "100%", background: "#0a0b12", border: "1px solid #1c1f2e", borderRadius: 8, padding: 14, color: "#fff" }} />
-                    <input type="password" placeholder="Contraseña" value={password} onChange={e => setPassword(e.target.value)} required
-                        style={{ width: "100%", background: "#0a0b12", border: "1px solid #1c1f2e", borderRadius: 8, padding: 14, color: "#fff" }} />
-                    <button type="submit" disabled={loading} style={{ padding: 16, background: "#f0a50022", border: "2px solid #f0a500", borderRadius: 12, color: "#f0a500", fontWeight: 700 }}>
-                        {loading ? "CARGANDO..." : isSignUp ? "REGISTRARME" : "ENTRAR"}
-                    </button>
-                </form>
-                <button onClick={() => setIsSignUp(!isSignUp)} style={{ width: "100%", background: "none", border: "none", color: "#606080", fontSize: 11, marginTop: 20, textDecoration: "underline" }}>
-                    {isSignUp ? "¿Ya tienes cuenta? Inicia sesión" : "¿Eres nuevo? Crea una cuenta"}
-                </button>
+                <div className="flex-1 text-center">
+                    <span className="text-[10px] font-black tracking-[0.3em] uppercase text-accent/80">Premium Fintech</span>
+                </div>
+                <div className="size-12"></div>
             </div>
+
+            <main className="flex flex-col flex-1 px-6 pb-12 max-w-[480px] mx-auto w-full justify-center relative z-10">
+                {/* Logo Section */}
+                <div className="mb-12 text-center">
+                    <motion.div
+                        initial={{ scale: 0.9, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        className="inline-flex items-center justify-center p-6 rounded-3xl bg-accent/10 mb-8 border border-accent/20 shadow-[0_0_30px_rgba(34,197,94,0.1)]"
+                    >
+                        <Wallet className="text-accent" size={42} strokeWidth={2.5} />
+                    </motion.div>
+                    <h1 className="text-white tracking-tight text-[42px] font-extrabold leading-tight mb-3 heading-premium">
+                        Ryde Cash
+                    </h1>
+                    <p className="text-text-dim text-lg font-medium leading-relaxed max-w-[280px] mx-auto opacity-80">
+                        Controla tus ganancias en segundos
+                    </p>
+                </div>
+
+                {/* Login Form */}
+                <div className="space-y-6">
+                    <div className="flex flex-col gap-2.5">
+                        <label className="text-text-dim text-[11px] font-black uppercase tracking-[0.15em] ml-1">Correo electrónico</label>
+                        <div className="glass-panel flex items-center rounded-[20px] overflow-hidden px-5 group focus-within:ring-2 focus-within:ring-accent/40 transition-all duration-500 bg-white/[0.03]">
+                            <Mail className="text-accent/60 mr-4 group-focus-within:text-accent transition-colors" size={20} />
+                            <input
+                                className="flex-1 bg-transparent border-none text-white h-16 placeholder:text-text-muted focus:ring-0 text-base font-bold"
+                                placeholder="ejemplo@rydecash.com"
+                                type="email"
+                                value={email}
+                                onChange={e => setEmail(e.target.value)}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2.5">
+                        <label className="text-text-dim text-[11px] font-black uppercase tracking-[0.15em] ml-1">Contraseña</label>
+                        <div className="glass-panel flex items-center rounded-[20px] overflow-hidden px-5 group focus-within:ring-2 focus-within:ring-accent/40 transition-all duration-500 bg-white/[0.03]">
+                            <Lock className="text-accent/60 mr-4 group-focus-within:text-accent transition-colors" size={20} />
+                            <input
+                                className="flex-1 bg-transparent border-none text-white h-16 placeholder:text-text-muted focus:ring-0 text-base font-bold"
+                                placeholder="••••••••"
+                                type={showPassword ? "text" : "password"}
+                                value={password}
+                                onChange={e => setPassword(e.target.value)}
+                            />
+                            <button
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="text-text-muted hover:text-accent transition-colors p-2"
+                            >
+                                <Eye size={20} strokeWidth={2.5} />
+                            </button>
+                        </div>
+                    </div>
+
+                    {error && (
+                        <motion.p
+                            initial={{ y: -10, opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            className="text-center text-[10px] font-black text-danger uppercase tracking-widest bg-danger/10 py-3 rounded-xl border border-danger/20"
+                        >
+                            {error}
+                        </motion.p>
+                    )}
+
+                    {/* Forgot Password */}
+                    <div className="flex justify-end pt-1">
+                        <button className="text-accent text-[11px] font-black uppercase tracking-widest hover:text-white transition-colors">
+                            ¿Olvidaste tu contraseña?
+                        </button>
+                    </div>
+
+                    {/* Action Button */}
+                    <div className="pt-8">
+                        <button
+                            onClick={handleLogin}
+                            disabled={loading}
+                            className="w-full bg-accent text-black font-black text-lg h-16 rounded-[24px] shadow-[0_10px_30px_rgba(34,197,94,0.3)] hover:shadow-[0_15px_40px_rgba(34,197,94,0.5)] hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 disabled:opacity-50 flex items-center justify-center gap-3"
+                        >
+                            {loading ? (
+                                <div className="w-6 h-6 border-4 border-black/30 border-t-black rounded-full animate-spin" />
+                            ) : (
+                                "Comenzar"
+                            )}
+                        </button>
+                    </div>
+                </div>
+
+                {/* Footer Section */}
+                <div className="mt-16 text-center">
+                    <p className="text-text-muted text-[12px] font-bold">
+                        ¿No tienes una cuenta?
+                        <button className="text-accent font-black ml-2 hover:underline decoration-2 underline-offset-4">Regístrate</button>
+                    </p>
+
+                    <div className="mt-12 flex items-center justify-center gap-6">
+                        <div className="h-[1px] flex-1 bg-white/5"></div>
+                        <span className="text-text-muted text-[9px] uppercase font-black tracking-[0.3em] opacity-40">O accede con</span>
+                        <div className="h-[1px] flex-1 bg-white/5"></div>
+                    </div>
+
+                    <div className="mt-10 flex justify-center gap-6">
+                        <button className="size-16 rounded-[24px] glass-panel flex items-center justify-center border-white/5 hover:border-accent/40 hover:bg-accent/5 transition-all active:scale-90">
+                            <svg className="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M17.05 20.28c-.96.95-2.14 1.72-3.55 1.72-1.35 0-2.45-.63-3.5-1.72-1.05 1.09-2.15 1.72-3.5 1.72-1.41 0-2.59-.77-3.55-1.72-3.35-3.32-3.35-8.7 0-12.03.96-.95 2.14-1.72 3.55-1.72 1.35 0 2.45.63 3.5 1.72 1.05-1.09 2.15-1.72 3.5-1.72 1.41 0 2.59.77 3.55 1.72 3.35 3.33 3.35 8.71 0 12.03zM12 11c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"></path>
+                            </svg>
+                        </button>
+                        <button className="size-16 rounded-[24px] glass-panel flex items-center justify-center border-white/5 hover:border-accent/40 hover:bg-accent/5 transition-all active:scale-90">
+                            <svg className="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12.545,10.239v3.821h5.445c-0.712,2.315-2.647,3.972-5.445,3.972c-3.332,0-6.033-2.701-6.033-6.032s2.701-6.032,6.033-6.032c1.498,0,2.866,0.549,3.921,1.453l2.814-2.814C17.503,2.988,15.139,2,12.545,2C7.021,2,2.543,6.477,2.543,12s4.478,10,10.002,10c8.396,0,10.249-7.85,9.426-11.748L12.545,10.239z"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </main>
+
+            {/* Decorative elements */}
+            <div className="absolute -bottom-20 -left-20 size-96 bg-accent/5 rounded-full blur-[120px] pointer-events-none"></div>
+            <div className="absolute top-1/4 -right-20 size-[500px] bg-accent/10 rounded-full blur-[150px] pointer-events-none"></div>
         </div>
     );
 }
