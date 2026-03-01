@@ -578,8 +578,8 @@ function TripModal({ config, fixedCosts, trips, saveTrips, activeDay, onClose })
                     </button>
                 </div>
             </div>
-        </div>
-document.body
+        </div>,
+        document.body
     );
 }
 
