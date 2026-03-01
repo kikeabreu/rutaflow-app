@@ -69,7 +69,7 @@ export default function RutaFlow() {
             const { data: tripsData, error: tripsErr } = await supabase
                 .from('trips')
                 .select('*')
-                .order('timestamp', { ascending: false }); // Los más nuevos primero
+                .order('created_at', { ascending: false });
 
             if (tripsData) setTrips(tripsData);
 
@@ -80,7 +80,7 @@ export default function RutaFlow() {
                 .eq('id', user.id)
                 .single();
 
-            if (profileData) setConfig(profileData.config);
+            if (profileData?.config) setConfig(profileData.config);
 
             // 3. Traer el HISTORIAL DE JORNADAS (Días terminados)
             const { data: daysData } = await supabase
@@ -175,7 +175,12 @@ export default function RutaFlow() {
 
         if (error) alert("Error al guardar configuración: " + error.message);
     };
-    const saveActiveDay = async (d) => { setActiveDay(d); await store.set(STORAGE_KEYS.ACTIVE_DAY, d); };
+    const saveTrips = async (nuevosViajes) => {
+    setTrips(nuevosViajes);
+    const ultimo = nuevosViajes[nuevosViajes.length - 1];
+    if (ultimo) await saveTripToCloud(ultimo);
+};
+const saveActiveDay = async (d) => { setActiveDay(d); await store.set(STORAGE_KEYS.ACTIVE_DAY, d); };
 
     // 1. Primero revisamos si la App está cargando datos
     if (loading) return (
