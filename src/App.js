@@ -454,7 +454,6 @@ function TripModal({ config, fixedCosts, trips, saveTrips, activeDay, onClose })
             : { color: DANGER, label: "❌ No conviene" };
 
     return (
-        <div style={{ position: "fixed", inset: 0
         <div style={{ position: "fixed", inset: 0, background: "#000000dd", zIndex: 9999, display: "flex", alignItems: "flex-end" }} onClick={onClose}>
             <div onClick={e => e.stopPropagation()} style={{ background: CARD, borderRadius: "20px 20px 0 0", width: "100%", maxWidth: 480, margin: "0 auto", padding: "24px 20px", maxHeight: "92vh", overflowY: "auto", borderTop: `2px solid ${BORDER}` }}>
 
