@@ -418,9 +418,14 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.9)",zIndex:9999,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
       {toast&&<Toast msg={toast.msg} type={toast.type}/>}
-      <div className="su" style={{background:C.card,borderTop:`2px solid ${C.bord2}`,borderRadius:"20px 20px 0 0",
-        // ✅ FIX: altura máxima deja espacio para el nav (58px) + margen
-        maxHeight:"calc(100vh - 70px)",display:"flex",flexDirection:"column"}}>
+      <div className="su" style={{
+  background: C.card,
+  borderRadius: "20px", // <--- Redondeamos las 4 esquinas ahora que flota
+  margin: "0 10px 70px 10px", // <--- 10px a los lados y 70px abajo
+  maxHeight: "calc(100vh - 140px)", // <--- Restamos arriba (70) y abajo (70)
+  display: "flex",
+  flexDirection: "column"
+}}
 
         {/* HEADER FIJO */}
         <div style={{padding:"16px 18px 0",flexShrink:0}}>
