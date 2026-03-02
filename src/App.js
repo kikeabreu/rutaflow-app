@@ -415,17 +415,31 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
   const V=c.nph>=cfg.targetHourlyRate?{col:C.teal,lbl:"✅ Excelente"}:c.nph>=cfg.targetHourlyRate*.75?{col:C.accent,lbl:"⚠️ Aceptable"}:{col:C.danger,lbl:"❌ No conviene"};
   const mBtn=id=>({padding:"8px 4px",borderRadius:8,fontSize:10,fontWeight:600,fontFamily:"inherit",background:mode===id?`${C.teal}1e`:"transparent",border:`1px solid ${mode===id?C.teal:C.border}`,color:mode===id?C.teal:C.muted});
 
-  return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.9)",zIndex:9999,display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
-      {toast&&<Toast msg={toast.msg} type={toast.type}/>}
-      <div className="su" style={{
-  background: C.card,
-  borderRadius: "20px", // <--- Redondeamos las 4 esquinas ahora que flota
-  margin: "0 10px 70px 10px", // <--- 10px a los lados y 70px abajo
-  maxHeight: "calc(100vh - 140px)", // <--- Restamos arriba (70) y abajo (70)
-  display: "flex",
-  flexDirection: "column"
-}}
+return (
+  <div style={{
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,.8)", // Un poco menos opaco para que se vea el fondo
+    zIndex: 9999,
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "flex-end",
+    padding: "0 10px 80px 10px" // 1. AQUÍ ESTÁ EL TRUCO: Padding lateral y abajo
+  }}>
+    
+    {toast && <Toast msg={toast.msg} type={toast.type} />}
+
+    <div className="su" style={{
+      background: C.card,
+      border: `1px solid ${C.bord2}`, // Un borde sutil alrededor
+      borderRadius: "24px", // Esquinas redondeadas en todo el panel
+      maxHeight: "calc(100vh - 160px)", // 2. Ajuste de altura (80px arriba + 80px abajo)
+      display: "flex",
+      flexDirection: "column",
+      width: "100%", // Asegura que ocupe el ancho del padding
+      overflow: "hidden", // Para que el contenido no se salga de las esquinas redondeadas
+      boxShadow: "0px -4px 20px rgba(0,0,0,0.2)" // Sombra para dar profundidad
+    }}>
 
         {/* HEADER FIJO */}
         <div style={{padding:"16px 18px 0",flexShrink:0}}>
