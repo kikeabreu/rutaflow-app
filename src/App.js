@@ -243,13 +243,15 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
   const[trip,setTrip]=useState(draft);
   const[mode,setMode]=useState(draft.mode||"manual");
   const[phase,setPhase]=useState(draft.phase||0);
-  const[gpsOn,setGpsOn]=useState(false); // GPS nunca sobrevive cambio de app
-  const[gpsMs,setGpsMs]=useState(0);
-  const[gpsStatus,setGpsStatus]=useState(
-    draft.gpsOn?"⚠️ GPS interrumpido al salir. Datos guardados: "+fmt(draft.gpsDistKm,2)+"km":
-    draft.gps_km?`✅ ${fmt(draft.gps_km,2)} km · ${fmt(draft.gps_min,0)} min`:""
+  const[gpsOn,setGpsOn]=useState(false);
+  const[gpsMs,setGpsMs]=useState(
+    // Si había GPS activo, calcular cuánto tiempo pasó para mostrarlo de inmediato
+    draft.gpsOn && draft.gpsStartMs ? Date.now()-draft.gpsStartMs : 0
   );
-  const[gpsLost,setGpsLost]=useState(draft.gpsOn); // avisamos si salió con GPS activo
+  const[gpsStatus,setGpsStatus]=useState(
+    draft.gps_km ? `✅ ${fmt(draft.gps_km,2)} km · ${fmt(draft.gps_min,0)} min` : ""
+  );
+  const[gpsLost,setGpsLost]=useState(false); // ya no mostramos error por cambiar de app
   const[proc,setProc]=useState(false);
   const[saving,setSaving]=useState(false);
   const[toast,setToast]=useState(null);
@@ -258,12 +260,13 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
   const distRef=useRef(parseFloat(draft.gpsDistKm)||0),lastRef=useRef(null);
   const fileRef=useRef();
 
-  // Si salió con GPS activo, recuperar los km guardados
+  // Si había GPS activo al salir → reanudarlo automáticamente al volver
   useEffect(()=>{
-    if(draft.gpsOn && draft.gpsDistKm>0){
-      // Guardar esos km en el trip para que pueda guardar el viaje con datos parciales
-      setTrip(p=>({...p, gps_km:String(fmt(draft.gpsDistKm,2)),
-        gps_min: draft.gpsStartMs ? String(((Date.now()-draft.gpsStartMs)/60000).toFixed(1)) : p.gps_min}));
+    if(draft.gpsOn && draft.gpsStartMs){
+      // Restaurar tiempo y km acumulados
+      startRef.current = draft.gpsStartMs;
+      distRef.current  = parseFloat(draft.gpsDistKm)||0;
+      resumeGPS();
     }
   },[]);
 
@@ -282,19 +285,18 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
 
   const toast_=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
 
-  const startGPS=()=>{
-    if(!navigator.geolocation){setGpsStatus("GPS no disponible");return;}
-    distRef.current=0;lastRef.current=null;
-    startRef.current=Date.now();
-    setGpsOn(true);setGpsLost(false);setGpsMs(0);
-    setGpsStatus("📍 Buscando señal GPS...");
-    save({gpsOn:true,gpsStartMs:startRef.current,gpsDistKm:0});
+  // Núcleo compartido: inicia watchPosition y el timer
+  const _activateGPS=()=>{
+    setGpsOn(true);
+    setGpsLost(false);
+    clearInterval(timerRef.current);
 
     timerRef.current=setInterval(()=>{
       setGpsMs(Date.now()-startRef.current);
-      save({gpsDistKm:distRef.current}); // persiste km cada segundo
+      save({gpsDistKm:distRef.current});
     },1000);
 
+    if(watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
     watchRef.current=navigator.geolocation.watchPosition(
       ({coords:{latitude:lat,longitude:lon}})=>{
         if(lastRef.current){const d=haversine(lastRef.current,{lat,lon});if(d>0.005)distRef.current+=d;}
@@ -304,6 +306,25 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
       ()=>setGpsStatus("⚠️ Error GPS — verifica permisos"),
       {enableHighAccuracy:true,maximumAge:0,timeout:15000}
     );
+  };
+
+  // Viaje nuevo: resetea todo y arranca
+  const startGPS=()=>{
+    if(!navigator.geolocation){setGpsStatus("GPS no disponible");return;}
+    distRef.current=0; lastRef.current=null;
+    startRef.current=Date.now();
+    setGpsStatus("📍 Buscando señal GPS...");
+    save({gpsOn:true,gpsStartMs:startRef.current,gpsDistKm:0});
+    _activateGPS();
+  };
+
+  // Regresó de otra app con GPS que estaba corriendo: reanudar sin resetear km
+  const resumeGPS=()=>{
+    if(!navigator.geolocation) return;
+    // startRef y distRef ya fueron restaurados antes de llamar esta función
+    setGpsStatus(`📍 Reanudando... ${distRef.current.toFixed(2)} km acumulados`);
+    save({gpsOn:true});
+    _activateGPS();
   };
 
   const stopGPS=()=>{
@@ -388,17 +409,6 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
             <button onClick={onClose} style={{color:C.muted,fontSize:20,lineHeight:1,padding:"4px 8px"}}>✕</button>
           </div>
 
-          {/* Aviso GPS interrumpido */}
-          {gpsLost&&(
-            <div style={{background:`${C.danger}12`,border:`1px solid ${C.danger}44`,borderRadius:9,padding:"9px 12px",marginBottom:10,display:"flex",gap:8,alignItems:"flex-start"}}>
-              <SVG d={IC.warn} size={15} color={C.danger}/>
-              <div style={{fontSize:11,color:C.danger,lineHeight:1.5}}>
-                <strong>GPS interrumpido al cambiar de app.</strong><br/>
-                Km guardados: <strong>{fmt(draft.gpsDistKm,2)} km</strong>. Puedes guardar el viaje con estos datos o reiniciar el GPS.
-              </div>
-            </div>
-          )}
-
           {/* Plataforma */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:10}}>
             {["uber","didi","beat","otra"].map(p=>(
@@ -437,7 +447,7 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
               {gpsStatus&&<div style={{fontSize:13,color:gpsOn?C.teal:C.muted,textAlign:"center",marginBottom:10}}>{gpsStatus}</div>}
               {!gpsOn?(
                 <Btn full onClick={startGPS} color={C.teal}>
-                  <SVG d={IC.gps} size={13} color={C.teal}/>{gpsLost?"Reiniciar GPS":"Iniciar GPS"}
+                  <SVG d={IC.gps} size={13} color={C.teal}/>Iniciar GPS
                 </Btn>
               ):(
                 <Btn full onClick={stopGPS} color={C.danger}>
