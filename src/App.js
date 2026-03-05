@@ -488,14 +488,10 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
 
 // ─── TABS ────────────────────────────────────────────────────────────────────
 // ─── HOME TAB ─────────────────────────────────────────────────────────────────
-function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm,onSelect}){
-  const hasDraft=!!LS.get(K.DRAFT,null)?.fare;
-  const[modal,setModal]=useState(hasDraft);
-  const[detail,setDetail]=useState(null);
+function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm,onSelect,saveTrip}){
   const[elapsed,setElapsed]=useState(0);
   const[showAll,setShowAll]=useState(false);
   const timerRef=useRef(null);
-  const{dayKm,stop:stopDayGPS}=useDayGPS(!!activeDay?.running);
 
   useEffect(()=>{
     if(activeDay?.running&&activeDay?.startTime){
@@ -522,12 +518,6 @@ function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm,onSelect}){
   const stats=todayTrips.reduce((a,t)=>{const c=calcTrip(t,cfg);return{net:a.net+c.net,km:a.km+c.km,min:a.min+c.min,gross:a.gross+c.fare,gas:a.gas+c.gas};},{net:0,km:0,min:0,gross:0,gas:0});
   const dayNph=elapsed>0?stats.net/(elapsed/3600000):0;
   const deadKm=Math.max(0,dayKm-stats.km);
-
-  const handleEndDay=async()=>{
-    const totalDayKm=stopDayGPS();
-    await endDay(totalDayKm);
-  };
-
   const visibleTrips=showAll?todayTrips:todayTrips.slice(0,4);
 
   return(
@@ -583,8 +573,8 @@ function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm,onSelect}){
             )}
 
             <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:8}}>
-              <Btn full onClick={()=>setModal(true)} color={C.accent}><SVG d={IC.plus} size={13} color={C.accent}/>Nuevo viaje</Btn>
-              <Btn onClick={handleEndDay} color={C.danger}><SVG d={IC.flag} size={12} color={C.danger}/>Fin</Btn>
+              <Btn full onClick={onNew} color={C.accent}><SVG d={IC.plus} size={13} color={C.accent}/>Nuevo viaje</Btn>
+              <Btn onClick={onEndDay} color={C.danger}><SVG d={IC.flag} size={12} color={C.danger}/>Fin</Btn>
             </div>
           </div>
         )}
@@ -597,7 +587,7 @@ function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm,onSelect}){
             const c=calcTrip(t,cfg);
             const col=c.nph>=cfg.targetHourlyRate?C.teal:c.nph>=cfg.targetHourlyRate*.75?C.accent:C.danger;
             return(
-              <div key={t.id} onClick={()=>setDetail(t)}
+              <div key={t.id} onClick={()=>onSelect(t)}
                 style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
                 <div>
                   <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3}}>
@@ -621,9 +611,6 @@ function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm,onSelect}){
           )}
         </Card>
       )}
-
-      {modal&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} onClose={()=>setModal(false)}/>}
-      {detail&&<TripDetail trip={detail} cfg={cfg} onClose={()=>setDetail(null)} onSave={async(id,data)=>{await supabase.from("trips").update(data).eq("id",id);}} onDelete={id=>{supabase.from("trips").delete().eq("id",id);}}/>}
     </div>
   );
 }
