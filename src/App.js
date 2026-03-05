@@ -633,33 +633,108 @@ function StatsTab({cfg,trips}){
 }
 
 function AITab(){ return <div className="fu" style={{padding:"15px 14px 100px"}}><Big size={22} color={C.teal}>ASESOR IA</Big></div>; }
-function ConfigTab({cfg,saveConfig,onLogout}){ return <div className="fu" style={{padding:"15px 14px 100px"}}><Big size={22} color={C.accent}>AJUSTES</Big><Btn full onClick={onLogout} color={C.danger} outline s={{marginTop:20}}>Cerrar sesión</Btn></div>; }
+
+// ─── CONFIG TAB ───────────────────────────────────────────────────────────────
+function ConfigTab({cfg,saveConfig,onLogout}){
+  const[local,setLocal]=useState(cfg);
+  const[saved,setSaved]=useState(false);
+  useEffect(()=>setLocal(cfg),[cfg]);
+  const set=(k,v)=>setLocal(p=>({...p,[k]:v}));
+  const save=async()=>{await saveConfig(local);setSaved(true);setTimeout(()=>setSaved(false),2000);};
+  const periods=["diario","semanal","mensual","trimestral","semestral","anual"];
+  const FCRow=({ek,mk,pk,label,xk,xl})=>(
+    <div style={{background:C.card2,border:`1px solid ${local[ek]?C.accent+"44":C.border}`,borderRadius:11,padding:"13px 14px",marginBottom:9}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:local[ek]?12:0}}>
+        <div style={{fontSize:12,color:local[ek]?C.text:C.muted}}>{label}</div>
+        <button onClick={()=>set(ek,!local[ek])} style={{width:38,height:21,borderRadius:11,background:local[ek]?C.accent:C.bord2,position:"relative",flexShrink:0}}><div style={{width:15,height:15,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:local[ek]?20:3,transition:"left .18s"}}/></button>
+      </div>
+      {local[ek]&&<div style={{display:"grid",gridTemplateColumns:xk?"1fr 1fr 1fr":"1fr 1fr",gap:7}}>
+        <div><Lbl s={{marginBottom:4}}>Monto $MXN</Lbl><input type="number" value={local[mk]} onChange={e=>set(mk,parseFloat(e.target.value)||0)} style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:"#fff",fontSize:15,fontFamily:"inherit"}}/></div>
+        {pk&&<div><Lbl s={{marginBottom:4}}>Periodo</Lbl><select value={local[pk]} onChange={e=>set(pk,e.target.value)} style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:"#fff",fontSize:11,fontFamily:"inherit"}}>{periods.map(p=><option key={p} value={p}>{p}</option>)}</select></div>}
+        {xk&&<div><Lbl s={{marginBottom:4}}>{xl}</Lbl><input type="number" value={local[xk]} onChange={e=>set(xk,parseFloat(e.target.value)||0)} style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:"#fff",fontSize:15,fontFamily:"inherit"}}/></div>}
+      </div>}
+    </div>
+  );
+  return(
+    <div className="fu" style={{padding:"15px 14px 100px"}}>
+      <div className="B" style={{fontSize:22,fontWeight:800,color:C.accent,marginBottom:16,letterSpacing:1}}>CONFIGURACIÓN</div>
+      <Lbl s={{marginBottom:9}}>Variables base</Lbl>
+      <Card s={{marginBottom:13}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
+          <Inp label="Gasolina (MXN/L)" type="number" value={local.gasPricePerLiter} onChange={v=>set("gasPricePerLiter",parseFloat(v)||0)} unit="$/L"/>
+          <Inp label="Rendimiento" type="number" value={local.kmPerLiter} onChange={v=>set("kmPerLiter",parseFloat(v)||0)} unit="km/L"/>
+          <Inp label="Meta por hora" type="number" value={local.targetHourlyRate} onChange={v=>set("targetHourlyRate",parseFloat(v)||0)} unit="MXN/hr"/>
+          <Inp label="Comisión plat." type="number" value={local.platformCut} onChange={v=>set("platformCut",parseFloat(v)||0)} unit="%"/>
+        </div>
+      </Card>
+      <Lbl s={{marginBottom:9}}>Gastos fijos (opcionales)</Lbl>
+      <FCRow ek="rentaEnabled" mk="rentaMonto" pk="rentaPeriodo" label="🚗 Renta / crédito del auto"/>
+      <FCRow ek="seguroEnabled" mk="seguroMonto" pk="seguroPeriodo" label="🛡️ Seguro del auto"/>
+      <FCRow ek="llantasEnabled" mk="llantasMonto" xk="llantasKmVida" xl="Vida (km)" label="🔧 Desgaste de llantas"/>
+      <FCRow ek="mantenimientoEnabled" mk="mantenimientoMonto" xk="mantenimientoKmVida" xl="Cada (km)" label="🔩 Mantenimiento"/>
+      <Btn full onClick={save} color={saved?C.teal:C.accent} s={{marginTop:6,marginBottom:9}}><SVG d={IC.check} size={13} color={saved?C.teal:C.accent}/>{saved?"¡Guardado!":"Guardar cambios"}</Btn>
+      <Btn full onClick={onLogout} color={C.danger} outline><SVG d={IC.out} size={13} color={C.danger}/>Cerrar sesión</Btn>
+    </div>
+  );
+}
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
-function Auth({onDone}){
-  const [email, setEmail] = useState("");
-  const [pass, setPass] = useState("");
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    const { error } = await supabase.auth.signInWithPassword({ email, password: pass });
-    if (error) alert(error.message);
-  };
+function Auth(){
+  const[mode,setMode]=useState("login");
+  const[name,setName]=useState("");
+  const[email,setEmail]=useState("");
+  const[pass,setPass]=useState("");
+  const[confirm,setConfirm]=useState("");
+  const[showPw,setShowPw]=useState(false);
+  const[loading,setLoading]=useState(false);
+  const[error,setError]=useState("");
+  const[success,setSuccess]=useState("");
+  const reset=()=>{setError("");setSuccess("");};
+  const redir=()=>window.location.origin;
+  const handleLogin=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.signInWithPassword({email,password:pass});if(err)setError("Correo o contraseña incorrectos");setLoading(false);};
+  const handleRegister=async e=>{e.preventDefault();reset();if(!name.trim()){setError("Ingresa tu nombre completo");return;}if(pass.length<6){setError("Contraseña mínima: 6 caracteres");return;}if(pass!==confirm){setError("Las contraseñas no coinciden");return;}setLoading(true);const{data,error:err}=await supabase.auth.signUp({email,password:pass,options:{data:{full_name:name},emailRedirectTo:redir()}});if(err){setError(err.message);setLoading(false);return;}if(data?.user)await supabase.from("profiles").upsert({id:data.user.id,full_name:name,email,config:{}});setSuccess("¡Cuenta creada! Revisa tu correo para confirmar.");setLoading(false);};
+  const handleForgot=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:redir()});if(err)setError(err.message);else setSuccess("Te enviamos un link para restablecer tu contraseña.");setLoading(false);};
+  const handleGoogle=()=>supabase.auth.signInWithOAuth({provider:"google",options:{redirectTo:redir()}});
+  const inp={width:"100%",background:"#0a0b14",border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px 12px 42px",color:"#fff",fontSize:14,fontFamily:"IBM Plex Mono,monospace",outline:"none"};
+  const FI=({d})=><div style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}><SVG d={d} size={15} color={C.muted}/></div>;
   return(
     <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <form onSubmit={handleLogin} style={{width:"100%",maxWidth:320,textAlign:"center"}}>
-        <Big size={36} color={C.accent} s={{letterSpacing:2}}>RUTAFLOW</Big>
-        <div style={{marginTop:30,display:"flex",flexDirection:"column",gap:10}}>
-          <input type="email" placeholder="Correo" value={email} onChange={e=>setEmail(e.target.value)} style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,padding:12,color:"#fff",borderRadius:8}}/>
-          <input type="password" placeholder="Contraseña" value={pass} onChange={e=>setPass(e.target.value)} style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,padding:12,color:"#fff",borderRadius:8}}/>
-          <Btn full type="submit">Entrar</Btn>
-        </div>
-      </form>
+      <div style={{width:"100%",maxWidth:400}}>
+        <div style={{textAlign:"center",marginBottom:28}}><div className="B" style={{fontSize:36,fontWeight:900,color:C.accent,letterSpacing:2}}>RUTAFLOW</div><div style={{fontSize:10,color:C.dim,letterSpacing:"0.3em",marginTop:3}}>GESTOR DE CONDUCTOR</div></div>
+        {mode!=="forgot"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:20,background:C.card2,borderRadius:11,padding:4}}>{["login","register"].map(m=><button key={m} onClick={()=>{setMode(m);reset();}} style={{padding:"9px",background:mode===m?C.card:"transparent",border:`1px solid ${mode===m?C.bord2:"transparent"}`,borderRadius:8,color:mode===m?C.text:C.muted,fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700}}>{m==="login"?"Iniciar sesión":"Crear cuenta"}</button>)}</div>}
+        <form onSubmit={mode==="login"?handleLogin:mode==="register"?handleRegister:handleForgot}>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {mode==="forgot"&&<button type="button" onClick={()=>{setMode("login");reset();}} style={{color:C.accent,fontSize:11,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><SVG d={IC.back} size={13} color={C.accent}/>Volver</button>}
+            {mode==="register"&&<div style={{position:"relative"}}><FI d={IC.user}/><input type="text" placeholder="Tu nombre completo" value={name} onChange={e=>setName(e.target.value)} style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>}
+            <div style={{position:"relative"}}><FI d={IC.mail}/><input type="email" placeholder="correo@ejemplo.com" value={email} onChange={e=>setEmail(e.target.value)} required style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>
+            {mode!=="forgot"&&<div style={{position:"relative"}}><FI d={IC.lock}/><input type={showPw?"text":"password"} placeholder="Contraseña (mín. 6 caracteres)" value={pass} onChange={e=>setPass(e.target.value)} required style={{...inp,paddingRight:44}} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/><button type="button" onClick={()=>setShowPw(!showPw)} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",color:C.muted}}><SVG d={IC.eye} size={15} color={C.muted}/></button></div>}
+            {mode==="register"&&<div style={{position:"relative"}}><FI d={IC.lock}/><input type={showPw?"text":"password"} placeholder="Confirmar contraseña" value={confirm} onChange={e=>setConfirm(e.target.value)} required style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>}
+            {mode==="login"&&<div style={{textAlign:"right"}}><button type="button" onClick={()=>{setMode("forgot");reset();}} style={{color:C.accent,fontSize:10,textDecoration:"underline"}}>¿Olvidaste tu contraseña?</button></div>}
+            {error&&<div style={{background:`${C.danger}12`,border:`1px solid ${C.danger}33`,borderRadius:8,padding:"9px 13px",fontSize:12,color:C.danger}}>⚠️ {error}</div>}
+            {success&&<div style={{background:`${C.teal}12`,border:`1px solid ${C.teal}33`,borderRadius:8,padding:"9px 13px",fontSize:12,color:C.teal}}>✅ {success}</div>}
+            <button type="submit" disabled={loading} style={{padding:"13px",background:`${C.accent}1e`,border:`2px solid ${C.accent}`,borderRadius:11,color:C.accent,fontSize:12,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",marginTop:2,display:"flex",alignItems:"center",justifyContent:"center",gap:9}}>
+              {loading?<div className="sp" style={{width:16,height:16,border:`2px solid ${C.accent}44`,borderTopColor:C.accent,borderRadius:"50%"}}/>:mode==="login"?"Entrar":mode==="register"?"Crear cuenta":"Enviar link"}
+            </button>
+            {mode!=="forgot"&&<>
+              <div style={{display:"flex",alignItems:"center",gap:9}}><div style={{flex:1,height:1,background:C.border}}/><span style={{fontSize:10,color:C.dim}}>o</span><div style={{flex:1,height:1,background:C.border}}/></div>
+              <button type="button" onClick={handleGoogle} style={{padding:"12px",background:"transparent",border:`1px solid ${C.bord2}`,borderRadius:11,color:C.text,fontSize:13,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",gap:9}}>
+                <svg width="17" height="17" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                Continuar con Google
+              </button>
+            </>}
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
 
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
-const DCFG={gasPricePerLiter:24,kmPerLiter:12,targetHourlyRate:200,platformCut:10};
+const DCFG={gasPricePerLiter:24,kmPerLiter:12,targetHourlyRate:200,platformCut:10,
+  rentaEnabled:false,rentaMonto:0,rentaPeriodo:"mensual",
+  seguroEnabled:false,seguroMonto:0,seguroPeriodo:"mensual",
+  llantasEnabled:false,llantasMonto:0,llantasKmVida:40000,
+  mantenimientoEnabled:false,mantenimientoMonto:0,mantenimientoKmVida:5000};
 
 export default function RutaFlow(){
   const[tab,setTab]=useState("home");
@@ -712,6 +787,12 @@ export default function RutaFlow(){
     resetDayGPS(); setActiveDay(null); showToast("Jornada cerrada");
   };
 
+    const saveConfig=async newCfg=>{
+  setCfg(newCfg);
+  if(!session)return;
+  await supabase.from("profiles").upsert({id:session.user.id,config:newCfg,updated_at:new Date().toISOString()});
+};
+  
   if(loading) return <div style={{background:C.bg,minHeight:"100vh"}}/>;
   if(!session) return <Auth/>;
 
@@ -741,7 +822,7 @@ export default function RutaFlow(){
         {tab==="trips"  && <TripsTab cfg={cfg} trips={trips} onSelect={setSelTrip} onNew={()=>setShowNew(true)}/>}
         {tab==="stats"  && <StatsTab cfg={cfg} trips={trips}/>}
         {tab==="ai"     && <AITab/>}
-        {tab==="config" && <ConfigTab cfg={cfg} onLogout={()=>supabase.auth.signOut()}/>}
+{tab==="config" && <ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()}/>}
 
         {/* NAVEGACIÓN FIJA AL FINAL */}
        <div style={{position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:C.card, borderTop: `1px solid ${C.border}`, display:"flex", zIndex:100, paddingBottom: "calc(10px + env(safe-area-inset-bottom))", paddingTop: "10px"}}>
