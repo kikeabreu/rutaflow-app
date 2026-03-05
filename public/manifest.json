@@ -1,0 +1,28 @@
+{
+  "name": "RutaFlow — Gestor de Conductor",
+  "short_name": "RutaFlow",
+  "description": "Calcula cuánto ganas de verdad en cada viaje. Uber, Didi, Beat.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#07080d",
+  "theme_color": "#f0a500",
+  "lang": "es-MX",
+  "categories": ["finance", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "prefer_related_applications": false
+}
