@@ -158,7 +158,6 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
       <div onClick={e=>e.stopPropagation()} className="su"
         style={{background:C.card,borderTop:`2px solid ${C.bord2}`,borderRadius:"20px 20px 0 0",maxHeight:"92vh",display:"flex",flexDirection:"column"}}>
 
-        {/* Header fijo */}
         <div style={{padding:"18px 18px 12px",flexShrink:0,borderBottom:`1px solid ${C.border}`}}>
           <div style={{width:30,height:3,background:C.bord2,borderRadius:4,margin:"0 auto 14px"}}/>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
@@ -176,11 +175,9 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
           </div>
         </div>
 
-        {/* Cuerpo scrolleable */}
         <div style={{flex:1,overflowY:"auto",padding:"14px 18px 0",WebkitOverflowScrolling:"touch"}}>
           {editing?(
             <div>
-              {/* Plataforma */}
               <Lbl s={{marginBottom:7}}>Plataforma</Lbl>
               <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:14}}>
                 {["uber","didi","beat","otra"].map(p=>(
@@ -206,7 +203,6 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
                 <Inp label="km GPS" type="number" value={form.gps_km} onChange={v=>setF("gps_km",v)} unit="km"/>
                 <Inp label="min GPS" type="number" value={form.gps_min} onChange={v=>setF("gps_min",v)} unit="min"/>
               </div>
-              {/* Preview rentabilidad mientras editas */}
               <div style={{background:`${V.col}10`,border:`1px solid ${V.col}33`,borderRadius:11,padding:"12px 14px",marginBottom:14}}>
                 <div className="B" style={{fontSize:14,color:V.col,marginBottom:8}}>{V.lbl}</div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:7}}>
@@ -251,7 +247,6 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
           )}
         </div>
 
-        {/* Footer fijo */}
         <div style={{padding:"12px 18px 30px",flexShrink:0,borderTop:`1px solid ${C.border}`}}>
           {editing?(
             <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:9}}>
@@ -293,7 +288,6 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
   const distRef=useRef(parseFloat(draft.gpsDistKm)||0),lastRef=useRef(null);
   const fileRef=useRef();
 
-  // Al montar: si había GPS activo, reanudarlo automáticamente
   useEffect(()=>{
     if(draft.gpsOn&&draft.gpsStartMs){
       startRef.current=draft.gpsStartMs;
@@ -302,13 +296,11 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
     }
   },[]);
 
-  // Al cambiar de app y volver: detectar con visibilitychange
   useEffect(()=>{
     const onVisible=()=>{
       if(document.visibilityState==="visible"){
         const d=LS.get(K.DRAFT,DRAFT0);
         if(d.gpsOn&&d.gpsStartMs&&!gpsOn){
-          // El GPS estaba activo, reanudarlo con los km guardados
           startRef.current=d.gpsStartMs;
           distRef.current=parseFloat(d.gpsDistKm)||0;
           _activateGPS(false);
@@ -330,8 +322,6 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
   const setPhaseP=p=>{setPhase(p);persist({phase:p});};
   const toast_=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
 
-  // Core GPS: activa watchPosition + timer
-  // resuming=true → no resetear distRef ni startRef (ya están restaurados)
   const _activateGPS=(isNew=true)=>{
     if(!navigator.geolocation){setGpsStatus("GPS no disponible");return;}
     if(isNew){distRef.current=0;lastRef.current=null;startRef.current=Date.now();}
@@ -415,46 +405,21 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
   const V=c.nph>=cfg.targetHourlyRate?{col:C.teal,lbl:"✅ Excelente"}:c.nph>=cfg.targetHourlyRate*.75?{col:C.accent,lbl:"⚠️ Aceptable"}:{col:C.danger,lbl:"❌ No conviene"};
   const mBtn=id=>({padding:"8px 4px",borderRadius:8,fontSize:10,fontWeight:600,fontFamily:"inherit",background:mode===id?`${C.teal}1e`:"transparent",border:`1px solid ${mode===id?C.teal:C.border}`,color:mode===id?C.teal:C.muted});
 
-return (
-  <div style={{
-    position: "fixed",
-    inset: 0,
-    background: "rgba(0,0,0,.8)", // Un poco menos opaco para que se vea el fondo
-    zIndex: 9999,
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "flex-end",
-    padding: "0 10px 80px 10px" // 1. AQUÍ ESTÁ EL TRUCO: Padding lateral y abajo
-  }}>
-    
-    {toast && <Toast msg={toast.msg} type={toast.type} />}
-
-    <div className="su" style={{
-      background: C.card,
-      border: `1px solid ${C.bord2}`, // Un borde sutil alrededor
-      borderRadius: "24px", // Esquinas redondeadas en todo el panel
-      maxHeight: "calc(100vh - 160px)", // 2. Ajuste de altura (80px arriba + 80px abajo)
-      display: "flex",
-      flexDirection: "column",
-      width: "100%", // Asegura que ocupe el ancho del padding
-      overflow: "hidden", // Para que el contenido no se salga de las esquinas redondeadas
-      boxShadow: "0px -4px 20px rgba(0,0,0,0.2)" // Sombra para dar profundidad
-    }}>
-
-        {/* HEADER FIJO */}
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.8)", zIndex: 9999, display: "flex", flexDirection: "column", justifyContent: "flex-end", padding: "0 10px 80px 10px" }}>
+      {toast && <Toast msg={toast.msg} type={toast.type} />}
+      <div className="su" style={{ background: C.card, border: `1px solid ${C.bord2}`, borderRadius: "24px", maxHeight: "calc(100vh - 160px)", display: "flex", flexDirection: "column", width: "100%", overflow: "hidden", boxShadow: "0px -4px 20px rgba(0,0,0,0.2)" }}>
         <div style={{padding:"16px 18px 0",flexShrink:0}}>
           <div style={{width:30,height:3,background:C.bord2,borderRadius:4,margin:"0 auto 13px"}}/>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <Big size={19} color={C.accent} s={{letterSpacing:1}}>NUEVO VIAJE</Big>
             <button onClick={onClose} style={{color:C.muted,fontSize:20,lineHeight:1,padding:"4px 8px"}}>✕</button>
           </div>
-          {/* Plataforma */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:10}}>
             {["uber","didi","beat","otra"].map(p=>(
               <button key={p} onClick={()=>setF("platform",p)} style={{padding:"7px 4px",background:trip.platform===p?`${C.accent}1e`:"transparent",border:`1px solid ${trip.platform===p?C.accent:C.border}`,borderRadius:7,color:trip.platform===p?C.accent:C.muted,fontSize:10,letterSpacing:"0.08em",textTransform:"uppercase"}}>{p}</button>
             ))}
           </div>
-          {/* Modos */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:10}}>
             {[{id:"manual",l:"✍️ Manual"},{id:"gps",l:"📍 GPS"},{id:"photo",l:"📸 Foto IA"}].map(m=>(
               <button key={m.id} onClick={()=>setModeP(m.id)} style={mBtn(m.id)}>{m.l}</button>
@@ -462,9 +427,7 @@ return (
           </div>
         </div>
 
-        {/* CUERPO SCROLLEABLE */}
         <div style={{flex:1,overflowY:"auto",padding:"0 18px",WebkitOverflowScrolling:"touch"}}>
-          {/* Tarifa */}
           <div style={{marginBottom:12}}>
             <Lbl s={{marginBottom:5}}>💰 Tarifa del viaje (MXN)</Lbl>
             <input type="number" step="any" value={trip.fare} onChange={e=>setF("fare",e.target.value)} placeholder="0.00"
@@ -472,7 +435,6 @@ return (
               style={{width:"100%",background:"#0a0b14",border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",color:C.accent,fontSize:38,fontFamily:"inherit",fontWeight:700,outline:"none",textAlign:"center"}}/>
           </div>
 
-          {/* GPS */}
           {mode==="gps"&&(
             <div style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:12,padding:15,marginBottom:12}}>
               <Lbl s={{marginBottom:10}}>Rastreo GPS en tiempo real</Lbl>
@@ -492,7 +454,6 @@ return (
             </div>
           )}
 
-          {/* Manual */}
           {mode==="manual"&&(
             <div style={{marginBottom:12}}>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:9}}>
@@ -505,7 +466,6 @@ return (
             </div>
           )}
 
-          {/* Foto IA */}
           {mode==="photo"&&(
             <div style={{marginBottom:12}}>
               <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}}/>
@@ -524,7 +484,6 @@ return (
             </div>
           )}
 
-          {/* Preview rentabilidad */}
           {hasData&&(
             <div style={{background:`${V.col}10`,border:`1px solid ${V.col}33`,borderRadius:11,padding:"12px 14px",marginBottom:12}}>
               <div className="B" style={{fontSize:15,color:V.col,marginBottom:8}}>{V.lbl}</div>
@@ -538,7 +497,6 @@ return (
           <div style={{height:8}}/>
         </div>
 
-        {/* FOOTER FIJO */}
         <div style={{padding:"12px 18px 20px",flexShrink:0,borderTop:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"1fr 2fr",gap:9}}>
           <Btn onClick={onClose} color={C.muted} outline>Cancelar</Btn>
           <Btn full onClick={handleSave} disabled={!trip.fare||gpsOn||saving}>
@@ -552,8 +510,6 @@ return (
 }
 
 // ─── GPS DE JORNADA (km muertos) ──────────────────────────────────────────────
-// Hook que rastrea km totales mientras la jornada está activa.
-// km muertos = km jornada - km de viajes registrados.
 function useDayGPS(isActive){
   const[dayKm,setDayKm]=useState(()=>parseFloat(LS.get(K.DAYGPS,{})?.km||0));
   const watchRef=useRef(null),timerRef=useRef(null);
@@ -588,7 +544,6 @@ function useDayGPS(isActive){
     return km;
   },[]);
 
-  // Arrancar/parar GPS de jornada + visibilitychange para reanudar
   useEffect(()=>{
     if(isActive){
       start();
@@ -622,7 +577,6 @@ function HomeTab({cfg,trips,activeDay,saveTrip,startDay,endDay}){
     return()=>clearInterval(timerRef.current);
   },[activeDay?.running,activeDay?.startTime]);
 
-  // Visibilitychange: restaurar timer de jornada
   useEffect(()=>{
     const onVisible=()=>{
       if(document.visibilityState==="visible"&&activeDay?.running&&activeDay?.startTime){
@@ -650,7 +604,6 @@ function HomeTab({cfg,trips,activeDay,saveTrip,startDay,endDay}){
 
   return(
     <div className="fu" style={{padding:"15px 14px 90px"}}>
-      {/* Hero neto */}
       <div style={{marginBottom:14}}>
         <Lbl s={{marginBottom:3}}>Ganancia neta hoy</Lbl>
         <div className="B" style={{fontSize:54,fontWeight:900,color:stats.net>=0?C.teal:C.danger,lineHeight:1}}>{fmtMXN(stats.net)}</div>
@@ -659,7 +612,6 @@ function HomeTab({cfg,trips,activeDay,saveTrip,startDay,endDay}){
         </div>
       </div>
 
-      {/* Panel jornada */}
       <Card s={{marginBottom:13}}>
         <Lbl s={{marginBottom:11}}>Estado de jornada</Lbl>
         {!activeDay?(
@@ -678,7 +630,6 @@ function HomeTab({cfg,trips,activeDay,saveTrip,startDay,endDay}){
               </div>
             </div>
 
-            {/* Resumen financiero */}
             {todayTrips.length>0&&(
               <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:11}}>
                 {[{l:"Bruto",v:fmtMXN(stats.gross),c:C.text},{l:"Neto",v:fmtMXN(stats.net),c:stats.net>=0?C.teal:C.danger},{l:"Gas",v:fmtMXN(stats.gas),c:C.danger},{l:"Km viajes",v:fmt(stats.km,0),c:C.accent}].map(({l,v,c})=>(
@@ -687,7 +638,6 @@ function HomeTab({cfg,trips,activeDay,saveTrip,startDay,endDay}){
               </div>
             )}
 
-            {/* Km muertos (GPS de jornada) */}
             {dayKm>0&&(
               <div style={{background:`${C.accent}0a`,border:`1px solid ${C.accent}22`,borderRadius:9,padding:"9px 12px",marginBottom:11,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div style={{display:"flex",alignItems:"center",gap:7}}>
@@ -712,7 +662,6 @@ function HomeTab({cfg,trips,activeDay,saveTrip,startDay,endDay}){
         )}
       </Card>
 
-      {/* Viajes de hoy — más reciente primero */}
       {todayTrips.length>0&&(
         <Card>
           <Lbl s={{marginBottom:11}}>Viajes de hoy — <span style={{color:C.dim}}>toca para desglose</span></Lbl>
@@ -1007,7 +956,7 @@ function Auth(){
   );
 }
 
-// --- ROOT (Reemplaza desde aquí hasta el final del archivo) ---
+// ─── ROOT ─────────────────────────────────────────────────────────────────────
 const DCFG={gasPricePerLiter:24,kmPerLiter:12,targetHourlyRate:200,platformCut:10,rentaEnabled:false,rentaMonto:0,rentaPeriodo:"mensual",seguroEnabled:false,seguroMonto:0,seguroPeriodo:"mensual",llantasEnabled:false,llantasMonto:0,llantasKmVida:40000,mantenimientoEnabled:false,mantenimientoMonto:0,mantenimientoKmVida:5000};
 
 export default function RutaFlow(){
@@ -1106,19 +1055,9 @@ export default function RutaFlow(){
   const todayNet=trips.filter(t=>t.date===today()).reduce((s,t)=>s+calcTrip(t,cfg).net,0);
   const NAV=[{id:"home",d:IC.home,l:"Hoy"},{id:"trips",d:IC.trips,l:"Viajes"},{id:"stats",d:IC.stats,l:"Stats"},{id:"ai",d:IC.ai,l:"IA"},{id:"config",d:IC.cfg,l:"Config"}];
 
-// Añade esto justo antes del return de la función RutaFlow
-const safeAreaStyle = {
-  paddingTop: 'env(safe-area-inset-top)',
-  paddingBottom: 'env(safe-area-inset-bottom)',
-  paddingLeft: 'env(safe-area-inset-left)',
-  paddingRight: 'env(safe-area-inset-right)',
-  display: 'flex',
-  flexDirection: 'column',
-  minHeight: '100vh'
-};
-
   return(
-    <><style>{CSS}</style>
+    <>
+      <style>{CSS}</style>
       {toast&&<Toast msg={toast.msg} type={toast.type}/>}
       <div style={{background:C.bg, minHeight:"100vh", maxWidth:480, margin:"0 auto", position:"relative", paddingTop: "env(safe-area-inset-top)"}}>
         <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"12px 15px 10px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10}}>
