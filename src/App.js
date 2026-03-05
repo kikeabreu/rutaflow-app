@@ -675,20 +675,7 @@ export default function RutaFlow(){
         {tab==="config" && <ConfigTab cfg={cfg} onLogout={()=>supabase.auth.signOut()}/>}
 
         {/* NAVEGACIÓN FIJA AL FINAL */}
-        <div style={{
-  position: "fixed", 
-  bottom: 0, 
-  left: "50%", 
-  transform: "translateX(-50%)", 
-  width: "100%", 
-  maxWidth: 480, 
-  background: C.card, 
-  borderTop: `1px solid ${C.border}`, // <-- El acento invertido es la clave
-  display: "flex", 
-  zIndex: 100, 
-  paddingBottom: "calc(10px + env(safe-area-inset-bottom))", 
-  paddingTop: "10px"
-}}>
+       <div style={{position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:C.card, borderTop: `1px solid ${C.border}`, display:"flex", zIndex:100, paddingBottom: "calc(10px + env(safe-area-inset-bottom))", paddingTop: "10px"}}>
           {NAV.map(n=>(
             <button key={n.id} onClick={()=>setTab(n.id)} style={{flex:1,padding:"12px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:tab===n.id?C.accent:C.dim}}>
               <SVG d={n.d} size={18} color={tab===n.id?C.accent:C.dim}/>
