@@ -618,7 +618,7 @@ function StatsTab({cfg,trips}){
         {platData.length>0&&<Card s={{marginBottom:11}}>
           <Lbl s={{marginBottom:11}}>Ganancia por plataforma</Lbl>
           <div style={{display:"flex",alignItems:"center"}}>
-            <ResponsiveContainer width="50%" height={105}><PieChart><Pie data={platData} dataKey="net" cx="50%" cy="50%" innerRadius={26} outerRadius={48} paddingAngle={3}>{platData.map((_,i)=><Cell key={i} fill={PIE[i%PIE.length]}/>)}</Pie></PieChart></ResponsiveContainer>
+            <ResponsiveContainer width="50%" height={105}><PieChart><Pie data={platData} dataKey="net" cx="50%" cy="50%" innerRadius={20} outerRadius={40} paddingAngle={3}>{platData.map((_,i)=><Cell key={i} fill={PIE[i%PIE.length]}/>)}</Pie></PieChart></ResponsiveContainer>
             <div style={{flex:1,paddingLeft:7}}>{platData.map((p,i)=>(
               <div key={p.name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
                 <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:7,height:7,borderRadius:"50%",background:PIE[i]}}/><span style={{fontSize:11}}>{p.name}</span></div>
