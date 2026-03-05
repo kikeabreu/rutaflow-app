@@ -510,53 +510,49 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
 }
 
 // ─── GPS DE JORNADA (km muertos) ──────────────────────────────────────────────
-function useDayGPS(isActive){
-  const[dayKm,setDayKm]=useState(()=>parseFloat(LS.get(K.DAYGPS,{})?.km||0));
-  const watchRef=useRef(null),timerRef=useRef(null);
-  const distRef=useRef(parseFloat(LS.get(K.DAYGPS,{})?.km||0));
-  const lastRef=useRef(null);
+function useDayGPS(isActive) {
+  const [dayKm, setDayKm] = useState(() => parseFloat(LS.get(K.DAYGPS, {})?.km || 0));
+  const lastRef = useRef(null);
+  const distRef = useRef(parseFloat(LS.get(K.DAYGPS, {})?.km || 0));
 
-  const start=useCallback(()=>{
-    if(!navigator.geolocation)return;
-    const saved=LS.get(K.DAYGPS,{});
-    if(saved?.km)distRef.current=parseFloat(saved.km)||0;
-    watchRef.current=navigator.geolocation.watchPosition(
-      ({coords:{latitude:lat,longitude:lon}})=>{
-        if(lastRef.current){const d=haversine(lastRef.current,{lat,lon});if(d>0.01)distRef.current+=d;}
-        lastRef.current={lat,lon};
-        setDayKm(distRef.current);
+  // Intentar mantener la pantalla encendida
+  useWakeLock(isActive); 
+
+  const start = useCallback(() => {
+    if (!navigator.geolocation) return;
+    
+    // Usamos watchPosition con máxima prioridad
+    const watchId = navigator.geolocation.watchPosition(
+      ({ coords: { latitude: lat, longitude: lon } }) => {
+        if (lastRef.current) {
+          const d = haversine(lastRef.current, { lat, lon });
+          // Filtro de ruido: más de 10 metros para contar
+          if (d > 0.01) { 
+            distRef.current += d;
+            setDayKm(distRef.current);
+            // Guardamos cada vez que hay movimiento
+            LS.set(K.DAYGPS, { km: distRef.current, ts: Date.now() });
+          }
+        }
+        lastRef.current = { lat, lon };
       },
-      ()=>{},
-      {enableHighAccuracy:true,maximumAge:5000,timeout:20000}
+      (err) => console.warn("GPS Error", err),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
     );
-    timerRef.current=setInterval(()=>{
-      LS.set(K.DAYGPS,{km:distRef.current,ts:Date.now()});
-    },5000);
-  },[]);
+    return watchId;
+  }, []);
 
-  const stop=useCallback(()=>{
-    if(watchRef.current)navigator.geolocation.clearWatch(watchRef.current);
-    clearInterval(timerRef.current);
-    const km=distRef.current;
-    LS.del(K.DAYGPS);
-    distRef.current=0;lastRef.current=null;
-    setDayKm(0);
-    return km;
-  },[]);
-
-  useEffect(()=>{
-    if(isActive){
-      start();
-      const onVisible=()=>{if(document.visibilityState==="visible")start();};
-      document.addEventListener("visibilitychange",onVisible);
-      return()=>{document.removeEventListener("visibilitychange",onVisible);if(watchRef.current)navigator.geolocation.clearWatch(watchRef.current);clearInterval(timerRef.current);};
-    }else{
-      if(watchRef.current)navigator.geolocation.clearWatch(watchRef.current);
-      clearInterval(timerRef.current);
+  useEffect(() => {
+    let watchId;
+    if (isActive) {
+      watchId = start();
     }
-  },[isActive,start]);
+    return () => {
+      if (watchId) navigator.geolocation.clearWatch(watchId);
+    };
+  }, [isActive, start]);
 
-  return{dayKm,stop};
+  return { dayKm };
 }
 
 // ─── HOME TAB ─────────────────────────────────────────────────────────────────
