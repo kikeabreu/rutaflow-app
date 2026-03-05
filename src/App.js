@@ -662,7 +662,7 @@ export default function RutaFlow(){
   position: "sticky", 
   top: 0, 
   zIndex: 10, 
-  borderBottom: `1px solid ${C.border}` // <-- Revisa que tenga estas comillas
+  borderBottom: `1px solid ${C.border}`
 }}>
           <Big size={19} color={C.accent}>RUTAFLOW</Big>
           <div style={{textAlign:"right"}}><Lbl>Hoy neto</Lbl><Big size={21} color={todayNet>=0?C.teal:C.danger}>{fmtMXN(todayNet)}</Big></div>
