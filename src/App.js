@@ -488,7 +488,7 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
 
 // ─── TABS ────────────────────────────────────────────────────────────────────
 // ─── HOME TAB ─────────────────────────────────────────────────────────────────
-function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm,onSelect,saveTrip}){
+function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm:propDayKm,onSelect}){
   const[elapsed,setElapsed]=useState(0);
   const[showAll,setShowAll]=useState(false);
   const timerRef=useRef(null);
@@ -517,7 +517,7 @@ function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm,onSelect,sav
 
   const stats=todayTrips.reduce((a,t)=>{const c=calcTrip(t,cfg);return{net:a.net+c.net,km:a.km+c.km,min:a.min+c.min,gross:a.gross+c.fare,gas:a.gas+c.gas};},{net:0,km:0,min:0,gross:0,gas:0});
   const dayNph=elapsed>0?stats.net/(elapsed/3600000):0;
-  const deadKm=Math.max(0,dayKm-stats.km);
+  const deadKm=Math.max(0,propDayKm-stats.km);
   const visibleTrips=showAll?todayTrips:todayTrips.slice(0,4);
 
   return(
@@ -556,7 +556,7 @@ function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm,onSelect,sav
               </div>
             )}
 
-            {dayKm>0&&(
+            {propDayKm>0&&(
               <div style={{background:`${C.accent}0a`,border:`1px solid ${C.accent}22`,borderRadius:9,padding:"9px 12px",marginBottom:11,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div style={{display:"flex",alignItems:"center",gap:7}}>
                   <SVG d={IC.road} size={14} color={C.accent}/>
