@@ -487,77 +487,206 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
 }
 
 // ─── TABS ────────────────────────────────────────────────────────────────────
+// ─── HOME TAB ─────────────────────────────────────────────────────────────────
 function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm,onSelect}){
-  const todayTrips=trips.filter(t=>(t.date||"")===today()).sort((a,b)=>new Date(b.created_at||b.end_time||0)-new Date(a.created_at||a.end_time||0));
-  const stats=todayTrips.reduce((a,t)=>{const c=calcTrip(t,cfg);return{net:a.net+c.net,km:a.km+c.km,gross:a.gross+c.fare};},{net:0,km:0,gross:0});
-  const deadKm=Math.max(0,dayKm-stats.km);
-  const [elapsed, setElapsed] = useState(0);
+  const hasDraft=!!LS.get(K.DRAFT,null)?.fare;
+  const[modal,setModal]=useState(hasDraft);
+  const[detail,setDetail]=useState(null);
+  const[elapsed,setElapsed]=useState(0);
+  const[showAll,setShowAll]=useState(false);
+  const timerRef=useRef(null);
+  const{dayKm,stop:stopDayGPS}=useDayGPS(!!activeDay?.running);
 
-  useEffect(() => {
-    let t;
-    if (activeDay?.running) {
-      const tick = () => setElapsed(Date.now() - activeDay.startTime);
-      tick(); t = setInterval(tick, 1000);
-    } else { setElapsed(0); }
-    return () => clearInterval(t);
-  }, [activeDay]);
+  useEffect(()=>{
+    if(activeDay?.running&&activeDay?.startTime){
+      const tick=()=>setElapsed(Date.now()-activeDay.startTime);
+      tick();timerRef.current=setInterval(tick,1000);
+    }else{clearInterval(timerRef.current);setElapsed(0);}
+    return()=>clearInterval(timerRef.current);
+  },[activeDay?.running,activeDay?.startTime]);
+
+  useEffect(()=>{
+    const onVisible=()=>{
+      if(document.visibilityState==="visible"&&activeDay?.running&&activeDay?.startTime){
+        setElapsed(Date.now()-activeDay.startTime);
+      }
+    };
+    document.addEventListener("visibilitychange",onVisible);
+    return()=>document.removeEventListener("visibilitychange",onVisible);
+  },[activeDay]);
+
+  const todayTrips=trips
+    .filter(t=>(t.date||"")===today())
+    .sort((a,b)=>new Date(b.created_at||b.end_time||0)-new Date(a.created_at||a.end_time||0));
+
+  const stats=todayTrips.reduce((a,t)=>{const c=calcTrip(t,cfg);return{net:a.net+c.net,km:a.km+c.km,min:a.min+c.min,gross:a.gross+c.fare,gas:a.gas+c.gas};},{net:0,km:0,min:0,gross:0,gas:0});
+  const dayNph=elapsed>0?stats.net/(elapsed/3600000):0;
+  const deadKm=Math.max(0,dayKm-stats.km);
+
+  const handleEndDay=async()=>{
+    const totalDayKm=stopDayGPS();
+    await endDay(totalDayKm);
+  };
+
+  const visibleTrips=showAll?todayTrips:todayTrips.slice(0,4);
 
   return(
-    <div className="fu" style={{padding:"15px 14px 100px"}}>
+    <div className="fu" style={{padding:"15px 14px 90px"}}>
       <div style={{marginBottom:14}}>
         <Lbl s={{marginBottom:3}}>Ganancia neta hoy</Lbl>
-        <div className="B" style={{fontSize:54,fontWeight:900,color:stats.net>=0?C.teal:C.danger}}>{fmtMXN(stats.net)}</div>
+        <div className="B" style={{fontSize:54,fontWeight:900,color:stats.net>=0?C.teal:C.danger,lineHeight:1}}>{fmtMXN(stats.net)}</div>
+        <div style={{fontSize:11,color:C.muted,marginTop:5}}>
+          {todayTrips.length} viajes · {fmt(stats.km,1)} km en viajes · {stats.min.toFixed(0)} min
+        </div>
       </div>
+
       <Card s={{marginBottom:13}}>
-        {!activeDay?(<Btn full onClick={startDay} color={C.teal}>Iniciar jornada</Btn>):(
+        <Lbl s={{marginBottom:11}}>Estado de jornada</Lbl>
+        {!activeDay?(
+          <Btn full onClick={startDay} color={C.teal}><SVG d={IC.play} size={13} color={C.teal} fill={C.teal}/>Iniciar jornada de trabajo</Btn>
+        ):(
           <div>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:11}}>
-              <div><Lbl s={{color:C.danger,marginBottom:3}}>● GRABANDO</Lbl><div className="B" style={{fontSize:40,color:C.teal}}>{fmtClock(elapsed)}</div></div>
-              <div style={{textAlign:"right"}}><Big size={28}>{todayTrips.length}</Big><Lbl>viajes</Lbl></div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}>
+              <div>
+                <div className="pu" style={{fontSize:9,color:C.danger,letterSpacing:"0.2em",marginBottom:3}}>● GRABANDO</div>
+                <div className="B" style={{fontSize:40,fontWeight:900,color:C.teal,lineHeight:1}}>{fmtClock(elapsed)}</div>
+                {elapsed>0&&<div style={{fontSize:10,color:C.muted,marginTop:3}}>{fmtMXN(dayNph)}/hr efectivo en jornada</div>}
+              </div>
+              <div style={{textAlign:"right"}}>
+                <Big size={28}>{todayTrips.length}</Big>
+                <Lbl s={{marginTop:2}}>viajes hoy</Lbl>
+              </div>
             </div>
-            {dayKm>0&&(
-              <div style={{background:`${C.accent}12`,borderRadius:9,padding:9,marginBottom:11,display:"flex",justifyContent:"space-between"}}>
-                <div><Lbl s={{fontSize:8}}>Km Jornada</Lbl><div style={{fontSize:12}}>{fmt(dayKm,1)} km</div></div>
-                <div style={{textAlign:"right"}}><Lbl s={{fontSize:8}}>Km Muertos</Lbl><Big size={16} color={C.accent}>{fmt(deadKm,1)} km</Big></div>
+
+            {todayTrips.length>0&&(
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:11}}>
+                {[{l:"Bruto",v:fmtMXN(stats.gross),c:C.text},{l:"Neto",v:fmtMXN(stats.net),c:stats.net>=0?C.teal:C.danger},{l:"Gas",v:fmtMXN(stats.gas),c:C.danger},{l:"Km viajes",v:fmt(stats.km,0),c:C.accent}].map(({l,v,c})=>(
+                  <div key={l} style={{background:C.card2,borderRadius:8,padding:"8px 6px",textAlign:"center"}}><Lbl s={{marginBottom:3,fontSize:8}}>{l}</Lbl><Big size={13} color={c}>{v}</Big></div>
+                ))}
               </div>
             )}
+
+            {dayKm>0&&(
+              <div style={{background:`${C.accent}0a`,border:`1px solid ${C.accent}22`,borderRadius:9,padding:"9px 12px",marginBottom:11,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{display:"flex",alignItems:"center",gap:7}}>
+                  <SVG d={IC.road} size={14} color={C.accent}/>
+                  <div>
+                    <Lbl s={{fontSize:8,marginBottom:2}}>Km totales jornada</Lbl>
+                    <div style={{fontSize:12,color:C.text}}>{fmt(dayKm,1)} km recorridos</div>
+                  </div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <Lbl s={{fontSize:8,marginBottom:2}}>Km sin pasajero</Lbl>
+                  <Big size={16} color={C.accent}>{fmt(deadKm,1)} km</Big>
+                </div>
+              </div>
+            )}
+
             <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:8}}>
-              <Btn full onClick={onNew} color={C.accent}>Nuevo viaje</Btn>
-              <Btn onClick={onEndDay} color={C.danger}>Fin</Btn>
+              <Btn full onClick={()=>setModal(true)} color={C.accent}><SVG d={IC.plus} size={13} color={C.accent}/>Nuevo viaje</Btn>
+              <Btn onClick={handleEndDay} color={C.danger}><SVG d={IC.flag} size={12} color={C.danger}/>Fin</Btn>
             </div>
           </div>
         )}
       </Card>
-      {todayTrips.length>0&&<Card>
-        <Lbl s={{marginBottom:11}}>Viajes de hoy</Lbl>
-        {todayTrips.slice(0,5).map(t=>{
-          const c=calcTrip(t,cfg);
-          return(<div key={t.id} onClick={()=>onSelect(t)} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:`1px solid ${C.border}`}}>
-            <div><Pill platform={t.platform}/><div style={{fontSize:11,color:C.muted,marginTop:3}}>{fmtMXN(t.fare)} · {fmt(c.km,1)}km</div></div>
-            <div style={{textAlign:"right"}}><Big size={18} color={c.nph>=cfg.targetHourlyRate?C.teal:C.accent}>{fmtMXN(c.net)}</Big></div>
-          </div>)
-        })}
-      </Card>}
+
+      {todayTrips.length>0&&(
+        <Card>
+          <Lbl s={{marginBottom:11}}>Viajes de hoy — <span style={{color:C.dim}}>toca para desglose</span></Lbl>
+          {visibleTrips.map(t=>{
+            const c=calcTrip(t,cfg);
+            const col=c.nph>=cfg.targetHourlyRate?C.teal:c.nph>=cfg.targetHourlyRate*.75?C.accent:C.danger;
+            return(
+              <div key={t.id} onClick={()=>setDetail(t)}
+                style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3}}>
+                    <Pill platform={t.platform}/>
+                    {t.gps_km>0&&<span style={{fontSize:9,color:C.teal}}>📍GPS</span>}
+                    {t.end_time&&<span style={{fontSize:9,color:C.dim}}>{fmtHour(t.end_time)}</span>}
+                  </div>
+                  <div style={{fontSize:11,color:C.muted}}>{fmtMXN(t.fare)} · {fmt(c.km,1)}km · {c.min.toFixed(0)}min</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <Big size={18} color={col}>{fmtMXN(c.net)}</Big>
+                  <Lbl s={{marginTop:2}}>{fmtMXN(c.nph)}/hr</Lbl>
+                </div>
+              </div>
+            );
+          })}
+          {todayTrips.length>4&&(
+            <button onClick={()=>setShowAll(!showAll)} style={{width:"100%",padding:"10px 0 2px",fontSize:11,color:C.accent,fontWeight:600,letterSpacing:"0.1em",textAlign:"center"}}>
+              {showAll?`▲ Ver menos`:`▼ Ver ${todayTrips.length-4} más`}
+            </button>
+          )}
+        </Card>
+      )}
+
+      {modal&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} onClose={()=>setModal(false)}/>}
+      {detail&&<TripDetail trip={detail} cfg={cfg} onClose={()=>setDetail(null)} onSave={async(id,data)=>{await supabase.from("trips").update(data).eq("id",id);}} onDelete={id=>{supabase.from("trips").delete().eq("id",id);}}/>}
     </div>
   );
 }
 
-function TripsTab({cfg,trips,onSelect,onNew}){
+// ─── TRIPS TAB ────────────────────────────────────────────────────────────────
+function TripsTab({cfg,trips,saveTrip,updateTrip,deleteTrip}){
+  const[filter,setFilter]=useState("all");
+  const[modal,setModal]=useState(false);
+  const[detail,setDetail]=useState(null);
+
+  const filtered=trips.filter(t=>{
+    if(filter==="today")return(t.date||"")===today();
+    if(filter==="week"){const d=new Date();d.setDate(d.getDate()-7);return new Date(t.created_at||t.end_time)>=d;}
+    return true;
+  }).sort((a,b)=>new Date(b.created_at||b.end_time||0)-new Date(a.created_at||a.end_time||0));
+
   return(
-    <div className="fu" style={{padding:"15px 14px 100px"}}>
-      <Big size={22} color={C.accent} s={{marginBottom:13}}>HISTORIAL</Big>
-      <Btn full onClick={onNew} s={{marginBottom:11}}>Agregar viaje</Btn>
-      {trips.map(t=>{
+    <div className="fu" style={{padding:"15px 14px 90px"}}>
+      <div className="B" style={{fontSize:22,fontWeight:800,color:C.accent,marginBottom:13,letterSpacing:1}}>HISTORIAL</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:11}}>
+        {[{id:"all",l:"TODOS"},{id:"week",l:"SEMANA"},{id:"today",l:"HOY"}].map(f=>(
+          <button key={f.id} onClick={()=>setFilter(f.id)} style={{padding:"8px 4px",background:filter===f.id?`${C.accent}1a`:"transparent",border:`1px solid ${filter===f.id?C.accent:C.border}`,borderRadius:7,color:filter===f.id?C.accent:C.muted,fontSize:10,letterSpacing:"0.1em",fontWeight:600}}>{f.l}</button>
+        ))}
+      </div>
+      <Btn full onClick={()=>setModal(true)} s={{marginBottom:11}}><SVG d={IC.plus} size={13} color={C.accent}/>Agregar viaje</Btn>
+      {filtered.length===0?(
+        <div style={{textAlign:"center",padding:"48px 0",color:C.dim}}><div style={{fontSize:34,marginBottom:9}}>🚗</div><Lbl>Sin viajes registrados</Lbl></div>
+      ):filtered.map(t=>{
         const c=calcTrip(t,cfg);
+        const col=c.nph>=cfg.targetHourlyRate?C.teal:c.nph>=cfg.targetHourlyRate*.75?C.accent:C.danger;
         return(
-          <Card key={t.id} s={{marginBottom:7}} onClick={()=>onSelect(t)}>
-            <div style={{display:"flex",justifyContent:"space-between"}}>
-              <div><Pill platform={t.platform}/><div style={{fontSize:12,marginTop:4}}>{fmtMXN(t.fare)} · {fmt(c.km,1)}km</div></div>
-              <div style={{textAlign:"right"}}><Big size={19} color={c.net>=0?C.teal:C.danger}>{fmtMXN(c.net)}</Big><Lbl>{fmtMXN(c.nph)}/hr</Lbl></div>
+          <Card key={t.id} s={{marginBottom:7,cursor:"pointer"}} onClick={()=>setDetail(t)}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:4,flexWrap:"wrap"}}>
+                  <Pill platform={t.platform}/>
+                  {t.gps_km>0&&<span style={{fontSize:9,color:C.teal}}>📍GPS</span>}
+                  <span style={{fontSize:9,color:C.muted}}>{fmtDate(t.created_at||t.end_time)}</span>
+                  {t.end_time&&<span style={{fontSize:9,color:C.dim}}>{fmtHour(t.end_time)}</span>}
+                </div>
+                <div style={{fontSize:12,color:C.text}}>{fmtMXN(t.fare)} · {fmt(c.km,1)}km · {c.min.toFixed(0)} min</div>
+                <div style={{fontSize:10,color:C.muted,marginTop:2}}>Gas: {fmtMXN(c.gas)} · Fee: {fmtMXN(c.fee)}</div>
+              </div>
+              <div style={{textAlign:"right",display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}}>
+                <Big size={19} color={col}>{fmtMXN(c.net)}</Big>
+                <Lbl>{fmtMXN(c.nph)}/hr</Lbl>
+              </div>
+            </div>
+            <div style={{marginTop:9,height:3,borderRadius:3,background:C.card2,overflow:"hidden"}}>
+              <div style={{width:`${Math.max(0,Math.min(100,c.pct))}%`,height:"100%",background:col,borderRadius:3}}/>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",marginTop:3}}>
+              <Lbl>{fmtPct(Math.max(0,c.pct))} neto</Lbl><Lbl>Toca para editar / desglose →</Lbl>
             </div>
           </Card>
-        )
+        );
       })}
+      {modal&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={null} onClose={()=>setModal(false)}/>}
+      {detail&&(
+        <TripDetail trip={detail} cfg={cfg} onClose={()=>setDetail(null)}
+          onSave={async(id,data)=>{await updateTrip(id,data);setDetail(null);}}
+          onDelete={id=>{deleteTrip(id);setDetail(null);}}/>
+      )}
     </div>
   );
 }
@@ -786,7 +915,17 @@ export default function RutaFlow(){
     await supabase.from("active_days").delete().eq("user_id",session.user.id);
     resetDayGPS(); setActiveDay(null); showToast("Jornada cerrada");
   };
-
+  
+const updateTrip=async(id,data)=>{
+  const{data:updated,error}=await supabase.from("trips").update(data).eq("id",id).select().single();
+  if(!error){setTrips(p=>p.map(t=>t.id===id?updated:t));showToast("Viaje actualizado ✓");}
+};
+  
+const deleteTrip=async id=>{
+  const{error}=await supabase.from("trips").delete().eq("id",id);
+  if(!error){setTrips(p=>p.filter(t=>t.id!==id));showToast("Viaje eliminado");}
+};
+  
     const saveConfig=async newCfg=>{
   setCfg(newCfg);
   if(!session)return;
