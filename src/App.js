@@ -1106,6 +1106,17 @@ export default function RutaFlow(){
   const todayNet=trips.filter(t=>t.date===today()).reduce((s,t)=>s+calcTrip(t,cfg).net,0);
   const NAV=[{id:"home",d:IC.home,l:"Hoy"},{id:"trips",d:IC.trips,l:"Viajes"},{id:"stats",d:IC.stats,l:"Stats"},{id:"ai",d:IC.ai,l:"IA"},{id:"config",d:IC.cfg,l:"Config"}];
 
+// Añade esto justo antes del return de la función RutaFlow
+const safeAreaStyle = {
+  paddingTop: 'env(safe-area-inset-top)',
+  paddingBottom: 'env(safe-area-inset-bottom)',
+  paddingLeft: 'env(safe-area-inset-left)',
+  paddingRight: 'env(safe-area-inset-right)',
+  display: 'flex',
+  flexDirection: 'column',
+  minHeight: '100vh'
+};
+
   return(
     <><style>{CSS}</style>
       {toast&&<Toast msg={toast.msg} type={toast.type}/>}
