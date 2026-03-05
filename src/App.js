@@ -1107,29 +1107,53 @@ export default function RutaFlow(){
   const todayNet=trips.filter(t=>t.date===today()).reduce((s,t)=>s+calcTrip(t,cfg).net,0);
   const NAV=[{id:"home",d:IC.home,l:"Hoy"},{id:"trips",d:IC.trips,l:"Viajes"},{id:"stats",d:IC.stats,l:"Stats"},{id:"ai",d:IC.ai,l:"IA"},{id:"config",d:IC.cfg,l:"Config"}];
 
-  return(
-    <><style>{CSS}</style>
-      {toast&&<Toast msg={toast.msg} type={toast.type}/>}
-      <div style={{background:C.bg,minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative"}}>
-        <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"12px 15px 10px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10}}>
-          <div><div className="B" style={{fontSize:19,fontWeight:900,color:C.accent,letterSpacing:1.5}}>RUTAFLOW</div><div style={{fontSize:9,color:C.dim,letterSpacing:"0.18em"}}>{uname.toUpperCase()}</div></div>
-          <div style={{textAlign:"right"}}><div style={{fontSize:10,color:C.muted}}>hoy neto</div><div className="B" style={{fontSize:21,fontWeight:800,color:todayNet>=0?C.teal:C.danger}}>{fmtMXN(todayNet)}</div></div>
+// Añade esto justo antes del return de la función RutaFlow
+const safeAreaStyle = {
+  paddingTop: 'env(safe-area-inset-top)',
+  paddingBottom: 'env(safe-area-inset-bottom)',
+  paddingLeft: 'env(safe-area-inset-left)',
+  paddingRight: 'env(safe-area-inset-right)',
+  display: 'flex',
+  flexDirection: 'column',
+  minHeight: '100vh'
+};
+
+ return(
+  <><style>{CSS}</style>
+    {toast&&<Toast msg={toast.msg} type={toast.type}/>}
+    {/* MODIFICACIÓN AQUÍ: Añadimos el div de safeAreaStyle */}
+    <div style={safeAreaStyle}> 
+      <div style={{background:C.bg, minHeight:"100vh", maxWidth:480, margin:"0 auto", position:"relative", flex: 1}}>
+        
+        {/* HEADER (El que se tapaba con la cámara) */}
+        <div style={{background:C.card, borderBottom:`1px solid ${C.border}`, padding:"12px 15px 10px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:10}}>
+          <div>
+            <div className="B" style={{fontSize:19, fontWeight:900, color:C.accent, letterSpacing:1.5}}>RUTAFLOW</div>
+            <div style={{fontSize:9, color:C.dim, letterSpacing:"0.18em"}}>{uname.toUpperCase()}</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:10, color:C.muted}}>hoy neto</div>
+            <div className="B" style={{fontSize:21, fontWeight:800, color:todayNet>=0?C.teal:C.danger}}>{fmtMXN(todayNet)}</div>
+          </div>
         </div>
-        {tab==="home"  &&<HomeTab   cfg={cfg} trips={trips} days={days} activeDay={activeDay} saveTrip={saveTrip} startDay={startDay} endDay={endDay}/>}
-        {tab==="trips" &&<TripsTab  cfg={cfg} trips={trips} saveTrip={saveTrip} updateTrip={updateTrip} deleteTrip={deleteTrip}/>}
-        {tab==="stats" &&<StatsTab  cfg={cfg} trips={trips}/>}
-        {tab==="ai"    &&<AITab     cfg={cfg} trips={trips}/>}
-        {tab==="config"&&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()}/>}
-        {/* NAV — z-index 100, siempre visible por encima del modal */}
-        <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100}}>
+
+        {/* CONTENIDO DE LAS TABS */}
+        {tab==="home"   &&<HomeTab   cfg={cfg} trips={trips} days={days} activeDay={activeDay} saveTrip={saveTrip} startDay={startDay} endDay={endDay}/>}
+        {tab==="trips"  &&<TripsTab  cfg={cfg} trips={trips} saveTrip={saveTrip} updateTrip={updateTrip} deleteTrip={deleteTrip}/>}
+        {tab==="stats"  &&<StatsTab  cfg={cfg} trips={trips}/>}
+        {tab==="ai"     &&<AITab     cfg={cfg} trips={trips}/>}
+        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()}/>}
+
+        {/* NAVEGACIÓN INFERIOR */}
+        <div style={{position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:C.card, borderTop:`1px solid ${C.border}`, display:"flex", zIndex:100, paddingBottom: 'env(safe-area-inset-bottom)'}}>
           {NAV.map(n=>(
-            <button key={n.id} onClick={()=>setTab(n.id)} style={{flex:1,padding:"9px 0 13px",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:tab===n.id?C.accent:C.dim,transition:"color .15s"}}>
+            <button key={n.id} onClick={()=>setTab(n.id)} style={{flex:1, padding:"9px 0 13px", display:"flex", flexDirection:"column", alignItems:"center", gap:4, color:tab===n.id?C.accent:C.dim, transition:"color .15s"}}>
               <SVG d={n.d} size={18} color={tab===n.id?C.accent:C.dim}/>
-              <span style={{fontSize:9,letterSpacing:"0.1em",fontWeight:tab===n.id?700:400}}>{n.l}</span>
+              <span style={{fontSize:9, letterSpacing:"0.1em", fontWeight:tab===n.id?700:400}}>{n.l}</span>
             </button>
           ))}
         </div>
       </div>
-    </>
-  );
-}
+    </div>
+  </>
+);
