@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+
+  <!-- ─── VIEWPORT ─────────────────────────────────────────────────────────── -->
+  <!-- viewport-fit=cover: la app llega hasta los bordes en iPhones con notch -->
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+
+  <!-- ─── IDENTIDAD ────────────────────────────────────────────────────────── -->
+  <title>RutaFlow | Gestor Pro de Conductor</title>
+  <meta name="description"
+    content="Calcula cuánto ganas de verdad en cada viaje. Descuenta gasolina, comisiones y costos reales. Para conductores de Uber, Didi y Beat en México." />
+
+  <!-- ─── PWA: MANIFEST ────────────────────────────────────────────────────── -->
+  <!-- Le dice al teléfono que esto es una app instalable -->
+  <link rel="manifest" href="/manifest.json" />
+
+  <!-- ─── PWA: COLORES Y APARIENCIA ────────────────────────────────────────── -->
+  <!-- Color de la barra de estado en Android (el dorado de RutaFlow) -->
+  <meta name="theme-color" content="#f0a500" />
+  <!-- Color de fondo mientras carga (el negro de RutaFlow) -->
+  <meta name="background-color" content="#07080d" />
+
+  <!-- ─── PWA: iOS (Safari no usa manifest, necesita estas etiquetas aparte) ── -->
+  <!-- Sin esto, en iPhone no se puede instalar en pantalla de inicio -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="RutaFlow" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
+  <!-- ─── ÍCONOS ────────────────────────────────────────────────────────────── -->
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
+
+  <!-- ─── FUENTES ───────────────────────────────────────────────────────────── -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Barlow+Condensed:wght@700;800;900&display=swap"
+    rel="stylesheet" />
+
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+
+  <!-- ─── REGISTRAR SERVICE WORKER ─────────────────────────────────────────── -->
+  <!-- Este script activa el "guardián" de la app en el teléfono -->
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker
+          .register("/sw.js")
+          .then((reg) => {
+            console.log("[RutaFlow] Service Worker activo:", reg.scope);
+          })
+          .catch((err) => {
+            console.warn("[RutaFlow] Service Worker falló:", err);
+          });
+      });
+    }
+  </script>
+</body>
+
+</html>
