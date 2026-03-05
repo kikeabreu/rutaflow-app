@@ -562,40 +562,100 @@ function TripsTab({cfg,trips,onSelect,onNew}){
   );
 }
 
-function StatsTab({cfg,trips}){
-  const[range,setRange]=useState(30);
-  const cutoff=Date.now()-range*86400000;
-  const filtered=trips.filter(t=>new Date(t.created_at||t.end_time||0).getTime()>=cutoff);
-  const byDate={};
-  filtered.forEach(t=>{
-    const d=t.date||today(); const c=calcTrip(t,cfg);
-    if(!byDate[d])byDate[d]={date:d,net:0,km:0,trips:0,min:0,gas:0,gross:0};
-    byDate[d].net+=c.net; byDate[d].km+=c.km; byDate[d].min+=c.min; byDate[d].gas+=c.gas; byDate[d].gross+=c.fare; byDate[d].trips+=1;
-  });
-  const chart=Object.values(byDate).sort((a,b)=>a.date.localeCompare(b.date)).map(d=>({...d,nph:d.min>0?d.net/(d.min/60):0,label:new Date(d.date).toLocaleDateString("es-MX",{day:"numeric",month:"short"})}));
-  const tot=filtered.reduce((a,t)=>{const c=calcTrip(t,cfg);return{net:a.net+c.net,km:a.km+c.km,gas:a.gas+c.gas,gross:a.gross+c.fare,min:a.min+c.min};},{net:0,km:0,gas:0,gross:0,min:0});
-  const Tip=({active,payload,label})=>{if(!active||!payload?.length)return null;return<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",fontSize:11}}><div style={{color:C.muted,marginBottom:4}}>{label}</div>{payload.map((p,i)=><div key={i} style={{color:p.color}}>{p.name}: {fmtMXN(p.value)}</div>)}</div>;};
+function StatsTab({ cfg, trips }) {
+  const [range, setRange] = useState(30);
+  const cutoff = Date.now() - range * 24 * 3600 * 1000;
+  
+  // Filtrar por tiempo
+  const filtered = trips.filter(t => new Date(t.created_at || t.end_time || 0).getTime() >= cutoff);
 
-  return(
-    <div className="fu" style={{padding:"15px 14px 100px"}}>
-      <Big size={22} color={C.accent} s={{marginBottom:13,letterSpacing:1}}>ESTADÍSTICAS</Big>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:14}}>
-        {[7,14,30,60].map(r=><button key={r} onClick={()=>setRange(r)} style={{padding:"8px 4px",background:range===r?`${C.accent}1e`:"transparent",border:`1px solid ${range===r?C.accent:C.border}`,borderRadius:7,color:range===r?C.accent:C.muted,fontSize:11,fontWeight:700}}>{r}D</button>)}
+  // Agrupar por fecha
+  const byDate = {};
+  filtered.forEach(t => {
+    const c = calcTrip(t, cfg);
+    const dKey = t.date || today();
+    if (!byDate[dKey]) byDate[dKey] = { date: dKey, net: 0, km: 0, trips: 0, minutes: 0, gas: 0 };
+    byDate[dKey].net += c.net;
+    byDate[dKey].km += c.km;
+    byDate[dKey].trips += 1;
+    byDate[dKey].minutes += c.min;
+    byDate[dKey].gas += c.gas;
+  });
+
+  const chartData = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)).map(d => ({
+    ...d,
+    netPerHour: d.minutes > 0 ? (d.net / (d.minutes / 60)) : 0,
+    label: new Date(d.date).toLocaleDateString("es-MX", { day: "numeric", month: "short" })
+  }));
+
+  const totalNet = filtered.reduce((s, t) => s + calcTrip(t, cfg).net, 0);
+  const totalKm = filtered.reduce((s, t) => s + calcTrip(t, cfg).km, 0);
+  const totalGas = filtered.reduce((s, t) => s + calcTrip(t, cfg).gas, 0);
+  const avgPerTrip = filtered.length > 0 ? totalNet / filtered.length : 0;
+  const bestDay = chartData.length > 0 ? chartData.reduce((b, d) => d.net > b.net ? d : b) : null;
+
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", fontSize: 11 }}>
+        <div style={{ color: C.muted, marginBottom: 4 }}>{label}</div>
+        {payload.map((p, i) => <div key={i} style={{ color: p.color }}>{p.name}: {p.name.includes("km") ? `${fmt(p.value, 1)} km` : fmtMXN(p.value)}</div>)}
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:13}}>
-        {[{l:"Neto total",v:fmtMXN(tot.net),c:C.teal},{l:"Viajes",v:filtered.length,c:C.text},{l:"Km recorridos",v:`${fmt(tot.km,0)} km`,c:C.accent},{l:"Gas total",v:fmtMXN(tot.gas),c:C.danger}].map(({l,v,c})=>(
-          <Card key={l} s={{padding:"11px 13px"}}><Lbl s={{marginBottom:5}}>{l}</Lbl><Big size={21} color={c}>{v}</Big></Card>
+    );
+  };
+
+  return (
+    <div className="fu" style={{ padding: "15px 14px 100px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, marginBottom: 20 }}>
+        {[7, 14, 30, 60].map(r => (
+          <button key={r} onClick={() => setRange(r)}
+            style={{ padding: "8px", background: range === r ? `${C.accent}22` : "transparent", border: `1px solid ${range === r ? C.accent : C.border}`, borderRadius: 8, color: range === r ? C.accent : C.dim, fontSize: 11 }}>
+            {r}D
+          </button>
         ))}
       </div>
-      <Card s={{marginBottom:11,padding:"13px 8px"}}>
-        <Lbl s={{marginBottom:11,paddingLeft:6}}>Ganancia diaria (MXN)</Lbl>
-        <ResponsiveContainer width="100%" height={160}>
-          <BarChart data={chart} margin={{left:-20}}><CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/><XAxis dataKey="label" tick={{fill:C.dim,fontSize:9}}/><YAxis tick={{fill:C.dim,fontSize:9}}/><Tooltip content={<Tip/>}/><Bar dataKey="net" name="neto $" radius={[4,4,0,0]}>{chart.map((e,i)=><Cell key={i} fill={e.net>=0?C.teal:C.danger}/>)}</Bar></BarChart>
-        </ResponsiveContainer>
-      </Card>
+
+      {filtered.length < 1 ? (
+        <div style={{ textAlign: "center", padding: 60, color: C.dim }}>
+          <div style={{ fontSize: 32 }}>📊</div>
+          <Lbl>REGISTRA VIAJES PARA VER ESTADÍSTICAS</Lbl>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+            {[
+              { l: "GANANCIA NETA", v: fmtMXN(totalNet), c: totalNet >= 0 ? C.teal : C.danger },
+              { l: "VIAJES TOTALES", v: filtered.length, c: C.text },
+              { l: "KM RECORRIDOS", v: `${fmt(totalKm, 0)} km`, c: C.accent },
+              { l: "PROMEDIO/VIAJE", v: fmtMXN(avgPerTrip), c: C.teal },
+            ].map(({ l, v, c }) => (
+              <Card key={l} s={{ padding: "14px 16px" }}>
+                <Lbl s={{ marginBottom: 6 }}>{l}</Lbl>
+                <Big size={26} color={c}>{v}</Big>
+              </Card>
+            ))}
+          </div>
+
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px", marginBottom: 12 }}>
+            <Lbl s={{ marginBottom: 14 }}>GANANCIA DIARIA (MXN)</Lbl>
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={chartData} margin={{ left: -20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+                <XAxis dataKey="label" tick={{ fill: C.dim, fontSize: 9 }} />
+                <YAxis tick={{ fill: C.dim, fontSize: 9 }} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="net" name="neto $" radius={[3, 3, 0, 0]}>
+                  {chartData.map((e, i) => <Cell key={i} fill={e.net >= 0 ? C.accent : C.danger} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </>
+      )}
     </div>
   );
 }
+
 function AITab(){ return <div className="fu" style={{padding:"15px 14px 100px"}}><Big size={22} color={C.teal}>ASESOR IA</Big></div>; }
 function ConfigTab({cfg,saveConfig,onLogout}){ return <div className="fu" style={{padding:"15px 14px 100px"}}><Big size={22} color={C.accent}>AJUSTES</Big><Btn full onClick={onLogout} color={C.danger} outline s={{marginTop:20}}>Cerrar sesión</Btn></div>; }
 
