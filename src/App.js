@@ -206,7 +206,7 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",zIndex:9999,display:"flex",flexDirection:"column",justifyContent:"flex-end"}} onClick={onClose}>
       <div onClick={e=>e.stopPropagation()} className="su"
-        style={{background:C.card,borderTop:`2px solid ${C.bord2}`,borderRadius:"20px 20px 0 0",maxHeight:"92vh",display:"flex",flexDirection:"column"}}>
+        style={{background:C.card,borderTop:`2px solid ${C.bord2}`,borderRadius:"20px 20px 0 0",maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <div style={{padding:"18px 18px 12px",flexShrink:0,borderBottom:`1px solid ${C.border}`}}>
           <div style={{width:30,height:3,background:C.bord2,borderRadius:4,margin:"0 auto 14px"}}/>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
@@ -929,7 +929,7 @@ const deleteTrip=async id=>{
     <>
       <style>{CSS}</style>
       {toast&&<Toast msg={toast.msg} type={toast.type}/>}
-   <div style={{background:C.bg, minHeight:"100vh", maxWidth:480, margin:"0 auto", position:"relative", paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)"}}>
+   <div style={{background:C.bg, minHeight:"100vh", maxWidth:480, margin:"0 auto", position:"relative"}}>
         <div style={{
   background: C.card, 
   padding: `calc(10px + env(safe-area-inset-top)) 15px 10px`, 
