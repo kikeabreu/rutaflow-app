@@ -960,10 +960,10 @@ const deleteTrip=async id=>{
           ))}
         </div>
 
-        {/* MODALES: Renderizados después de la NAV para que floten encima */}
-        {showNew && <TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} onClose={()=>setShowNew(false)}/>}
-        {selTrip && <TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)} onSave={async(id,d)=>{await supabase.from("trips").update(d).eq("id",id); loadCloud(session.user.id);}} onDelete={async(id)=>{await supabase.from("trips").delete().eq("id",id); loadCloud(session.user.id);}}/>}
-      </div>
+       </div>
+      {/* MODALES FUERA DEL CAJÓN — flotan sobre todo */}
+      {showNew && <TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} onClose={()=>setShowNew(false)}/>}
+      {selTrip && <TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)} onSave={async(id,d)=>{await supabase.from("trips").update(d).eq("id",id); loadCloud(session.user.id);}} onDelete={async(id)=>{await supabase.from("trips").delete().eq("id",id); loadCloud(session.user.id);}}/>}
     </>
   );
 }
