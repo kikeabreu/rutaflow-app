@@ -950,7 +950,7 @@ const deleteTrip=async id=>{
         {tab==="ai"     && <AITab/>}
 {tab==="config" && <ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()}/>}
 
-        {/* NAVEGACIÓN FIJA AL FINAL */}
+ {/* NAVEGACIÓN FIJA AL FINAL */}
        <div style={{position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:C.card, borderTop: `1px solid ${C.border}`, display:"flex", zIndex:100, paddingBottom: "calc(10px + env(safe-area-inset-bottom))", paddingTop: "10px"}}>
           {NAV.map(n=>(
             <button key={n.id} onClick={()=>setTab(n.id)} style={{flex:1,padding:"12px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:tab===n.id?C.accent:C.dim}}>
@@ -960,10 +960,10 @@ const deleteTrip=async id=>{
           ))}
         </div>
 
-       </div>
-      {/* MODALES FUERA DEL CAJÓN — flotan sobre todo */}
-      {showNew && <TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} onClose={()=>setShowNew(false)}/>}
-      {selTrip && <TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)} onSave={async(id,d)=>{await supabase.from("trips").update(d).eq("id",id); loadCloud(session.user.id);}} onDelete={async(id)=>{await supabase.from("trips").delete().eq("id",id); loadCloud(session.user.id);}}/>}
+        {/* MODALES: Renderizados después de la NAV para que floten encima */}
+        {showNew && <TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} onClose={()=>setShowNew(false)}/>}
+        {selTrip && <TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)} onSave={async(id,d)=>{await supabase.from("trips").update(d).eq("id",id); loadCloud(session.user.id);}} onDelete={async(id)=>{await supabase.from("trips").delete().eq("id",id); loadCloud(session.user.id);}}/>}
+      </div>
     </>
   );
 }
