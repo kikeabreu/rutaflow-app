@@ -90,53 +90,43 @@ button:active{transform:scale(0.97);}
 `;
 
 // ─── HOOKS DE SISTEMA ────────────────────────────────────────────────────────
-
-function useWakeLock(isActive) {
-  const sentinel = useRef(null);
-  const requestLock = useCallback(async () => {
-    try {
-      if ('wakeLock' in navigator) {
-        sentinel.current = await navigator.wakeLock.request('screen');
-      }
-    } catch (err) { console.error("Wake Lock Error:", err); }
-  }, []);
-  useEffect(() => {
-    if (isActive) requestLock();
-    else if (sentinel.current) {
-      sentinel.current.release().then(() => { sentinel.current = null; });
-    }
-  }, [isActive, requestLock]);
+function useWakeLock(isActive){
+  const sentinel=useRef(null);
+  const requestLock=useCallback(async()=>{
+    try{if('wakeLock' in navigator){sentinel.current=await navigator.wakeLock.request('screen');}}
+    catch(err){console.error("Wake Lock Error:",err);}
+  },[]);
+  useEffect(()=>{
+    if(isActive)requestLock();
+    else if(sentinel.current){sentinel.current.release().then(()=>{sentinel.current=null;});}
+  },[isActive,requestLock]);
 }
 
-function useDayGPS(isActive) {
-  const [dayKm, setDayKm] = useState(() => parseFloat(LS.get(K.DAYGPS, {})?.km || 0));
-  const lastRef = useRef(null);
-  const distRef = useRef(parseFloat(LS.get(K.DAYGPS, {})?.km || 0));
-  useWakeLock(isActive); 
-  const start = useCallback(() => {
-    if (!navigator.geolocation) return;
+function useDayGPS(isActive){
+  const[dayKm,setDayKm]=useState(()=>parseFloat(LS.get(K.DAYGPS,{})?.km||0));
+  const lastRef=useRef(null);
+  const distRef=useRef(parseFloat(LS.get(K.DAYGPS,{})?.km||0));
+  useWakeLock(isActive);
+  const start=useCallback(()=>{
+    if(!navigator.geolocation)return;
     return navigator.geolocation.watchPosition(
-      ({ coords: { latitude: lat, longitude: lon } }) => {
-        if (lastRef.current) {
-          const d = haversine(lastRef.current, { lat, lon });
-          if (d > 0.01) { 
-            distRef.current += d;
-            setDayKm(distRef.current);
-            LS.set(K.DAYGPS, { km: distRef.current, ts: Date.now() });
-          }
+      ({coords:{latitude:lat,longitude:lon}})=>{
+        if(lastRef.current){
+          const d=haversine(lastRef.current,{lat,lon});
+          if(d>0.01){distRef.current+=d;setDayKm(distRef.current);LS.set(K.DAYGPS,{km:distRef.current,ts:Date.now()});}
         }
-        lastRef.current = { lat, lon };
+        lastRef.current={lat,lon};
       },
-      (err) => console.warn("GPS Error", err),
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+      (err)=>console.warn("GPS Error",err),
+      {enableHighAccuracy:true,maximumAge:0,timeout:10000}
     );
-  }, []);
-  useEffect(() => {
+  },[]);
+  useEffect(()=>{
     let watchId;
-    if (isActive) { watchId = start(); }
-    return () => { if (watchId) navigator.geolocation.clearWatch(watchId); };
-  }, [isActive, start]);
-  return { dayKm, reset: () => { distRef.current = 0; setDayKm(0); LS.del(K.DAYGPS); } };
+    if(isActive){watchId=start();}
+    return()=>{if(watchId)navigator.geolocation.clearWatch(watchId);};
+  },[isActive,start]);
+  return{dayKm,reset:()=>{distRef.current=0;setDayKm(0);LS.del(K.DAYGPS);}};
 }
 
 // ─── ATOMS ───────────────────────────────────────────────────────────────────
@@ -246,6 +236,11 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
                 <Inp label="km" type="number" value={form.dest_km} onChange={v=>setF("dest_km",v)} unit="km"/>
                 <Inp label="min" type="number" value={form.dest_min} onChange={v=>setF("dest_min",v)} unit="min"/>
               </div>
+              <Lbl s={{marginBottom:7}}>GPS registrado</Lbl>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+                <Inp label="km GPS" type="number" value={form.gps_km} onChange={v=>setF("gps_km",v)} unit="km"/>
+                <Inp label="min GPS" type="number" value={form.gps_min} onChange={v=>setF("gps_min",v)} unit="min"/>
+              </div>
               <div style={{background:`${V.col}10`,border:`1px solid ${V.col}33`,borderRadius:11,padding:"12px 14px",marginBottom:14}}>
                 <div className="B" style={{fontSize:14,color:V.col,marginBottom:8}}>{V.lbl}</div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:7}}>
@@ -266,11 +261,10 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
                   <div key={l} style={{background:C.card2,borderRadius:9,padding:"9px 11px"}}><Lbl s={{marginBottom:4}}>{l}</Lbl><Big size={15} color={col}>{v}</Big></div>
                 ))}
               </div>
-              <Lbl s={{marginBottom:8}}>Desglose contable</Lbl>
-              <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden",marginBottom:14}}>
+              <div style={{marginBottom:14}}>
                 {rows.map((r,i)=>(
-                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 13px",borderBottom:i<rows.length-1?`1px solid ${C.border}`:"none",background:r.bold?`${C.accent}08`:"transparent"}}>
-                    <div style={{fontSize:r.bold?11:10,color:r.bold?C.text:C.muted,fontWeight:r.bold?700:400}}>{r.l}</div>
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
+                    <div style={{fontSize:11,color:C.muted,flex:1,paddingRight:8}}>{r.l}</div>
                     <div className={r.bold?"B":""} style={{fontSize:r.bold?17:13,color:r.c,fontWeight:r.bold?800:600}}>{r.v}</div>
                   </div>
                 ))}
@@ -359,7 +353,7 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
     );
   };
 
-  const startGPS=()=>{ persist({gpsOn:true,gpsStartMs:Date.now(),gpsDistKm:0}); setGpsStatus("📍 Buscando señal GPS..."); _activateGPS(true); };
+  const startGPS=()=>{persist({gpsOn:true,gpsStartMs:Date.now(),gpsDistKm:0});setGpsStatus("📍 Buscando señal GPS...");_activateGPS(true);};
   const stopGPS=()=>{
     if(watchRef.current)navigator.geolocation.clearWatch(watchRef.current);
     clearInterval(timerRef.current);
@@ -400,85 +394,112 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
     setSaving(true);
     const ok=await saveTrip({
       fare:parseFloat(trip.fare)||0,platform:trip.platform||"uber",
-      pickup_km:parseFloat(trip.pickup_km)||0, pickup_min:parseFloat(trip.pickup_min)||0,
-      dest_km:parseFloat(trip.dest_km)||0, dest_min:parseFloat(trip.dest_min)||0,
-      gps_km:parseFloat(trip.gps_km)||0, gps_min:parseFloat(trip.gps_min)||0,
-      date:today(), end_time:new Date().toISOString(), day_id:activeDay?.id||null,
+      pickup_km:parseFloat(trip.pickup_km)||0,pickup_min:parseFloat(trip.pickup_min)||0,
+      dest_km:parseFloat(trip.dest_km)||0,dest_min:parseFloat(trip.dest_min)||0,
+      gps_km:parseFloat(trip.gps_km)||0,gps_min:parseFloat(trip.gps_min)||0,
+      date:today(),end_time:new Date().toISOString(),day_id:activeDay?.id||null,
     });
     setSaving(false);
     if(ok){LS.del(K.DRAFT);onClose();}
-    else toast_("Error al guardar.","err");
+    else toast_("Error al guardar. Intenta de nuevo.","err");
   };
 
   const c=calcTrip(trip,cfg);
   const hasData=trip.fare&&(trip.dest_km||trip.dest_min||(parseFloat(trip.gps_km)>0));
   const V=c.nph>=cfg.targetHourlyRate?{col:C.teal,lbl:"✅ Excelente"}:c.nph>=cfg.targetHourlyRate*.75?{col:C.accent,lbl:"⚠️ Aceptable"}:{col:C.danger,lbl:"❌ No conviene"};
+  const mBtn=id=>({padding:"8px 4px",borderRadius:8,fontSize:10,fontWeight:600,fontFamily:"inherit",background:mode===id?`${C.teal}1e`:"transparent",border:`1px solid ${mode===id?C.teal:C.border}`,color:mode===id?C.teal:C.muted});
 
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.8)", zIndex: 9999, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-      {toast && <Toast msg={toast.msg} type={toast.type} />}
-      <div className="su" style={{ background: C.card, borderTop: `2px solid ${C.bord2}`, borderRadius: "24px 24px 0 0", maxHeight: "92vh", display: "flex", flexDirection: "column", width: "100%", overflow: "hidden" }}>
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.8)",zIndex:9999,display:"flex",flexDirection:"column",justifyContent:"flex-end",padding:"0 10px 80px 10px"}}>
+      {toast&&<Toast msg={toast.msg} type={toast.type}/>}
+      <div className="su" style={{background:C.card,border:`1px solid ${C.bord2}`,borderRadius:"24px",maxHeight:"calc(100vh - 160px)",display:"flex",flexDirection:"column",width:"100%",overflow:"hidden",boxShadow:"0px -4px 20px rgba(0,0,0,0.2)"}}>
         <div style={{padding:"16px 18px 0",flexShrink:0}}>
           <div style={{width:30,height:3,background:C.bord2,borderRadius:4,margin:"0 auto 13px"}}/>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-            <Big size={19} color={C.accent}>NUEVO VIAJE</Big>
-            <button onClick={onClose} style={{color:C.muted,fontSize:20,padding:"4px 8px"}}>✕</button>
+            <Big size={19} color={C.accent} s={{letterSpacing:1}}>NUEVO VIAJE</Big>
+            <button onClick={onClose} style={{color:C.muted,fontSize:20,lineHeight:1,padding:"4px 8px"}}>✕</button>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:10}}>
             {["uber","didi","beat","otra"].map(p=>(
-              <button key={p} onClick={()=>setF("platform",p)} style={{padding:"7px 4px",background:trip.platform===p?`${C.accent}1e`:"transparent",border:`1px solid ${trip.platform===p?C.accent:C.border}`,borderRadius:7,color:trip.platform===p?C.accent:C.muted,fontSize:10,textTransform:"uppercase"}}>{p}</button>
+              <button key={p} onClick={()=>setF("platform",p)} style={{padding:"7px 4px",background:trip.platform===p?`${C.accent}1e`:"transparent",border:`1px solid ${trip.platform===p?C.accent:C.border}`,borderRadius:7,color:trip.platform===p?C.accent:C.muted,fontSize:10,letterSpacing:"0.08em",textTransform:"uppercase"}}>{p}</button>
             ))}
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:10}}>
             {[{id:"manual",l:"✍️ Manual"},{id:"gps",l:"📍 GPS"},{id:"photo",l:"📸 Foto IA"}].map(m=>(
-              <button key={m.id} onClick={()=>setModeP(m.id)} style={{padding:"8px 4px",borderRadius:8,fontSize:10,background:mode===m.id?`${C.teal}1e`:"transparent",border:`1px solid ${mode===m.id?C.teal:C.border}`,color:mode===m.id?C.teal:C.muted}}>{m.l}</button>
+              <button key={m.id} onClick={()=>setModeP(m.id)} style={mBtn(m.id)}>{m.l}</button>
             ))}
           </div>
         </div>
         <div style={{flex:1,overflowY:"auto",padding:"0 18px",WebkitOverflowScrolling:"touch"}}>
           <div style={{marginBottom:12}}>
-            <Lbl s={{marginBottom:5}}>💰 Tarifa (MXN)</Lbl>
-            <input type="number" step="any" value={trip.fare} onChange={e=>setF("fare",e.target.value)} placeholder="0.00" style={{width:"100%",background:"#0a0b14",border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",color:C.accent,fontSize:38,fontWeight:700,textAlign:"center",outline:"none"}}/>
+            <Lbl s={{marginBottom:5}}>💰 Tarifa del viaje (MXN)</Lbl>
+            <input type="number" step="any" value={trip.fare} onChange={e=>setF("fare",e.target.value)} placeholder="0.00"
+              onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}
+              style={{width:"100%",background:"#0a0b14",border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",color:C.accent,fontSize:38,fontFamily:"inherit",fontWeight:700,outline:"none",textAlign:"center"}}/>
           </div>
           {mode==="gps"&&(
             <div style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:12,padding:15,marginBottom:12}}>
-              {gpsOn&&<div className="B" style={{fontSize:46,fontWeight:900,color:C.teal,textAlign:"center"}}>{fmtClock(gpsMs)}</div>}
-              <div style={{fontSize:13,color:gpsOn?C.teal:C.muted,textAlign:"center",margin:"10px 0"}}>{gpsStatus}</div>
-              {!gpsOn?(<Btn full onClick={startGPS} color={C.teal}>Iniciar GPS</Btn>):(<Btn full onClick={stopGPS} color={C.danger}>Finalizar GPS</Btn>)}
+              <Lbl s={{marginBottom:10}}>Rastreo GPS en tiempo real</Lbl>
+              {gpsOn&&<div className="B" style={{fontSize:46,fontWeight:900,color:C.teal,textAlign:"center",marginBottom:8}}>{fmtClock(gpsMs)}</div>}
+              {gpsStatus&&<div style={{fontSize:13,color:gpsOn?C.teal:C.muted,textAlign:"center",marginBottom:10}}>{gpsStatus}</div>}
+              {!gpsOn?(
+                <Btn full onClick={startGPS} color={C.teal}><SVG d={IC.gps} size={13} color={C.teal}/>Iniciar GPS</Btn>
+              ):(
+                <Btn full onClick={stopGPS} color={C.danger}><SVG d={IC.stop} size={13} color={C.danger} fill={C.danger}/>Finalizar GPS</Btn>
+              )}
+              {trip.gps_km&&!gpsOn&&(
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginTop:10}}>
+                  <div style={{background:C.card,borderRadius:8,padding:"8px 11px"}}><Lbl s={{marginBottom:3}}>GPS km</Lbl><Big size={17} color={C.teal}>{fmt(trip.gps_km,2)} km</Big></div>
+                  <div style={{background:C.card,borderRadius:8,padding:"8px 11px"}}><Lbl s={{marginBottom:3}}>Tiempo</Lbl><Big size={17} color={C.teal}>{fmt(trip.gps_min,0)} min</Big></div>
+                </div>
+              )}
             </div>
           )}
           {mode==="manual"&&(
             <div style={{marginBottom:12}}>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:9}}>
                 {[{id:0,l:"📍 Recolección"},{id:1,l:"🏁 Destino"}].map(ph=>(
-                  <button key={ph.id} onClick={()=>setPhaseP(ph.id)} style={{padding:"8px",background:phase===ph.id?`${C.accent}1a`:"transparent",border:`1px solid ${phase===ph.id?C.accent:C.border}`,borderRadius:8,color:phase===ph.id?C.accent:C.muted,fontSize:10}}>{ph.l}</button>
+                  <button key={ph.id} onClick={()=>setPhaseP(ph.id)} style={{padding:"8px",background:phase===ph.id?`${C.accent}1a`:"transparent",border:`1px solid ${phase===ph.id?C.accent:C.border}`,borderRadius:8,color:phase===ph.id?C.accent:C.muted,fontSize:10,fontWeight:600}}>{ph.l}</button>
                 ))}
               </div>
-              {phase===0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}><Inp label="km" value={trip.pickup_km} onChange={v=>setF("pickup_km",v)} unit="km"/><Inp label="min" value={trip.pickup_min} onChange={v=>setF("pickup_min",v)} unit="min"/></div>}
-              {phase===1&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}><Inp label="km" value={trip.dest_km} onChange={v=>setF("dest_km",v)} unit="km"/><Inp label="min" value={trip.dest_min} onChange={v=>setF("dest_min",v)} unit="min"/></div>}
+              {phase===0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}><Inp label="km para recoger" type="number" value={trip.pickup_km} onChange={v=>setF("pickup_km",v)} unit="km"/><Inp label="min para recoger" type="number" value={trip.pickup_min} onChange={v=>setF("pickup_min",v)} unit="min"/></div>}
+              {phase===1&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}><Inp label="km al destino" type="number" value={trip.dest_km} onChange={v=>setF("dest_km",v)} unit="km"/><Inp label="min al destino" type="number" value={trip.dest_min} onChange={v=>setF("dest_min",v)} unit="min"/></div>}
             </div>
           )}
           {mode==="photo"&&(
             <div style={{marginBottom:12}}>
               <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}}/>
-              {proc?(<div style={{textAlign:"center",padding:28}}><div className="sp" style={{width:28,height:28,border:`2px solid ${C.border}`,borderTopColor:C.accent,borderRadius:"50%",margin:"0 auto 10px"}}/><Lbl>Analizando...</Lbl></div>):(<button onClick={()=>fileRef.current?.click()} style={{width:"100%",padding:26,background:`${C.accent}0a`,border:`2px dashed ${C.accent}44`,borderRadius:12,color:C.accent,fontSize:11,fontWeight:700}}><SVG d={IC.cam} size={24} color={C.accent}/> SUBIR CAPTURA</button>)}
+              {proc?(
+                <div style={{textAlign:"center",padding:"28px 0"}}>
+                  <div className="sp" style={{width:28,height:28,border:`2px solid ${C.border}`,borderTopColor:C.accent,borderRadius:"50%",margin:"0 auto 10px"}}/>
+                  <Lbl>Analizando con IA...</Lbl>
+                </div>
+              ):(
+                <button onClick={()=>fileRef.current?.click()} style={{width:"100%",padding:"26px 18px",background:`${C.accent}0a`,border:`2px dashed ${C.accent}44`,borderRadius:12,color:C.accent,fontSize:11,letterSpacing:"0.1em",fontWeight:700,display:"flex",flexDirection:"column",alignItems:"center",gap:8}}>
+                  <SVG d={IC.cam} size={24} color={C.accent}/>
+                  SUBE CAPTURA DE UBER / DIDI
+                  <span style={{fontSize:10,color:C.muted,fontWeight:400,textTransform:"none",letterSpacing:0}}>La IA extrae tarifa, km y tiempo</span>
+                </button>
+              )}
             </div>
           )}
           {hasData&&(
             <div style={{background:`${V.col}10`,border:`1px solid ${V.col}33`,borderRadius:11,padding:"12px 14px",marginBottom:12}}>
               <div className="B" style={{fontSize:15,color:V.col,marginBottom:8}}>{V.lbl}</div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:7}}>
-                {[{l:"NETO",v:fmtMXN(c.net),c:c.net>=0?C.teal:C.danger},{l:"HORA",v:fmtMXN(c.nph),c:V.col},{l:"KM",v:fmtMXN(c.npk),c:C.muted}].map(({l,v,c:col})=>(
+                {[{l:"NETO",v:fmtMXN(c.net),c:c.net>=0?C.teal:C.danger},{l:"POR HORA",v:fmtMXN(c.nph),c:V.col},{l:"POR KM",v:fmtMXN(c.npk),c:C.muted}].map(({l,v,c:col})=>(
                   <div key={l} style={{textAlign:"center"}}><Lbl s={{marginBottom:3}}>{l}</Lbl><Big size={15} color={col}>{v}</Big></div>
                 ))}
               </div>
             </div>
           )}
+          <div style={{height:8}}/>
         </div>
-        <div style={{padding:"12px 18px 40px",flexShrink:0,borderTop:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"1fr 2fr",gap:9}}>
+        <div style={{padding:"12px 18px 20px",flexShrink:0,borderTop:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"1fr 2fr",gap:9}}>
           <Btn onClick={onClose} color={C.muted} outline>Cancelar</Btn>
           <Btn full onClick={handleSave} disabled={!trip.fare||gpsOn||saving}>
-            {saving?<div className="sp" style={{width:14,height:14,border:`2px solid ${C.dim}`,borderTopColor:C.accent,borderRadius:"50%"}}/>: "Guardar viaje"}
+            {saving?<div className="sp" style={{width:14,height:14,border:`2px solid ${C.dim}`,borderTopColor:C.accent,borderRadius:"50%"}}/>:<SVG d={IC.check} size={13} color={!trip.fare||gpsOn?C.dim:C.accent}/>}
+            {saving?"Guardando...":"Guardar viaje"}
           </Btn>
         </div>
       </div>
@@ -486,7 +507,6 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
   );
 }
 
-// ─── TABS ────────────────────────────────────────────────────────────────────
 // ─── HOME TAB ─────────────────────────────────────────────────────────────────
 function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm:propDayKm,onSelect}){
   const[elapsed,setElapsed]=useState(0);
@@ -616,10 +636,8 @@ function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm:propDayKm,on
 }
 
 // ─── TRIPS TAB ────────────────────────────────────────────────────────────────
-function TripsTab({cfg,trips,saveTrip,updateTrip,deleteTrip,onSelect}){
+function TripsTab({cfg,trips,saveTrip,updateTrip,deleteTrip,onSelect,onNew}){
   const[filter,setFilter]=useState("all");
-  const[modal,setModal]=useState(false);
-  const[detail,setDetail]=useState(null);
 
   const filtered=trips.filter(t=>{
     if(filter==="today")return(t.date||"")===today();
@@ -635,7 +653,7 @@ function TripsTab({cfg,trips,saveTrip,updateTrip,deleteTrip,onSelect}){
           <button key={f.id} onClick={()=>setFilter(f.id)} style={{padding:"8px 4px",background:filter===f.id?`${C.accent}1a`:"transparent",border:`1px solid ${filter===f.id?C.accent:C.border}`,borderRadius:7,color:filter===f.id?C.accent:C.muted,fontSize:10,letterSpacing:"0.1em",fontWeight:600}}>{f.l}</button>
         ))}
       </div>
-      <Btn full onClick={()=>setModal(true)} s={{marginBottom:11}}><SVG d={IC.plus} size={13} color={C.accent}/>Agregar viaje</Btn>
+      <Btn full onClick={onNew} s={{marginBottom:11}}><SVG d={IC.plus} size={13} color={C.accent}/>Agregar viaje</Btn>
       {filtered.length===0?(
         <div style={{textAlign:"center",padding:"48px 0",color:C.dim}}><div style={{fontSize:34,marginBottom:9}}>🚗</div><Lbl>Sin viajes registrados</Lbl></div>
       ):filtered.map(t=>{
@@ -674,75 +692,121 @@ function TripsTab({cfg,trips,saveTrip,updateTrip,deleteTrip,onSelect}){
 
 // ─── STATS TAB ────────────────────────────────────────────────────────────────
 function StatsTab({cfg,trips}){
-  const[range,setRange]=useState(30);
-  const cutoff=Date.now()-range*86400000;
-  const filtered=trips.filter(t=>new Date(t.created_at||t.end_time||0).getTime()>=cutoff);
-  const byDate={};
-  filtered.forEach(t=>{const d=t.date||today();const c=calcTrip(t,cfg);if(!byDate[d])byDate[d]={date:d,net:0,km:0,trips:0,min:0,gas:0,gross:0};byDate[d].net+=c.net;byDate[d].km+=c.km;byDate[d].min+=c.min;byDate[d].gas+=c.gas;byDate[d].gross+=c.fare;byDate[d].trips+=1;});
-  const chart=Object.values(byDate).sort((a,b)=>a.date.localeCompare(b.date)).map(d=>({...d,nph:d.min>0?d.net/(d.min/60):0,label:new Date(d.date).toLocaleDateString("es-MX",{day:"numeric",month:"short"})}));
-  const tot=filtered.reduce((a,t)=>{const c=calcTrip(t,cfg);return{net:a.net+c.net,km:a.km+c.km,gas:a.gas+c.gas,gross:a.gross+c.fare,min:a.min+c.min};},{net:0,km:0,gas:0,gross:0,min:0});
-  const byPlat={};filtered.forEach(t=>{const p=t.platform||"uber";if(!byPlat[p])byPlat[p]={name:p.toUpperCase(),net:0,count:0};byPlat[p].net+=calcTrip(t,cfg).net;byPlat[p].count++;});
-  const platData=Object.values(byPlat);const PIE=[C.accent,C.teal,"#a855f7","#f43f5e"];
-  const byHour={};filtered.forEach(t=>{const h=new Date(t.created_at||t.end_time||0).getHours();if(!byHour[h])byHour[h]={hour:h,net:0,count:0};byHour[h].net+=calcTrip(t,cfg).net;byHour[h].count++;});
-  const hourData=Object.values(byHour).sort((a,b)=>a.hour-b.hour).map(d=>({...d,label:`${d.hour}h`,avg:d.count>0?d.net/d.count:0}));
-  const bestH=hourData.length>0?hourData.reduce((b,d)=>d.avg>b.avg?d:b):null;
-  const bestD=chart.length>0?chart.reduce((b,d)=>d.net>b.net?d:b):null;
-  const Tip=({active,payload,label})=>{if(!active||!payload?.length)return null;return<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",fontSize:11}}><div style={{color:C.muted,marginBottom:4}}>{label}</div>{payload.map((p,i)=><div key={i} style={{color:p.color}}>{p.name}: {fmtMXN(p.value)}</div>)}</div>;};
+  const[range,setRange]=useState(30);
+  const cutoff=Date.now()-range*86400000;
+  const filtered=trips.filter(t=>new Date(t.created_at||t.end_time||0).getTime()>=cutoff);
+  const byDate={};
+  filtered.forEach(t=>{const d=t.date||today();const c=calcTrip(t,cfg);if(!byDate[d])byDate[d]={date:d,net:0,km:0,trips:0,min:0,gas:0,gross:0};byDate[d].net+=c.net;byDate[d].km+=c.km;byDate[d].min+=c.min;byDate[d].gas+=c.gas;byDate[d].gross+=c.fare;byDate[d].trips+=1;});
+  const chart=Object.values(byDate).sort((a,b)=>a.date.localeCompare(b.date)).map(d=>({...d,nph:d.min>0?d.net/(d.min/60):0,label:new Date(d.date).toLocaleDateString("es-MX",{day:"numeric",month:"short"})}));
+  const tot=filtered.reduce((a,t)=>{const c=calcTrip(t,cfg);return{net:a.net+c.net,km:a.km+c.km,gas:a.gas+c.gas,gross:a.gross+c.fare,min:a.min+c.min};},{net:0,km:0,gas:0,gross:0,min:0});
+  const byPlat={};filtered.forEach(t=>{const p=t.platform||"uber";if(!byPlat[p])byPlat[p]={name:p.toUpperCase(),net:0,count:0};byPlat[p].net+=calcTrip(t,cfg).net;byPlat[p].count++;});
+  const platData=Object.values(byPlat);const PIE=[C.accent,C.teal,"#a855f7","#f43f5e"];
+  const byHour={};filtered.forEach(t=>{const h=new Date(t.created_at||t.end_time||0).getHours();if(!byHour[h])byHour[h]={hour:h,net:0,count:0};byHour[h].net+=calcTrip(t,cfg).net;byHour[h].count++;});
+  const hourData=Object.values(byHour).sort((a,b)=>a.hour-b.hour).map(d=>({...d,label:`${d.hour}h`,avg:d.count>0?d.net/d.count:0}));
+  const bestH=hourData.length>0?hourData.reduce((b,d)=>d.avg>b.avg?d:b):null;
+  const bestD=chart.length>0?chart.reduce((b,d)=>d.net>b.net?d:b):null;
+  const Tip=({active,payload,label})=>{if(!active||!payload?.length)return null;return<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",fontSize:11}}><div style={{color:C.muted,marginBottom:4}}>{label}</div>{payload.map((p,i)=><div key={i} style={{color:p.color}}>{p.name}: {fmtMXN(p.value)}</div>)}</div>;};
 
-  return(
-    <div className="fu" style={{padding:"15px 14px 90px"}}>
-      <div className="B" style={{fontSize:22,fontWeight:800,color:C.accent,marginBottom:13,letterSpacing:1}}>ESTADÍSTICAS</div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:14}}>
-        {[7,14,30,60].map(r=><button key={r} onClick={()=>setRange(r)} style={{padding:"8px 4px",background:range===r?`${C.accent}1e`:"transparent",border:`1px solid ${range===r?C.accent:C.border}`,borderRadius:7,color:range===r?C.accent:C.muted,fontSize:11,fontWeight:700}}>{r}D</button>)}
-      </div>
-      {filtered.length===0?(
-        <div style={{textAlign:"center",padding:"50px 0",color:C.dim}}><div style={{fontSize:34,marginBottom:9}}>📊</div><Lbl>Registra viajes para ver estadísticas</Lbl></div>
-      ):<>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:13}}>
-          {[{l:"Neto total",v:fmtMXN(tot.net),c:tot.net>=0?C.teal:C.danger},{l:"Viajes",v:filtered.length,c:C.text},{l:"Km recorridos",v:`${fmt(tot.km,0)} km`,c:C.accent},{l:"Promedio/viaje",v:fmtMXN(filtered.length>0?tot.net/filtered.length:0),c:C.teal},{l:"$/hora promedio",v:fmtMXN(tot.min>0?tot.net/(tot.min/60):0),c:C.accent},{l:"Gas total",v:fmtMXN(tot.gas),c:C.danger}].map(({l,v,c})=>(
-            <Card key={l} s={{padding:"11px 13px"}}><Lbl s={{marginBottom:5}}>{l}</Lbl><Big size={21} color={c}>{v}</Big></Card>
-          ))}
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:13}}>
-          {bestD&&<div style={{background:`${C.accent}10`,border:`1px solid ${C.accent}33`,borderRadius:12,padding:"11px 13px"}}><Lbl s={{color:C.accent,marginBottom:6}}>🏆 Mejor día</Lbl><div style={{fontSize:11,color:C.text,marginBottom:4}}>{fmtDate(bestD.date)}</div><Big size={19} color={C.accent}>{fmtMXN(bestD.net)}</Big></div>}
-          {bestH&&<div style={{background:`${C.teal}10`,border:`1px solid ${C.teal}33`,borderRadius:12,padding:"11px 13px"}}><Lbl s={{color:C.teal,marginBottom:6}}>⏰ Mejor hora</Lbl><div style={{fontSize:11,color:C.text,marginBottom:4}}>{bestH.hour}:00 – {bestH.hour+1}:00</div><Big size={19} color={C.teal}>{fmtMXN(bestH.avg)}/viaje</Big></div>}
-        </div>
-        <Card s={{marginBottom:11,padding:"13px 8px"}}>
-          <Lbl s={{marginBottom:11,paddingLeft:6}}>Ganancia diaria (MXN)</Lbl>
-          <ResponsiveContainer width="100%" height={145}>
-            <BarChart data={chart} margin={{left:-20}}><CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/><XAxis dataKey="label" tick={{fill:C.dim,fontSize:9}} axisLine={false} tickLine={false}/><YAxis tick={{fill:C.dim,fontSize:9}} axisLine={false} tickLine={false}/><Tooltip content={<Tip/>}/><Bar dataKey="net" name="neto $" radius={[4,4,0,0]}>{chart.map((e,i)=><Cell key={i} fill={e.net>=0?C.teal:C.danger}/>)}</Bar></BarChart>
-          </ResponsiveContainer>
-        </Card>
-        {hourData.length>0&&<Card s={{marginBottom:11,padding:"13px 8px"}}>
-          <Lbl s={{marginBottom:11,paddingLeft:6}}>Rentabilidad por hora del día</Lbl>
-          <ResponsiveContainer width="100%" height={125}>
-            <BarChart data={hourData} margin={{left:-20}}><CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/><XAxis dataKey="label" tick={{fill:C.dim,fontSize:9}} axisLine={false} tickLine={false}/><YAxis tick={{fill:C.dim,fontSize:9}} axisLine={false} tickLine={false}/><Tooltip content={<Tip/>}/><Bar dataKey="avg" name="$/viaje" radius={[3,3,0,0]}>{hourData.map((e,i)=><Cell key={i} fill={e.avg>=cfg.targetHourlyRate/8?C.teal:e.avg>=cfg.targetHourlyRate/12?C.accent:C.danger}/>)}</Bar></BarChart>
-          </ResponsiveContainer>
-        </Card>}
-        <Card s={{marginBottom:11,padding:"13px 8px"}}>
-          <Lbl s={{marginBottom:11,paddingLeft:6}}>$/hora vs meta ({fmtMXN(cfg.targetHourlyRate)})</Lbl>
-          <ResponsiveContainer width="100%" height={125}>
-            <LineChart data={chart} margin={{left:-20}}><CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/><XAxis dataKey="label" tick={{fill:C.dim,fontSize:9}} axisLine={false} tickLine={false}/><YAxis tick={{fill:C.dim,fontSize:9}} axisLine={false} tickLine={false}/><Tooltip content={<Tip/>}/><Line type="monotone" dataKey="nph" stroke={C.teal} strokeWidth={2} dot={false} name="$/hr"/></LineChart>
-          </ResponsiveContainer>
-        </Card>
-        {platData.length>0&&<Card s={{marginBottom:11}}>
-          <Lbl s={{marginBottom:11}}>Ganancia por plataforma</Lbl>
-          <div style={{display:"flex",alignItems:"center"}}>
-            <ResponsiveContainer width="50%" height={105}><PieChart><Pie data={platData} dataKey="net" cx="50%" cy="50%" innerRadius={20} outerRadius={40} paddingAngle={3}>{platData.map((_,i)=><Cell key={i} fill={PIE[i%PIE.length]}/>)}</Pie></PieChart></ResponsiveContainer>
-            <div style={{flex:1,paddingLeft:7}}>{platData.map((p,i)=>(
-              <div key={p.name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
-                <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:7,height:7,borderRadius:"50%",background:PIE[i]}}/><span style={{fontSize:11}}>{p.name}</span></div>
-                <div style={{textAlign:"right"}}><div style={{fontSize:12,color:PIE[i],fontWeight:700}}>{fmtMXN(p.net)}</div><div style={{fontSize:9,color:C.muted}}>{p.count} viajes</div></div>
-              </div>
-            ))}</div>
-          </div>
-        </Card>}
-      </>}
-    </div>
-  );
+  return(
+    <div className="fu" style={{padding:"15px 14px 90px"}}>
+      <div className="B" style={{fontSize:22,fontWeight:800,color:C.accent,marginBottom:13,letterSpacing:1}}>ESTADÍSTICAS</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:14}}>
+        {[7,14,30,60].map(r=><button key={r} onClick={()=>setRange(r)} style={{padding:"8px 4px",background:range===r?`${C.accent}1e`:"transparent",border:`1px solid ${range===r?C.accent:C.border}`,borderRadius:7,color:range===r?C.accent:C.muted,fontSize:11,fontWeight:700}}>{r}D</button>)}
+      </div>
+      {filtered.length===0?(
+        <div style={{textAlign:"center",padding:"50px 0",color:C.dim}}><div style={{fontSize:34,marginBottom:9}}>📊</div><Lbl>Registra viajes para ver estadísticas</Lbl></div>
+      ):<>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:13}}>
+          {[{l:"Neto total",v:fmtMXN(tot.net),c:tot.net>=0?C.teal:C.danger},{l:"Viajes",v:filtered.length,c:C.text},{l:"Km recorridos",v:`${fmt(tot.km,0)} km`,c:C.accent},{l:"Promedio/viaje",v:fmtMXN(filtered.length>0?tot.net/filtered.length:0),c:C.teal},{l:"$/hora promedio",v:fmtMXN(tot.min>0?tot.net/(tot.min/60):0),c:C.accent},{l:"Gas total",v:fmtMXN(tot.gas),c:C.danger}].map(({l,v,c})=>(
+            <Card key={l} s={{padding:"11px 13px"}}><Lbl s={{marginBottom:5}}>{l}</Lbl><Big size={21} color={c}>{v}</Big></Card>
+          ))}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:13}}>
+          {bestD&&<div style={{background:`${C.accent}10`,border:`1px solid ${C.accent}33`,borderRadius:12,padding:"11px 13px"}}><Lbl s={{color:C.accent,marginBottom:6}}>🏆 Mejor día</Lbl><div style={{fontSize:11,color:C.text,marginBottom:4}}>{fmtDate(bestD.date)}</div><Big size={19} color={C.accent}>{fmtMXN(bestD.net)}</Big></div>}
+          {bestH&&<div style={{background:`${C.teal}10`,border:`1px solid ${C.teal}33`,borderRadius:12,padding:"11px 13px"}}><Lbl s={{color:C.teal,marginBottom:6}}>⏰ Mejor hora</Lbl><div style={{fontSize:11,color:C.text,marginBottom:4}}>{bestH.hour}:00 – {bestH.hour+1}:00</div><Big size={19} color={C.teal}>{fmtMXN(bestH.avg)}/viaje</Big></div>}
+        </div>
+        <Card s={{marginBottom:11,padding:"13px 8px"}}>
+          <Lbl s={{marginBottom:11,paddingLeft:6}}>Ganancia diaria (MXN)</Lbl>
+          <ResponsiveContainer width="100%" height={145}>
+            <BarChart data={chart} margin={{left:-20}}><CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/><XAxis dataKey="label" tick={{fill:C.dim,fontSize:9}} axisLine={false} tickLine={false}/><YAxis tick={{fill:C.dim,fontSize:9}} axisLine={false} tickLine={false}/><Tooltip content={<Tip/>}/><Bar dataKey="net" name="neto $" radius={[4,4,0,0]}>{chart.map((e,i)=><Cell key={i} fill={e.net>=0?C.teal:C.danger}/>)}</Bar></BarChart>
+          </ResponsiveContainer>
+        </Card>
+        {hourData.length>0&&<Card s={{marginBottom:11,padding:"13px 8px"}}>
+          <Lbl s={{marginBottom:11,paddingLeft:6}}>Rentabilidad por hora del día</Lbl>
+          <ResponsiveContainer width="100%" height={125}>
+            <BarChart data={hourData} margin={{left:-20}}><CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/><XAxis dataKey="label" tick={{fill:C.dim,fontSize:9}} axisLine={false} tickLine={false}/><YAxis tick={{fill:C.dim,fontSize:9}} axisLine={false} tickLine={false}/><Tooltip content={<Tip/>}/><Bar dataKey="avg" name="$/viaje" radius={[3,3,0,0]}>{hourData.map((e,i)=><Cell key={i} fill={e.avg>=cfg.targetHourlyRate/8?C.teal:e.avg>=cfg.targetHourlyRate/12?C.accent:C.danger}/>)}</Bar></BarChart>
+          </ResponsiveContainer>
+        </Card>}
+        <Card s={{marginBottom:11,padding:"13px 8px"}}>
+          <Lbl s={{marginBottom:11,paddingLeft:6}}>$/hora vs meta ({fmtMXN(cfg.targetHourlyRate)})</Lbl>
+          <ResponsiveContainer width="100%" height={125}>
+            <LineChart data={chart} margin={{left:-20}}><CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/><XAxis dataKey="label" tick={{fill:C.dim,fontSize:9}} axisLine={false} tickLine={false}/><YAxis tick={{fill:C.dim,fontSize:9}} axisLine={false} tickLine={false}/><Tooltip content={<Tip/>}/><Line type="monotone" dataKey="nph" stroke={C.teal} strokeWidth={2} dot={false} name="$/hr"/></LineChart>
+          </ResponsiveContainer>
+        </Card>
+        {platData.length>0&&<Card s={{marginBottom:11}}>
+          <Lbl s={{marginBottom:11}}>Ganancia por plataforma</Lbl>
+          <div style={{display:"flex",alignItems:"center"}}>
+            <ResponsiveContainer width="50%" height={105}><PieChart><Pie data={platData} dataKey="net" cx="50%" cy="50%" innerRadius={26} outerRadius={48} paddingAngle={3}>{platData.map((_,i)=><Cell key={i} fill={PIE[i%PIE.length]}/>)}</Pie></PieChart></ResponsiveContainer>
+            <div style={{flex:1,paddingLeft:7}}>{platData.map((p,i)=>(
+              <div key={p.name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+                <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:7,height:7,borderRadius:"50%",background:PIE[i]}}/><span style={{fontSize:11}}>{p.name}</span></div>
+                <div style={{textAlign:"right"}}><div style={{fontSize:12,color:PIE[i],fontWeight:700}}>{fmtMXN(p.net)}</div><div style={{fontSize:9,color:C.muted}}>{p.count} viajes</div></div>
+              </div>
+            ))}</div>
+          </div>
+        </Card>}
+      </>}
+    </div>
+  );
 }
 
-function AITab(){ return <div className="fu" style={{padding:"15px 14px 100px"}}><Big size={22} color={C.teal}>ASESOR IA</Big></div>; }
+// ─── AI TAB ───────────────────────────────────────────────────────────────────
+function AITab({cfg,trips}){
+  const[msgs,setMsgs]=useState([{role:"assistant",content:"¡Hola! Soy tu asesor de rentabilidad 🚗\n\nAnalizo tus datos para darte consejos accionables:\n• ¿En qué horas gano más?\n• ¿Qué plataforma me conviene?\n• ¿Cómo reduzco mis costos?"}]);
+  const[input,setInput]=useState("");
+  const[loading,setLoading]=useState(false);
+  const endRef=useRef();
+  const recent=trips.filter(t=>new Date(t.created_at||t.end_time||0).getTime()>=Date.now()-30*86400000);
+  const ctx=()=>{
+    const s=recent.reduce((a,t)=>{const c=calcTrip(t,cfg);return{net:a.net+c.net,km:a.km+c.km,gas:a.gas+c.gas,min:a.min+c.min,n:a.n+1};},{net:0,km:0,gas:0,min:0,n:0});
+    const bh={};recent.forEach(t=>{const h=new Date(t.created_at||t.end_time||0).getHours();if(!bh[h])bh[h]={net:0,n:0};bh[h].net+=calcTrip(t,cfg).net;bh[h].n++;});
+    const bestH=Object.entries(bh).sort((a,b)=>(b[1].net/b[1].n)-(a[1].net/a[1].n)).slice(0,3).map(([h])=>`${h}:00`).join(", ");
+    const bp={};recent.forEach(t=>{const p=t.platform||"uber";if(!bp[p])bp[p]={net:0,n:0};bp[p].net+=calcTrip(t,cfg).net;bp[p].n++;});
+    const platS=Object.entries(bp).map(([p,d])=>`${p}:${fmtMXN(d.net/d.n)}/viaje`).join(", ");
+    return`Conductor Uber/Didi México. 30d: ${s.n} viajes, neto ${fmtMXN(s.net)}, ${fmt(s.km,0)}km, ${fmtMXN(s.gas)} gas, ${(s.min/60).toFixed(1)}hrs. $/hr=${fmtMXN(s.min>0?s.net/(s.min/60):0)}, meta=${fmtMXN(cfg.targetHourlyRate)}/hr. Mejores horas: ${bestH||"sin datos"}. Plataformas: ${platS||"sin datos"}. Gas $${cfg.gasPricePerLiter}/L, ${cfg.kmPerLiter}km/L.`;
+  };
+  useEffect(()=>{endRef.current?.scrollIntoView({behavior:"smooth"});},[msgs,loading]);
+  const send=async()=>{
+    if(!input.trim()||loading)return;
+    const um={role:"user",content:input};
+    setMsgs(p=>[...p,um]);setInput("");setLoading(true);
+    try{
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:700,
+          system:`Asesor experto en rentabilidad para conductores Uber/Didi México. Consejos concisos y accionables en español mexicano informal. Contexto: ${ctx()}`,
+          messages:[...msgs,um].map(m=>({role:m.role,content:m.content}))})});
+      const data=await res.json();
+      setMsgs(p=>[...p,{role:"assistant",content:data.content?.find(b=>b.type==="text")?.text||"Error."}]);
+    }catch{setMsgs(p=>[...p,{role:"assistant",content:"Error de conexión."}]);}
+    setLoading(false);
+  };
+  const SUGG=["¿En qué horarios gano más?","¿Qué plataforma me conviene?","Dame un diagnóstico rápido","¿Cómo bajo mis costos?"];
+  return(
+    <div className="fu" style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
+      {recent.length<5&&<div style={{margin:"11px 14px 0",background:`${C.accent}12`,border:`1px solid ${C.accent}33`,borderRadius:9,padding:"9px 13px",fontSize:11,color:C.accent}}>⚠️ Con más viajes el análisis mejora ({recent.length} actuales)</div>}
+      {msgs.length<=1&&<div style={{padding:"11px 14px 0"}}><Lbl s={{marginBottom:7}}>Preguntas frecuentes</Lbl><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{SUGG.map(s=><button key={s} onClick={()=>setInput(s)} style={{padding:"6px 11px",background:`${C.teal}12`,border:`1px solid ${C.teal}33`,borderRadius:18,color:C.teal,fontSize:11,fontWeight:600}}>{s}</button>)}</div></div>}
+      <div style={{flex:1,overflowY:"auto",padding:"11px 14px",display:"flex",flexDirection:"column",gap:9}}>
+        {msgs.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}><div style={{maxWidth:"88%",padding:"10px 13px",borderRadius:m.role==="user"?"13px 13px 3px 13px":"13px 13px 13px 3px",background:m.role==="user"?`${C.accent}1e`:C.card,border:`1px solid ${m.role==="user"?C.accent+"44":C.border}`,fontSize:13,lineHeight:1.6,whiteSpace:"pre-wrap",color:C.text}}>{m.content}</div></div>)}
+        {loading&&<div style={{display:"flex"}}><div style={{padding:"10px 14px",background:C.card,border:`1px solid ${C.border}`,borderRadius:"13px 13px 13px 3px"}}><div className="pu" style={{fontSize:10,color:C.teal,letterSpacing:"0.2em"}}>ANALIZANDO...</div></div></div>}
+        <div ref={endRef}/>
+      </div>
+      <div style={{padding:"9px 14px 18px",borderTop:`1px solid ${C.border}`,display:"flex",gap:7}}>
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()} placeholder="Pregunta sobre tu rentabilidad..." onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border} style={{flex:1,background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:"10px 13px",color:C.text,fontSize:13,fontFamily:"inherit",outline:"none"}}/>
+        <button onClick={send} disabled={!input.trim()||loading} style={{padding:"10px 14px",background:input.trim()?`${C.accent}1e`:"transparent",border:`1px solid ${input.trim()?C.accent:C.border}`,borderRadius:9,color:input.trim()?C.accent:C.dim,display:"flex",alignItems:"center"}}><SVG d={IC.send} size={15} color={input.trim()?C.accent:C.dim}/></button>
+      </div>
+    </div>
+  );
+}
 
 // ─── CONFIG TAB ───────────────────────────────────────────────────────────────
 function ConfigTab({cfg,saveConfig,onLogout}){
@@ -816,7 +880,7 @@ function Auth(){
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             {mode==="forgot"&&<button type="button" onClick={()=>{setMode("login");reset();}} style={{color:C.accent,fontSize:11,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><SVG d={IC.back} size={13} color={C.accent}/>Volver</button>}
             {mode==="register"&&<div style={{position:"relative"}}><FI d={IC.user}/><input type="text" placeholder="Tu nombre completo" value={name} onChange={e=>setName(e.target.value)} style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>}
-            <div style={{position:"relative"}}><FI d={IC.mail}/><input type="email" placeholder="correo@ejemplo.com" value={email} onChange={e=>setEmail(e.target.value)} required style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>
+            <div style={{position:"relative"}}><FI d={IC.mail}/><input type="email" placeholder="correo@ejemplo.com" value={email} onChange={e=>setEmail(e.target.value)} required style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>}
             {mode!=="forgot"&&<div style={{position:"relative"}}><FI d={IC.lock}/><input type={showPw?"text":"password"} placeholder="Contraseña (mín. 6 caracteres)" value={pass} onChange={e=>setPass(e.target.value)} required style={{...inp,paddingRight:44}} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/><button type="button" onClick={()=>setShowPw(!showPw)} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",color:C.muted}}><SVG d={IC.eye} size={15} color={C.muted}/></button></div>}
             {mode==="register"&&<div style={{position:"relative"}}><FI d={IC.lock}/><input type={showPw?"text":"password"} placeholder="Confirmar contraseña" value={confirm} onChange={e=>setConfirm(e.target.value)} required style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>}
             {mode==="login"&&<div style={{textAlign:"right"}}><button type="button" onClick={()=>{setMode("forgot");reset();}} style={{color:C.accent,fontSize:10,textDecoration:"underline"}}>¿Olvidaste tu contraseña?</button></div>}
@@ -850,17 +914,16 @@ export default function RutaFlow(){
   const[tab,setTab]=useState("home");
   const[cfg,setCfg]=useState(DCFG);
   const[trips,setTrips]=useState([]);
+  const[days,setDays]=useState([]);
   const[activeDay,setActiveDay]=useState(null);
   const[session,setSession]=useState(null);
   const[loading,setLoading]=useState(true);
   const[toast,setToast]=useState(null);
-  
-  // Estados de modales (Subidos al Root para que floten sobre la NAV)
-  const[selTrip, setSelTrip]=useState(null);
-  const[showNew, setShowNew]=useState(false);
+  const[selTrip,setSelTrip]=useState(null);
+  const[showNew,setShowNew]=useState(false);
 
   const showToast=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
-  const { dayKm, reset: resetDayGPS } = useDayGPS(!!activeDay?.running);
+  const{dayKm,reset:resetDayGPS}=useDayGPS(!!activeDay?.running);
 
   useEffect(()=>{
     supabase.auth.getSession().then(({data:{session}})=>{setSession(session);if(session)loadCloud(session.user.id);else setLoading(false);});
@@ -868,54 +931,94 @@ export default function RutaFlow(){
     return()=>subscription.unsubscribe();
   },[]);
 
-  const loadCloud=async uid=>{
+  const loadCloud=useCallback(async uid=>{
     setLoading(true);
-    const[{data:tr},{data:pr},{data:ad}]=await Promise.all([
-      supabase.from("trips").select("*").eq("user_id",uid).order("created_at",{ascending:false}),
-      supabase.from("profiles").select("*").eq("id",uid).single(),
-      supabase.from("active_days").select("*").eq("user_id",uid).maybeSingle(),
-    ]);
-    if(tr)setTrips(tr);
-    if(pr?.config)setCfg({...DCFG,...pr.config});
-    if(ad){setActiveDay({id:ad.id,startTime:new Date(ad.start_time).getTime(),running:true});}
+    try{
+      const[{data:tr},{data:pr},{data:dy},{data:ad}]=await Promise.all([
+        supabase.from("trips").select("*").eq("user_id",uid).order("created_at",{ascending:false}),
+        supabase.from("profiles").select("*").eq("id",uid).single(),
+        supabase.from("days").select("*").eq("user_id",uid).order("date",{ascending:false}),
+        supabase.from("active_days").select("*").eq("user_id",uid).maybeSingle(),
+      ]);
+      if(tr)setTrips(tr);
+      if(dy)setDays(dy);
+      if(pr?.config&&Object.keys(pr.config).length>0)setCfg({...DCFG,...pr.config});
+      if(ad){const obj={id:ad.id,date:ad.date,startTime:new Date(ad.start_time).getTime(),running:true};setActiveDay(obj);LS.set(K.DAY,obj);}
+      else{LS.del(K.DAY);setActiveDay(null);}
+    }catch(e){console.error(e);}
     setLoading(false);
-  };
+  },[]);
 
   const saveTrip=async data=>{
-    const{data:saved,error}=await supabase.from("trips").insert([{user_id:session.user.id, ...data}]).select().single();
-    if(!error){setTrips(p=>[saved,...p]);showToast("Viaje guardado");return true;}
+    if(!session)return false;
+    try{
+      const{data:saved,error}=await supabase.from("trips").insert([{
+        user_id:session.user.id,fare:Number(data.fare)||0,platform:data.platform||"uber",
+        pickup_km:Number(data.pickup_km)||0,pickup_min:Number(data.pickup_min)||0,
+        dest_km:Number(data.dest_km)||0,dest_min:Number(data.dest_min)||0,
+        gps_km:Number(data.gps_km)||0,gps_min:Number(data.gps_min)||0,
+        date:data.date||today(),end_time:data.end_time||new Date().toISOString(),day_id:data.day_id||null,
+      }]).select().single();
+      if(error){showToast("Error: "+error.message,"err");return false;}
+      if(saved){setTrips(p=>[saved,...p]);showToast("Viaje guardado ✓");return true;}
+    }catch(e){console.error(e);showToast("Error de conexión","err");}
     return false;
   };
 
+  const updateTrip=async(id,data)=>{
+    try{
+      const{data:updated,error}=await supabase.from("trips").update(data).eq("id",id).select().single();
+      if(error){showToast("Error al actualizar","err");return false;}
+      if(updated){setTrips(p=>p.map(t=>t.id===id?updated:t));showToast("Viaje actualizado ✓");return true;}
+    }catch(e){showToast("Error de conexión","err");}
+    return false;
+  };
+
+  const deleteTrip=async id=>{
+    if(!window.confirm("¿Eliminar este viaje?"))return;
+    const{error}=await supabase.from("trips").delete().eq("id",id);
+    if(!error){setTrips(p=>p.filter(t=>t.id!==id));showToast("Viaje eliminado");}
+  };
+
   const startDay=async()=>{
-    const{data,error}=await supabase.from("active_days").upsert({user_id:session.user.id,date:today(),start_time:new Date().toISOString()}).select().single();
-    if(!error)setActiveDay({id:data.id,startTime:new Date(data.start_time).getTime(),running:true});
+    if(!session)return;
+    const{data,error}=await supabase.from("active_days").upsert({user_id:session.user.id,date:today(),start_time:new Date().toISOString()},{onConflict:"user_id"}).select().single();
+    if(!error&&data){const obj={id:data.id,date:data.date,startTime:new Date(data.start_time).getTime(),running:true};setActiveDay(obj);LS.set(K.DAY,obj);}
   };
 
   const endDay=async()=>{
+    if(!activeDay||!session)return;
+    const dayTrips=trips.filter(t=>t.date===activeDay.date);
+    const tots=dayTrips.reduce((a,t)=>{const c=calcTrip(t,cfg);return{net:a.net+c.net,km:a.km+c.km,min:a.min+c.min};},{net:0,km:0,min:0});
+    const totalMs=Date.now()-activeDay.startTime;
     await supabase.from("active_days").delete().eq("user_id",session.user.id);
-    resetDayGPS(); setActiveDay(null); showToast("Jornada cerrada");
+    await supabase.from("days").insert([{
+      user_id:session.user.id,date:activeDay.date,
+      total_net:tots.net,total_km:Math.max(tots.km,dayKm),
+      total_min:tots.min,total_ms:totalMs,trip_count:dayTrips.length,
+    }]);
+    resetDayGPS();
+    LS.del(K.DAY);setActiveDay(null);
+    showToast(`Jornada finalizada · ${fmtMXN(tots.net)} neto`);
   };
-  
-const updateTrip=async(id,data)=>{
-  const{data:updated,error}=await supabase.from("trips").update(data).eq("id",id).select().single();
-  if(!error){setTrips(p=>p.map(t=>t.id===id?updated:t));showToast("Viaje actualizado ✓");}
-};
-  
-const deleteTrip=async id=>{
-  const{error}=await supabase.from("trips").delete().eq("id",id);
-  if(!error){setTrips(p=>p.filter(t=>t.id!==id));showToast("Viaje eliminado");}
-};
-  
-    const saveConfig=async newCfg=>{
-  setCfg(newCfg);
-  if(!session)return;
-  await supabase.from("profiles").upsert({id:session.user.id,config:newCfg,updated_at:new Date().toISOString()});
-};
-  
-  if(loading) return <div style={{background:C.bg,minHeight:"100vh"}}/>;
-  if(!session) return <Auth/>;
 
+  const saveConfig=async newCfg=>{
+    setCfg(newCfg);
+    if(!session)return;
+    await supabase.from("profiles").upsert({id:session.user.id,config:newCfg,updated_at:new Date().toISOString()});
+  };
+
+  if(loading)return(
+    <><style>{CSS}</style>
+    <div style={{background:C.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+      <div className="B" style={{fontSize:34,fontWeight:900,color:C.accent,letterSpacing:3}}>RUTAFLOW</div>
+      <div style={{marginTop:20,width:100,height:2,background:C.border,borderRadius:2,overflow:"hidden"}}><div className="pu" style={{width:"60%",height:"100%",background:C.accent}}/></div>
+      <div style={{marginTop:11,fontSize:9,color:C.dim,letterSpacing:"0.3em"}}>CARGANDO...</div>
+    </div></>
+  );
+  if(!session)return <><style>{CSS}</style><Auth/></>;
+
+  const uname=session?.user?.user_metadata?.full_name||session?.user?.email?.split("@")[0]||"Driver";
   const todayNet=trips.filter(t=>t.date===today()).reduce((s,t)=>s+calcTrip(t,cfg).net,0);
   const NAV=[{id:"home",d:IC.home,l:"Hoy"},{id:"trips",d:IC.trips,l:"Viajes"},{id:"stats",d:IC.stats,l:"Stats"},{id:"ai",d:IC.ai,l:"IA"},{id:"config",d:IC.cfg,l:"Config"}];
 
@@ -923,42 +1026,41 @@ const deleteTrip=async id=>{
     <>
       <style>{CSS}</style>
       {toast&&<Toast msg={toast.msg} type={toast.type}/>}
-   <div style={{background:C.bg, minHeight:"100vh", maxWidth:480, margin:"0 auto", position:"relative"}}>
-        <div style={{
-  background: C.card, 
-  padding: `calc(10px + env(safe-area-inset-top)) 15px 10px`, 
-  display: "flex", 
-  justifyContent: "space-between", 
-  position: "sticky", 
-  top: 0, 
-  zIndex: 10, 
-  borderBottom: `1px solid ${C.border}`
-}}>
-          <Big size={19} color={C.accent}>RUTAFLOW</Big>
-          <div style={{textAlign:"right"}}><Lbl>Hoy neto</Lbl><Big size={21} color={todayNet>=0?C.teal:C.danger}>{fmtMXN(todayNet)}</Big></div>
+      <div style={{background:C.bg,minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative"}}>
+        <div style={{background:C.card,padding:`calc(10px + env(safe-area-inset-top)) 15px 10px`,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10,borderBottom:`1px solid ${C.border}`}}>
+          <div>
+            <div className="B" style={{fontSize:19,fontWeight:900,color:C.accent,letterSpacing:1.5}}>RUTAFLOW</div>
+            <div style={{fontSize:9,color:C.dim,letterSpacing:"0.18em"}}>{uname.toUpperCase()}</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:10,color:C.muted}}>hoy neto</div>
+            <div className="B" style={{fontSize:21,fontWeight:800,color:todayNet>=0?C.teal:C.danger}}>{fmtMXN(todayNet)}</div>
+          </div>
         </div>
 
-       {tab==="home"   && <HomeTab cfg={cfg} trips={trips} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} dayKm={dayKm} onSelect={setSelTrip}/>}
-{tab==="trips"  && <TripsTab cfg={cfg} trips={trips} saveTrip={saveTrip} updateTrip={updateTrip} deleteTrip={deleteTrip} onSelect={setSelTrip}/>}
-{tab==="stats"  && <StatsTab cfg={cfg} trips={trips}/>}
-{tab==="ai"     && <AITab/>}
-{tab==="config" && <ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()}/>}
+        {tab==="home"   &&<HomeTab cfg={cfg} trips={trips} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} dayKm={dayKm} onSelect={setSelTrip}/>}
+        {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} saveTrip={saveTrip} updateTrip={updateTrip} deleteTrip={deleteTrip} onSelect={setSelTrip} onNew={()=>setShowNew(true)}/>}
+        {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips}/>}
+        {tab==="ai"     &&<AITab cfg={cfg} trips={trips}/>}
+        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()}/>}
 
-{/* NAVEGACIÓN FIJA AL FINAL */}
-        <div style={{position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:C.card, borderTop:`1px solid ${C.border}`, display:"flex", zIndex:100, paddingBottom:"calc(10px + env(safe-area-inset-bottom))", paddingTop:"10px"}}>
+        {/* NAVEGACIÓN FIJA */}
+        <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100,paddingBottom:"calc(10px + env(safe-area-inset-bottom))",paddingTop:"10px"}}>
           {NAV.map(n=>(
-            <button key={n.id} onClick={()=>setTab(n.id)} style={{flex:1,padding:"12px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:tab===n.id?C.accent:C.dim}}>
+            <button key={n.id} onClick={()=>setTab(n.id)} style={{flex:1,padding:"12px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:tab===n.id?C.accent:C.dim,transition:"color .15s"}}>
               <SVG d={n.d} size={18} color={tab===n.id?C.accent:C.dim}/>
-              <span style={{fontSize:9}}>{n.l}</span>
+              <span style={{fontSize:9,letterSpacing:"0.1em",fontWeight:tab===n.id?700:400}}>{n.l}</span>
             </button>
           ))}
         </div>
 
       </div>{/* ← CIERRE DEL DIV PRINCIPAL */}
 
-      {/* MODALES FUERA DEL DIV — flotan sobre todo */}
-      {showNew && <TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} onClose={()=>setShowNew(false)}/>}
-      {selTrip && <TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)} onSave={async(id,d)=>{await supabase.from("trips").update(d).eq("id",id); loadCloud(session.user.id);}} onDelete={async(id)=>{await supabase.from("trips").delete().eq("id",id); loadCloud(session.user.id);}}/>}
+      {/* MODALES FUERA DEL DIV — flotan sobre todo incluyendo la NAV */}
+      {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} onClose={()=>setShowNew(false)}/>}
+      {selTrip&&<TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)}
+        onSave={async(id,d)=>{await updateTrip(id,d);setSelTrip(null);}}
+        onDelete={async id=>{await deleteTrip(id);setSelTrip(null);}}/>}
     </>
   );
 }
