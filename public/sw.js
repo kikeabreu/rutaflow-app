@@ -1,6 +1,6 @@
 // ─── RutaFlow Service Worker ──────────────────────────────────────────────────
 // Versión: actualiza este número cada vez que hagas un deploy importante
-const VERSION = "rutaflow-v1";
+const VERSION = "rutaflow-v2";
 
 // Archivos que guardamos en caché para que la app cargue sin internet
 const CACHE_STATIC = [
