@@ -616,7 +616,7 @@ function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm:propDayKm,on
 }
 
 // ─── TRIPS TAB ────────────────────────────────────────────────────────────────
-function TripsTab({cfg,trips,saveTrip,updateTrip,deleteTrip}){
+function TripsTab({cfg,trips,saveTrip,updateTrip,deleteTrip,onSelect}){
   const[filter,setFilter]=useState("all");
   const[modal,setModal]=useState(false);
   const[detail,setDetail]=useState(null);
@@ -642,7 +642,7 @@ function TripsTab({cfg,trips,saveTrip,updateTrip,deleteTrip}){
         const c=calcTrip(t,cfg);
         const col=c.nph>=cfg.targetHourlyRate?C.teal:c.nph>=cfg.targetHourlyRate*.75?C.accent:C.danger;
         return(
-          <Card key={t.id} s={{marginBottom:7,cursor:"pointer"}} onClick={()=>setDetail(t)}>
+          <Card key={t.id} s={{marginBottom:7,cursor:"pointer"}} onClick={()=>onSelect(t)}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
               <div style={{flex:1}}>
                 <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:4,flexWrap:"wrap"}}>
@@ -668,12 +668,6 @@ function TripsTab({cfg,trips,saveTrip,updateTrip,deleteTrip}){
           </Card>
         );
       })}
-      {modal&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={null} onClose={()=>setModal(false)}/>}
-      {detail&&(
-        <TripDetail trip={detail} cfg={cfg} onClose={()=>setDetail(null)}
-          onSave={async(id,data)=>{await updateTrip(id,data);setDetail(null);}}
-          onDelete={id=>{deleteTrip(id);setDetail(null);}}/>
-      )}
     </div>
   );
 }
@@ -944,10 +938,10 @@ const deleteTrip=async id=>{
           <div style={{textAlign:"right"}}><Lbl>Hoy neto</Lbl><Big size={21} color={todayNet>=0?C.teal:C.danger}>{fmtMXN(todayNet)}</Big></div>
         </div>
 
-        {tab==="home"   && <HomeTab cfg={cfg} trips={trips} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} dayKm={dayKm} onSelect={setSelTrip}/>}
-        {tab==="trips"  && <TripsTab cfg={cfg} trips={trips} onSelect={setSelTrip} onNew={()=>setShowNew(true)}/>}
-        {tab==="stats"  && <StatsTab cfg={cfg} trips={trips}/>}
-        {tab==="ai"     && <AITab/>}
+       {tab==="home"   && <HomeTab cfg={cfg} trips={trips} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} dayKm={dayKm} onSelect={setSelTrip}/>}
+{tab==="trips"  && <TripsTab cfg={cfg} trips={trips} saveTrip={saveTrip} updateTrip={updateTrip} deleteTrip={deleteTrip} onSelect={setSelTrip}/>}
+{tab==="stats"  && <StatsTab cfg={cfg} trips={trips}/>}
+{tab==="ai"     && <AITab/>}
 {tab==="config" && <ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()}/>}
 
 {/* NAVEGACIÓN FIJA AL FINAL */}
