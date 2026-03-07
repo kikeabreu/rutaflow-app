@@ -562,7 +562,7 @@ function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm:propDayKm,on
                   <SVG d={IC.road} size={14} color={C.accent}/>
                   <div>
                     <Lbl s={{fontSize:8,marginBottom:2}}>Km totales jornada</Lbl>
-                    <div style={{fontSize:12,color:C.text}}>{fmt(dayKm,1)} km recorridos</div>
+                    <div style={{fontSize:12,color:C.text}}>{fmt(propDayKm,1)} km recorridos</div>
                   </div>
                 </div>
                 <div style={{textAlign:"right"}}>
@@ -950,8 +950,8 @@ const deleteTrip=async id=>{
         {tab==="ai"     && <AITab/>}
 {tab==="config" && <ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()}/>}
 
- {/* NAVEGACIÓN FIJA AL FINAL */}
-       <div style={{position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:C.card, borderTop: `1px solid ${C.border}`, display:"flex", zIndex:100, paddingBottom: "calc(10px + env(safe-area-inset-bottom))", paddingTop: "10px"}}>
+{/* NAVEGACIÓN FIJA AL FINAL */}
+        <div style={{position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480, background:C.card, borderTop:`1px solid ${C.border}`, display:"flex", zIndex:100, paddingBottom:"calc(10px + env(safe-area-inset-bottom))", paddingTop:"10px"}}>
           {NAV.map(n=>(
             <button key={n.id} onClick={()=>setTab(n.id)} style={{flex:1,padding:"12px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:tab===n.id?C.accent:C.dim}}>
               <SVG d={n.d} size={18} color={tab===n.id?C.accent:C.dim}/>
@@ -960,10 +960,11 @@ const deleteTrip=async id=>{
           ))}
         </div>
 
-        {/* MODALES: Renderizados después de la NAV para que floten encima */}
-        {showNew && <TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} onClose={()=>setShowNew(false)}/>}
-        {selTrip && <TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)} onSave={async(id,d)=>{await supabase.from("trips").update(d).eq("id",id); loadCloud(session.user.id);}} onDelete={async(id)=>{await supabase.from("trips").delete().eq("id",id); loadCloud(session.user.id);}}/>}
-      </div>
+      </div>{/* ← CIERRE DEL DIV PRINCIPAL */}
+
+      {/* MODALES FUERA DEL DIV — flotan sobre todo */}
+      {showNew && <TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} onClose={()=>setShowNew(false)}/>}
+      {selTrip && <TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)} onSave={async(id,d)=>{await supabase.from("trips").update(d).eq("id",id); loadCloud(session.user.id);}} onDelete={async(id)=>{await supabase.from("trips").delete().eq("id",id); loadCloud(session.user.id);}}/>}
     </>
   );
 }
