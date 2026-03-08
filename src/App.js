@@ -371,15 +371,15 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
     reader.onload=async ev=>{
       const b64=ev.target.result.split(",")[1];
       try{
-        const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:200,
+        const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer TU_API_KEY_DE_GROQ"},
+  body:JSON.stringify({model:"meta-llama/llama-4-scout-17b-16e-instruct",max_tokens:200,
             messages:[{role:"user",content:[
               {type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},
               {type:"text",text:`Extrae: tarifa MXN, km destino, minutos destino. Solo JSON: {"fare":0,"dest_km":0,"dest_min":0}`}
             ]}]})
         });
         const data=await res.json();
-        const txt=data.content?.find(b=>b.type==="text")?.text||"{}";
+        const txt=data.choices?.[0]?.message?.content||"{}";
         const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
         setTrip(p=>{const n={...p,fare:String(parsed.fare||""),dest_km:String(parsed.dest_km||""),dest_min:String(parsed.dest_min||"")};persist(n);return n;});
         setModeP("manual");setPhaseP(1);toast_("Captura analizada ✓");
@@ -781,12 +781,11 @@ function AITab({cfg,trips}){
     const um={role:"user",content:input};
     setMsgs(p=>[...p,um]);setInput("");setLoading(true);
     try{
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:700,
-          system:`Asesor experto en rentabilidad para conductores Uber/Didi México. Consejos concisos y accionables en español mexicano informal. Contexto: ${ctx()}`,
-          messages:[...msgs,um].map(m=>({role:m.role,content:m.content}))})});
+      const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer TU_API_KEY_DE_GROQ"},
+  body:JSON.stringify({model:"meta-llama/llama-4-scout-17b-16e-instruct",max_tokens:700,
+          messages:[{role:"system",content:`Asesor experto en rentabilidad para conductores Uber/Didi México. Consejos concisos y accionables en español mexicano informal. Contexto: ${ctx()}`},...msgs,um].map(m=>({role:m.role,content:m.content}))
       const data=await res.json();
-      setMsgs(p=>[...p,{role:"assistant",content:data.content?.find(b=>b.type==="text")?.text||"Error."}]);
+      setMsgs(p=>[...p,{role:"assistant",content:data.choices?.[0]?.message?.content||"Error."}]);
     }catch{setMsgs(p=>[...p,{role:"assistant",content:"Error de conexión."}]);}
     setLoading(false);
   };
