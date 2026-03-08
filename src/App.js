@@ -836,8 +836,8 @@ const send = async () => {
           model: "llama-3.3-70b-versatile", // Aprovechamos para poner el modelo que sí existe
           max_tokens: 700,
           messages: [{ role: "system", content: `Asesor experto... ${ctx()}` }, ...msgs, um].map(m => ({ role: m.role, content: m.content }))
-        }) // <-- Cierra el JSON.stringify
-      }); // <-- Cierra el fetch
+        })
+      }); 
 
       const data = await res.json();
       setMsgs(p => [...p, { role: "assistant", content: data.choices?.[0]?.message?.content || "Error." }]);
