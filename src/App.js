@@ -96,11 +96,18 @@ function useWakeLock(isActive){
     try{if('wakeLock' in navigator){sentinel.current=await navigator.wakeLock.request('screen');}}
     catch(err){console.error("Wake Lock Error:",err);}
   },[]);
-  useEffect(()=>{
-    if(isActive)requestLock();
-    else if(sentinel.current){sentinel.current.release().then(()=>{sentinel.current=null;});}
-  },[isActive,requestLock]);
-}
+  useEffect(() => {
+  if (isActive) requestLock();
+  else if (sentinel.current) {
+    sentinel.current.release().then(() => { sentinel.current = null; });
+  }
+  // Cleanup al desmontar el componente
+  return () => {
+    if (sentinel.current) {
+      sentinel.current.release().then(() => { sentinel.current = null; });
+    }
+  };
+}, [isActive, requestLock]);
 
 function useDayGPS(isActive){
   const[dayKm,setDayKm]=useState(()=>parseFloat(LS.get(K.DAYGPS,{})?.km||0));
@@ -364,30 +371,68 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
     setTrip(p=>{const n={...p,gps_km:km,gps_min:mins};persist({...n,gpsOn:false});return n;});
   };
 
-  const handlePhoto=async e=>{
-    const file=e.target.files[0];if(!file)return;
-    setProc(true);
-    const reader=new FileReader();
-    reader.onload=async ev=>{
-      const b64=ev.target.result.split(",")[1];
-      try{
-        const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${process.env.REACT_APP_GROQ_API_KEY}`},
-  body:JSON.stringify({model:"meta-llama/llama-4-scout-17b-16e-instruct",max_tokens:200,
-            messages:[{role:"user",content:[
-              {type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},
-              {type:"text",text:`Extrae: tarifa MXN, km destino, minutos destino. Solo JSON: {"fare":0,"dest_km":0,"dest_min":0}`}
-            ]}]})
-        });
-        const data=await res.json();
-        const txt=data.choices?.[0]?.message?.content||"{}";
-        const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
-        setTrip(p=>{const n={...p,fare:String(parsed.fare||""),dest_km:String(parsed.dest_km||""),dest_min:String(parsed.dest_min||"")};persist(n);return n;});
-        setModeP("manual");setPhaseP(1);toast_("Captura analizada ✓");
-      }catch{toast_("No pude leer la imagen.","err");}
-      setProc(false);
-    };
-    reader.readAsDataURL(file);
+  const handlePhoto = async e => {
+  const file = e.target.files[0]; if (!file) return;
+  setProc(true);
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    const b64 = ev.target.result; // Mantenemos el prefijo data:image/...
+    try {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.REACT_APP_GROQ_API_KEY}`
+        },
+        body: JSON.stringify({
+          // MODELO CORRECTO DE VISIÓN
+          model: "llama-3.2-11b-vision-preview", 
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: 'Extrae los datos de esta captura de pantalla de Uber/Didi. Solo responde con un objeto JSON estrictamente con este formato: {"fare":0,"dest_km":0,"dest_min":0}. Si no ves un dato, pon 0.' },
+                {
+                  type: "image_url",
+                  image_url: { url: b64 } // Groq acepta el base64 aquí
+                }
+              ]
+            }
+          ],
+          temperature: 0.1, // Baja temperatura para que el JSON sea exacto
+          response_format: { type: "json_object" } // Fuerza la salida JSON
+        })
+      });
+
+      const data = await res.json();
+      
+      // Manejo de errores de la API
+      if (data.error) throw new Error(data.error.message);
+
+      const txt = data.choices?.[0]?.message?.content || "{}";
+      const parsed = JSON.parse(txt);
+
+      setTrip(p => {
+        const n = { 
+          ...p, 
+          fare: String(parsed.fare || ""), 
+          dest_km: String(parsed.dest_km || ""), 
+          dest_min: String(parsed.dest_min || "") 
+        };
+        persist(n);
+        return n;
+      });
+      setModeP("manual"); 
+      setPhaseP(1); 
+      toast_("Captura analizada ✓");
+    } catch (err) {
+      console.error("AI Error:", err);
+      toast_("Error al leer imagen: " + err.message, "err");
+    }
+    setProc(false);
   };
+  reader.readAsDataURL(file);
+};
 
   const handleSave=async()=>{
     if(!trip.fare||saving)return;
@@ -776,19 +821,53 @@ function AITab({cfg,trips}){
     return`Conductor Uber/Didi México. 30d: ${s.n} viajes, neto ${fmtMXN(s.net)}, ${fmt(s.km,0)}km, ${fmtMXN(s.gas)} gas, ${(s.min/60).toFixed(1)}hrs. $/hr=${fmtMXN(s.min>0?s.net/(s.min/60):0)}, meta=${fmtMXN(cfg.targetHourlyRate)}/hr. Mejores horas: ${bestH||"sin datos"}. Plataformas: ${platS||"sin datos"}. Gas $${cfg.gasPricePerLiter}/L, ${cfg.kmPerLiter}km/L.`;
   };
   useEffect(()=>{endRef.current?.scrollIntoView({behavior:"smooth"});},[msgs,loading]);
-  const send=async()=>{
-    if(!input.trim()||loading)return;
-    const um={role:"user",content:input};
-    setMsgs(p=>[...p,um]);setInput("");setLoading(true);
-    try{
-      const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${process.env.REACT_APP_GROQ_API_KEY}`},
-  body:JSON.stringify({model:"meta-llama/llama-4-scout-17b-16e-instruct",max_tokens:700,
-          messages:[{role:"system",content:`Asesor experto en rentabilidad para conductores Uber/Didi México. Consejos concisos y accionables en español mexicano informal. Contexto: ${ctx()}`},...msgs,um].map(m=>({role:m.role,content:m.content}))
-      const data=await res.json();
-      setMsgs(p=>[...p,{role:"assistant",content:data.choices?.[0]?.message?.content||"Error."}]);
-    }catch{setMsgs(p=>[...p,{role:"assistant",content:"Error de conexión."}]);}
-    setLoading(false);
+  const send = async () => {
+  if (!input.trim() || loading) return;
+  const um = { role: "user", content: input };
+  setMsgs(p => [...p, um]);
+  setInput("");
+  setLoading(true);
+
+  // Intentamos primero con el potente (70b)
+  const tryFetch = async (modelName) => {
+    return await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.REACT_APP_GROQ_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile", 
+  messages: [
+    {
+      role: "system",
+      content: `Asesor experto en rentabilidad para conductores Uber/Didi México. Consejos concisos y accionables en español mexicano informal. Contexto: ${ctx()}`
+    },
+    ...msgs.map(m => ({ role: m.role, content: m.content })),
+    um
+  ],
+  max_tokens: 700,
+  temperature: 0.7
+})
+    });
   };
+
+  try {
+    let res = await tryFetch("model: modelName,");
+
+    // Si el 70b dice que ya no puede (Error 429), intentamos con el 8b
+    if (res.status === 429) {
+      console.warn("Cuota 70b excedida, usando 8b de respaldo...");
+      res = await tryFetch("llama-3.1-8b-instant");
+    }
+
+    const data = await res.json();
+    setMsgs(p => [...p, { role: "assistant", content: data.choices?.[0]?.message?.content || "Error." }]);
+  } catch {
+    setMsgs(p => [...p, { role: "assistant", content: "Carnal, se nos acabó la pila de la IA. Intenta en un minuto." }]);
+  }
+  setLoading(false);
+};
   const SUGG=["¿En qué horarios gano más?","¿Qué plataforma me conviene?","Dame un diagnóstico rápido","¿Cómo bajo mis costos?"];
   return(
     <div className="fu" style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
