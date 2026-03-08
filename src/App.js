@@ -372,21 +372,18 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
       const b64=ev.target.result;
       try{
         const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${process.env.REACT_APP_GROQ_API_KEY}`},
-          body:JSON.stringify({model:"meta-llama/llama-4-scout-17b-16e-instruct",temperature:0.1,max_tokens:200,
+  body:JSON.stringify({model:"meta-llama/llama-4-scout-17b-16e-instruct",max_tokens:200,
             messages:[{role:"user",content:[
-              {type:"text",text:'Eres un extractor de datos de capturas de Uber/Didi. Responde ÚNICAMENTE con el JSON sin texto extra: {"fare":0,"dest_km":0,"dest_min":0}'},
-              {type:"image_url",image_url:{url:b64}}
+              {type:"image_url",image_url:{url:b64}},
+              {type:"text",text:'Eres un extractor de datos de capturas de Uber/Didi. Extrae: tarifa cobrada, km y minutos de RECOLECCIÓN (para llegar al pasajero), km y minutos al DESTINO. Responde SOLO este JSON sin texto extra: {"fare":0,"pickup_km":0,"pickup_min":0,"dest_km":0,"dest_min":0}'}
             ]}]})
         });
         const data=await res.json();
-        if(data.error)throw new Error(data.error.message);
-        const raw=data.choices?.[0]?.message?.content||"{}";
-        const match=raw.match(/\{[\s\S]*\}/);
-        const parsed=JSON.parse(match?match[0]:"{}");
-        if(!parsed.fare&&!parsed.dest_km)throw new Error("No se detectaron datos en la imagen");
-        setTrip(p=>{const n={...p,fare:String(parsed.fare||""),dest_km:String(parsed.dest_km||""),dest_min:String(parsed.dest_min||"")};persist(n);return n;});
-        setModeP("manual");setPhaseP(1);toast_("Captura analizada ✓");
-      }catch(err){toast_("Error: "+err.message,"err");}
+        const txt=data.choices?.[0]?.message?.content||"{}";
+        const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
+        setTrip(p=>{const n={...p,fare:String(parsed.fare||""),pickup_km:String(parsed.pickup_km||""),pickup_min:String(parsed.pickup_min||""),dest_km:String(parsed.dest_km||""),dest_min:String(parsed.dest_min||"")};persist(n);return n;});
+        setModeP("manual");setPhaseP(parsed.dest_km||parsed.dest_min?1:0);toast_("Captura analizada ✓");
+      }catch{toast_("No pude leer la imagen.","err");}
       setProc(false);
     };
     reader.readAsDataURL(file);
@@ -785,9 +782,8 @@ function AITab({cfg,trips}){
     setMsgs(p=>[...p,um]);setInput("");setLoading(true);
     try{
       const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${process.env.REACT_APP_GROQ_API_KEY}`},
-        body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:700,
+  body:JSON.stringify({model:"meta-llama/llama-4-scout-17b-16e-instruct",max_tokens:700,
           messages:[{role:"system",content:`Asesor experto en rentabilidad para conductores Uber/Didi México. Consejos concisos y accionables en español mexicano informal. Contexto: ${ctx()}`},...msgs,um].map(m=>({role:m.role,content:m.content}))
-        })});
       const data=await res.json();
       setMsgs(p=>[...p,{role:"assistant",content:data.choices?.[0]?.message?.content||"Error."}]);
     }catch{setMsgs(p=>[...p,{role:"assistant",content:"Error de conexión."}]);}
