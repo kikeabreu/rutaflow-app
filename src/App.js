@@ -372,18 +372,21 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
       const b64=ev.target.result;
       try{
         const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${process.env.REACT_APP_GROQ_API_KEY}`},
-  body:JSON.stringify({model:"meta-llama/llama-4-scout-17b-16e-instruct",max_tokens:200,
+          body:JSON.stringify({model:"meta-llama/llama-4-scout-17b-16e-instruct",temperature:0.1,max_tokens:200,
             messages:[{role:"user",content:[
-              {type:"image_url",image_url:{url:b64}},
-              {type:"text",text:'Eres un extractor de datos de capturas de Uber/Didi. Extrae: tarifa cobrada, km y minutos de RECOLECCIÓN (para llegar al pasajero), km y minutos al DESTINO. Responde SOLO este JSON sin texto extra: {"fare":0,"pickup_km":0,"pickup_min":0,"dest_km":0,"dest_min":0}'}
+              {type:"text",text:'Eres un extractor de datos de capturas de Uber/Didi. Extrae: tarifa cobrada, km y minutos de RECOLECCIÓN (para llegar al pasajero), km y minutos al DESTINO. Responde SOLO este JSON sin texto extra: {"fare":0,"pickup_km":0,"pickup_min":0,"dest_km":0,"dest_min":0}'},
+              {type:"image_url",image_url:{url:b64}}
             ]}]})
         });
         const data=await res.json();
-        const txt=data.choices?.[0]?.message?.content||"{}";
-        const parsed=JSON.parse(txt.replace(/```json|```/g,"").trim());
+        if(data.error)throw new Error(data.error.message);
+        const raw=data.choices?.[0]?.message?.content||"{}";
+        const match=raw.match(/\{[\s\S]*\}/);
+        const parsed=JSON.parse(match?match[0]:"{}");
+        if(!parsed.fare&&!parsed.dest_km)throw new Error("No se detectaron datos en la imagen");
         setTrip(p=>{const n={...p,fare:String(parsed.fare||""),pickup_km:String(parsed.pickup_km||""),pickup_min:String(parsed.pickup_min||""),dest_km:String(parsed.dest_km||""),dest_min:String(parsed.dest_min||"")};persist(n);return n;});
         setModeP("manual");setPhaseP(parsed.dest_km||parsed.dest_min?1:0);toast_("Captura analizada ✓");
-      }catch{toast_("No pude leer la imagen.","err");}
+      }catch(err){toast_("Error: "+err.message,"err");}
       setProc(false);
     };
     reader.readAsDataURL(file);
@@ -782,8 +785,9 @@ function AITab({cfg,trips}){
     setMsgs(p=>[...p,um]);setInput("");setLoading(true);
     try{
       const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${process.env.REACT_APP_GROQ_API_KEY}`},
-  body:JSON.stringify({model:"meta-llama/llama-4-scout-17b-16e-instruct",max_tokens:700,
+        body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:700,
           messages:[{role:"system",content:`Asesor experto en rentabilidad para conductores Uber/Didi México. Consejos concisos y accionables en español mexicano informal. Contexto: ${ctx()}`},...msgs,um].map(m=>({role:m.role,content:m.content}))
+        })});
       const data=await res.json();
       setMsgs(p=>[...p,{role:"assistant",content:data.choices?.[0]?.message?.content||"Error."}]);
     }catch{setMsgs(p=>[...p,{role:"assistant",content:"Error de conexión."}]);}
@@ -791,7 +795,7 @@ function AITab({cfg,trips}){
   };
   const SUGG=["¿En qué horarios gano más?","¿Qué plataforma me conviene?","Dame un diagnóstico rápido","¿Cómo bajo mis costos?"];
   return(
-    <div className="fu" style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
+    <div className="fu" style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)",paddingBottom:"calc(60px + env(safe-area-inset-bottom))"}}>
       {recent.length<5&&<div style={{margin:"11px 14px 0",background:`${C.accent}12`,border:`1px solid ${C.accent}33`,borderRadius:9,padding:"9px 13px",fontSize:11,color:C.accent}}>⚠️ Con más viajes el análisis mejora ({recent.length} actuales)</div>}
       {msgs.length<=1&&<div style={{padding:"11px 14px 0"}}><Lbl s={{marginBottom:7}}>Preguntas frecuentes</Lbl><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{SUGG.map(s=><button key={s} onClick={()=>setInput(s)} style={{padding:"6px 11px",background:`${C.teal}12`,border:`1px solid ${C.teal}33`,borderRadius:18,color:C.teal,fontSize:11,fontWeight:600}}>{s}</button>)}</div></div>}
       <div style={{flex:1,overflowY:"auto",padding:"11px 14px",display:"flex",flexDirection:"column",gap:9}}>
@@ -799,7 +803,7 @@ function AITab({cfg,trips}){
         {loading&&<div style={{display:"flex"}}><div style={{padding:"10px 14px",background:C.card,border:`1px solid ${C.border}`,borderRadius:"13px 13px 13px 3px"}}><div className="pu" style={{fontSize:10,color:C.teal,letterSpacing:"0.2em"}}>ANALIZANDO...</div></div></div>}
         <div ref={endRef}/>
       </div>
-      <div style={{padding:"9px 14px 18px",borderTop:`1px solid ${C.border}`,display:"flex",gap:7}}>
+      <div style={{padding:"9px 14px 12px",borderTop:`1px solid ${C.border}`,display:"flex",gap:7,position:"sticky",bottom:0,background:C.bg}}>
         <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()} placeholder="Pregunta sobre tu rentabilidad..." onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border} style={{flex:1,background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:"10px 13px",color:C.text,fontSize:13,fontFamily:"inherit",outline:"none"}}/>
         <button onClick={send} disabled={!input.trim()||loading} style={{padding:"10px 14px",background:input.trim()?`${C.accent}1e`:"transparent",border:`1px solid ${input.trim()?C.accent:C.border}`,borderRadius:9,color:input.trim()?C.accent:C.dim,display:"flex",alignItems:"center"}}><SVG d={IC.send} size={15} color={input.trim()?C.accent:C.dim}/></button>
       </div>
