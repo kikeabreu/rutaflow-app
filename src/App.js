@@ -153,7 +153,7 @@ const Inp=({label,value,onChange,type="text",unit,placeholder="0"})=>(
   </div>
 );
 const Toast=({msg,type="ok"})=>msg?(
-  <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",zIndex:99999,background:type==="ok"?"#00c9a7":"#ff4055",color:"#000",borderRadius:10,padding:"10px 20px",fontSize:12,fontWeight:700,letterSpacing:"0.08em",whiteSpace:"nowrap",boxShadow:"0 4px 24px rgba(0,0,0,.6)"}}>
+  <div style={{position:"fixed",top:"calc(16px + env(safe-area-inset-top))",left:"50%",transform:"translateX(-50%)",zIndex:99999,background:type==="ok"?"#00c9a7":"#ff4055",color:"#000",borderRadius:10,padding:"10px 20px",fontSize:12,fontWeight:700,letterSpacing:"0.08em",whiteSpace:"nowrap",boxShadow:"0 4px 24px rgba(0,0,0,.6)"}}>
     {type==="ok"?"✅":"⚠️"} {msg}
   </div>
 ):null;
@@ -369,14 +369,14 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
     setProc(true);
     const reader=new FileReader();
     reader.onload=async ev=>{
-      const b64=ev.target.result.split(",")[1];
+      const b64=ev.target.result;
       try{
         const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${process.env.REACT_APP_GROQ_API_KEY}`},
           body:JSON.stringify({model:"llama-3.2-11b-vision-preview",temperature:0.1,
             response_format:{type:"json_object"},
             messages:[{role:"user",content:[
               {type:"text",text:'Extrae los datos de esta captura de Uber/Didi. Solo responde JSON exacto: {"fare":0,"dest_km":0,"dest_min":0}. Si no ves un dato pon 0.'},
-              {type:"image_url",image_url:{url:ev.target.result}}
+              {type:"image_url",image_url:{url:b64}}
             ]}]})
         });
         const data=await res.json();
@@ -794,7 +794,7 @@ function AITab({cfg,trips}){
   };
   const SUGG=["¿En qué horarios gano más?","¿Qué plataforma me conviene?","Dame un diagnóstico rápido","¿Cómo bajo mis costos?"];
   return(
-    <div className="fu" style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
+    <div className="fu" style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)",paddingBottom:"calc(60px + env(safe-area-inset-bottom))"}}>
       {recent.length<5&&<div style={{margin:"11px 14px 0",background:`${C.accent}12`,border:`1px solid ${C.accent}33`,borderRadius:9,padding:"9px 13px",fontSize:11,color:C.accent}}>⚠️ Con más viajes el análisis mejora ({recent.length} actuales)</div>}
       {msgs.length<=1&&<div style={{padding:"11px 14px 0"}}><Lbl s={{marginBottom:7}}>Preguntas frecuentes</Lbl><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{SUGG.map(s=><button key={s} onClick={()=>setInput(s)} style={{padding:"6px 11px",background:`${C.teal}12`,border:`1px solid ${C.teal}33`,borderRadius:18,color:C.teal,fontSize:11,fontWeight:600}}>{s}</button>)}</div></div>}
       <div style={{flex:1,overflowY:"auto",padding:"11px 14px",display:"flex",flexDirection:"column",gap:9}}>
@@ -802,7 +802,7 @@ function AITab({cfg,trips}){
         {loading&&<div style={{display:"flex"}}><div style={{padding:"10px 14px",background:C.card,border:`1px solid ${C.border}`,borderRadius:"13px 13px 13px 3px"}}><div className="pu" style={{fontSize:10,color:C.teal,letterSpacing:"0.2em"}}>ANALIZANDO...</div></div></div>}
         <div ref={endRef}/>
       </div>
-      <div style={{padding:"9px 14px 18px",borderTop:`1px solid ${C.border}`,display:"flex",gap:7}}>
+      <div style={{padding:"9px 14px 12px",borderTop:`1px solid ${C.border}`,display:"flex",gap:7,position:"sticky",bottom:0,background:C.bg}}>
         <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()} placeholder="Pregunta sobre tu rentabilidad..." onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border} style={{flex:1,background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:"10px 13px",color:C.text,fontSize:13,fontFamily:"inherit",outline:"none"}}/>
         <button onClick={send} disabled={!input.trim()||loading} style={{padding:"10px 14px",background:input.trim()?`${C.accent}1e`:"transparent",border:`1px solid ${input.trim()?C.accent:C.border}`,borderRadius:9,color:input.trim()?C.accent:C.dim,display:"flex",alignItems:"center"}}><SVG d={IC.send} size={15} color={input.trim()?C.accent:C.dim}/></button>
       </div>
