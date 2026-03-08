@@ -371,7 +371,7 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
     reader.onload=async ev=>{
       const b64=ev.target.result.split(",")[1];
       try{
-        const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer TU_API_KEY_DE_GROQ"},
+        const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${import.meta.env.VITE_GROQ_API_KEY}`},
   body:JSON.stringify({model:"meta-llama/llama-4-scout-17b-16e-instruct",max_tokens:200,
             messages:[{role:"user",content:[
               {type:"image",source:{type:"base64",media_type:file.type||"image/jpeg",data:b64}},
@@ -781,7 +781,7 @@ function AITab({cfg,trips}){
     const um={role:"user",content:input};
     setMsgs(p=>[...p,um]);setInput("");setLoading(true);
     try{
-      const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer TU_API_KEY_DE_GROQ"},
+      const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${import.meta.env.VITE_GROQ_API_KEY}`},
   body:JSON.stringify({model:"meta-llama/llama-4-scout-17b-16e-instruct",max_tokens:700,
           messages:[{role:"system",content:`Asesor experto en rentabilidad para conductores Uber/Didi México. Consejos concisos y accionables en español mexicano informal. Contexto: ${ctx()}`},...msgs,um].map(m=>({role:m.role,content:m.content}))
       const data=await res.json();
