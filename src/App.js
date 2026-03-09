@@ -374,8 +374,8 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
         const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${process.env.REACT_APP_GROQ_API_KEY}`},
           body:JSON.stringify({model:"meta-llama/llama-4-scout-17b-16e-instruct",temperature:0.1,max_tokens:200,
             messages:[{role:"user",content:[
-              {type:"text",text:'Eres un extractor de datos de capturas de Uber/Didi. Extrae: tarifa cobrada, km y minutos de RECOLECCIÓN (para llegar al pasajero), km y minutos al DESTINO. Responde SOLO este JSON sin texto extra: {"fare":0,"pickup_km":0,"pickup_min":0,"dest_km":0,"dest_min":0}'},
-              {type:"image_url",image_url:{url:b64}}
+              {type:"image_url",image_url:{url:b64}},
+              {type:"text",text:'Eres un extractor de datos de capturas de Uber/Didi. Extrae: tarifa cobrada, km y minutos de RECOLECCIÓN, km y minutos al DESTINO. Responde SOLO este JSON: {"fare":0,"pickup_km":0,"pickup_min":0,"dest_km":0,"dest_min":0}'}
             ]}]})
         });
         const data=await res.json();
@@ -383,7 +383,7 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
         const raw=data.choices?.[0]?.message?.content||"{}";
         const match=raw.match(/\{[\s\S]*\}/);
         const parsed=JSON.parse(match?match[0]:"{}");
-        if(!parsed.fare&&!parsed.dest_km)throw new Error("No se detectaron datos en la imagen");
+        if(!parsed.fare&&!parsed.dest_km)throw new Error("No se detectaron datos");
         setTrip(p=>{const n={...p,fare:String(parsed.fare||""),pickup_km:String(parsed.pickup_km||""),pickup_min:String(parsed.pickup_min||""),dest_km:String(parsed.dest_km||""),dest_min:String(parsed.dest_min||"")};persist(n);return n;});
         setModeP("manual");setPhaseP(parsed.dest_km||parsed.dest_min?1:0);toast_("Captura analizada ✓");
       }catch(err){toast_("Error: "+err.message,"err");}
@@ -771,12 +771,45 @@ function AITab({cfg,trips}){
   const endRef=useRef();
   const recent=trips.filter(t=>new Date(t.created_at||t.end_time||0).getTime()>=Date.now()-30*86400000);
   const ctx=()=>{
-    const s=recent.reduce((a,t)=>{const c=calcTrip(t,cfg);return{net:a.net+c.net,km:a.km+c.km,gas:a.gas+c.gas,min:a.min+c.min,n:a.n+1};},{net:0,km:0,gas:0,min:0,n:0});
-    const bh={};recent.forEach(t=>{const h=new Date(t.created_at||t.end_time||0).getHours();if(!bh[h])bh[h]={net:0,n:0};bh[h].net+=calcTrip(t,cfg).net;bh[h].n++;});
-    const bestH=Object.entries(bh).sort((a,b)=>(b[1].net/b[1].n)-(a[1].net/a[1].n)).slice(0,3).map(([h])=>`${h}:00`).join(", ");
-    const bp={};recent.forEach(t=>{const p=t.platform||"uber";if(!bp[p])bp[p]={net:0,n:0};bp[p].net+=calcTrip(t,cfg).net;bp[p].n++;});
-    const platS=Object.entries(bp).map(([p,d])=>`${p}:${fmtMXN(d.net/d.n)}/viaje`).join(", ");
-    return`Conductor Uber/Didi México. 30d: ${s.n} viajes, neto ${fmtMXN(s.net)}, ${fmt(s.km,0)}km, ${fmtMXN(s.gas)} gas, ${(s.min/60).toFixed(1)}hrs. $/hr=${fmtMXN(s.min>0?s.net/(s.min/60):0)}, meta=${fmtMXN(cfg.targetHourlyRate)}/hr. Mejores horas: ${bestH||"sin datos"}. Plataformas: ${platS||"sin datos"}. Gas $${cfg.gasPricePerLiter}/L, ${cfg.kmPerLiter}km/L.`;
+    const all=trips; // todos los viajes, no solo 30d
+    const s30=recent.reduce((a,t)=>{const c=calcTrip(t,cfg);return{net:a.net+c.net,km:a.km+c.km,gas:a.gas+c.gas,min:a.min+c.min,n:a.n+1};},{net:0,km:0,gas:0,min:0,n:0});
+    const sAll=all.reduce((a,t)=>{const c=calcTrip(t,cfg);return{net:a.net+c.net,km:a.km+c.km,gas:a.gas+c.gas,min:a.min+c.min,n:a.n+1};},{net:0,km:0,gas:0,min:0,n:0});
+
+    // Mejor y peor hora (todos los viajes)
+    const bh={};all.forEach(t=>{const h=new Date(t.created_at||t.end_time||0).getHours();if(!bh[h])bh[h]={net:0,n:0};bh[h].net+=calcTrip(t,cfg).net;bh[h].n++;});
+    const horaSort=Object.entries(bh).sort((a,b)=>(b[1].net/b[1].n)-(a[1].net/a[1].n));
+    const bestH=horaSort.slice(0,3).map(([h,d])=>`${h}:00(${fmtMXN(d.net/d.n)}/viaje)`).join(", ");
+    const worstH=horaSort.slice(-2).map(([h,d])=>`${h}:00(${fmtMXN(d.net/d.n)}/viaje)`).join(", ");
+
+    // Por plataforma
+    const bp={};all.forEach(t=>{const p=t.platform||"uber";if(!bp[p])bp[p]={net:0,n:0,km:0};const c=calcTrip(t,cfg);bp[p].net+=c.net;bp[p].n++;bp[p].km+=c.km;});
+    const platS=Object.entries(bp).map(([p,d])=>`${p}:${fmtMXN(d.net/d.n)}/viaje,${fmtMXN(d.n>0?d.net/(d.km||1)*100:0)}c/100km`).join(" | ");
+
+    // Por día de semana
+    const bd={};all.forEach(t=>{const d=["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"][new Date(t.created_at||t.end_time||0).getDay()];if(!bd[d])bd[d]={net:0,n:0};bd[d].net+=calcTrip(t,cfg).net;bd[d].n++;});
+    const diaS=Object.entries(bd).sort((a,b)=>(b[1].net/b[1].n)-(a[1].net/a[1].n)).map(([d,v])=>`${d}:${fmtMXN(v.net/v.n)}/viaje`).join(", ");
+
+    // Últimos 5 viajes detallados
+    const last5=all.slice(0,5).map(t=>{const c=calcTrip(t,cfg);const d=new Date(t.created_at||t.end_time||0);return`${d.toLocaleDateString("es-MX")} ${d.getHours()}h ${t.platform||"uber"} $${t.fare} pickup:${t.pickup_km||0}km/${t.pickup_min||0}min dest:${t.dest_km||0}km/${t.dest_min||0}min neto:${fmtMXN(c.net)}`;}).join(" | ");
+
+    // Tendencia: esta semana vs semana anterior
+    const now=Date.now();
+    const w1=all.filter(t=>new Date(t.created_at||t.end_time||0).getTime()>=now-7*86400000);
+    const w2=all.filter(t=>{const ms=new Date(t.created_at||t.end_time||0).getTime();return ms>=now-14*86400000&&ms<now-7*86400000;});
+    const wNet1=w1.reduce((a,t)=>a+calcTrip(t,cfg).net,0);
+    const wNet2=w2.reduce((a,t)=>a+calcTrip(t,cfg).net,0);
+    const tendencia=wNet2>0?`${wNet1>wNet2?"+":""}${(((wNet1-wNet2)/wNet2)*100).toFixed(0)}% vs semana anterior`:"primera semana";
+
+    return`=== CONTEXTO COMPLETO RUTAFLOW ===
+CONDUCTOR: ${cfg.name||"sin nombre"} | Meta: ${fmtMXN(cfg.targetHourlyRate)}/hr | Gas: $${cfg.gasPricePerLiter}/L ${cfg.kmPerLiter}km/L
+COSTOS FIJOS: renta ${fmtMXN(cfg.monthlyRent)} + seguro ${fmtMXN(cfg.insurance)} + llantas ${fmtMXN(cfg.tires)} + mant ${fmtMXN(cfg.maintenance)} = ${fmtMXN((cfg.monthlyRent||0)+(cfg.insurance||0)+(cfg.tires||0)+(cfg.maintenance||0))}/mes
+HISTÓRICO TOTAL (${sAll.n} viajes): neto ${fmtMXN(sAll.net)}, ${fmt(sAll.km,0)}km, ${(sAll.min/60).toFixed(0)}hrs trabajadas, promedio ${fmtMXN(sAll.n>0?sAll.net/sAll.n:0)}/viaje
+ÚLTIMOS 30 DÍAS (${s30.n} viajes): neto ${fmtMXN(s30.net)}, ${fmt(s30.km,0)}km, ${fmtMXN(s30.gas)} gas, ${(s30.min/60).toFixed(1)}hrs, ${fmtMXN(s30.min>0?s30.net/(s30.min/60):0)}/hr
+TENDENCIA: ${tendencia}
+MEJORES HORAS: ${bestH||"sin datos"} | PEORES: ${worstH||"sin datos"}
+POR DÍA: ${diaS||"sin datos"}
+POR PLATAFORMA: ${platS||"sin datos"}
+ÚLTIMOS 5 VIAJES: ${last5||"sin datos"}`;
   };
   useEffect(()=>{endRef.current?.scrollIntoView({behavior:"smooth"});},[msgs,loading]);
   const send=async()=>{
@@ -786,7 +819,7 @@ function AITab({cfg,trips}){
     try{
       const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${process.env.REACT_APP_GROQ_API_KEY}`},
         body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:700,
-          messages:[{role:"system",content:`Asesor experto en rentabilidad para conductores Uber/Didi México. Consejos concisos y accionables en español mexicano informal. Contexto: ${ctx()}`},...msgs,um].map(m=>({role:m.role,content:m.content}))
+          messages:[{role:"system",content:`Asesor experto en rentabilidad para conductores Uber/Didi México. Consejos concisos y accionables en español mexicano informal. ${ctx()}`},...msgs,um].map(m=>({role:m.role,content:m.content}))
         })});
       const data=await res.json();
       setMsgs(p=>[...p,{role:"assistant",content:data.choices?.[0]?.message?.content||"Error."}]);
