@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell } from "recharts";
 import { supabase } from "./supabaseClient";
+import { callGroq, imageToDataUrl } from "./groqClient";
 
 // ─── PALETA ──────────────────────────────────────────────────────────────────
 const C={bg:"#07080d",card:"#0d0f1a",card2:"#111320",border:"#1a1d2e",bord2:"#242740",accent:"#f0a500",teal:"#00c9a7",danger:"#ff4055",dim:"#3a3d55",muted:"#6b6e8a",text:"#dde0f5"};
@@ -12,6 +13,20 @@ const LS={
   del:(k)=>{try{localStorage.removeItem(k);}catch{}},
 };
 const K={DRAFT:"rf_draft",DAY:"rf_day",DAYGPS:"rf_daygps"};
+const FREE_MONTHLY_TRIP_LIMIT=30;
+const paymentUrl=()=>process.env.REACT_APP_STRIPE_PAYMENT_LINK||process.env.REACT_APP_MERCADOPAGO_PAYMENT_LINK||"";
+const isProProfile=profile=>{
+  if(!profile)return false;
+  const plan=String(profile.plan||"").toLowerCase();
+  const status=String(profile.subscription_status||"").toLowerCase();
+  const until=profile.pro_until?new Date(profile.pro_until).getTime():0;
+  return plan==="pro"||status==="active"||status==="trialing"||until>Date.now();
+};
+const openUpgrade=()=>{
+  const url=paymentUrl();
+  if(url)window.open(url,"_blank","noopener,noreferrer");
+  else alert("Configura REACT_APP_STRIPE_PAYMENT_LINK o REACT_APP_MERCADOPAGO_PAYMENT_LINK para activar cobros.");
+};
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const fmt=(n,d=2)=>(parseFloat(n)||0).toFixed(d);
@@ -40,6 +55,52 @@ const calcTrip=(trip,cfg)=>{
   const net=fare-fee-gas-fx,hrs=min/60;
   return{km,min,fare,gas,fee,fx,net,hrs,nph:hrs>0?net/hrs:0,npk:km>0?net/km:0,pct:fare>0?(net/fare)*100:0};
 };
+const eventMs=e=>new Date(e.occurred_at||e.created_at||0).getTime();
+const tripMs=t=>new Date(t.end_time||t.created_at||0).getTime();
+const distanceCost=(km,cfg)=>{
+  const n=Number(km)||0;
+  let wear=0;
+  if(cfg.llantasEnabled)wear+=((cfg.llantasMonto||0)/(cfg.llantasKmVida||40000))*n;
+  if(cfg.mantenimientoEnabled)wear+=((cfg.mantenimientoMonto||0)/(cfg.mantenimientoKmVida||5000))*n;
+  return{gas:n/(cfg.kmPerLiter||12)*(cfg.gasPricePerLiter||24),wear};
+};
+const estimateTank=(trips,events,cfg)=>{
+  const checkpoints=events.filter(e=>e.type==="tank_checkpoint"&&Number(e.tank_liters)>0).sort((a,b)=>eventMs(b)-eventMs(a));
+  const refuels=events.filter(e=>e.type==="refuel"&&Number(e.liters)>0).sort((a,b)=>eventMs(b)-eventMs(a));
+  const base=checkpoints[0]||refuels[0];
+  if(!base)return{liters:null,rangeKm:null,confidence:"sin datos",basis:"Registra una carga o el nivel actual del tanque"};
+  const start=eventMs(base);
+  const baseLiters=base.type==="tank_checkpoint"?Number(base.tank_liters):Number(base.liters);
+  const added=events.filter(e=>e.type==="refuel"&&eventMs(e)>start).reduce((s,e)=>s+(Number(e.liters)||0),0);
+  const tripKm=trips.filter(t=>tripMs(t)>start).reduce((s,t)=>s+calcTrip(t,cfg).km,0);
+  const deadKm=events.filter(e=>e.type==="dead_km"&&eventMs(e)>start).reduce((s,e)=>s+(Number(e.km)||0),0);
+  const liters=Math.max(0,baseLiters+added-(tripKm+deadKm)/(cfg.kmPerLiter||12));
+  return{
+    liters,
+    rangeKm:liters*(cfg.kmPerLiter||12),
+    confidence:base.type==="tank_checkpoint"?"alta":"conservadora",
+    basis:base.type==="tank_checkpoint"?"Desde tu ultimo punto de control":"Desde tu ultima carga; no cuenta el combustible anterior",
+  };
+};
+const operationalSummary=(trips,events,cfg,date,trackedKm=0)=>{
+  const dayTrips=trips.filter(t=>(t.date||today())===date);
+  const dayEvents=events.filter(e=>(e.date||today())===date);
+  const tripStats=dayTrips.reduce((a,t)=>{const c=calcTrip(t,cfg);return{gross:a.gross+c.fare,fee:a.fee+c.fee,net:a.net+c.net,km:a.km+c.km,min:a.min+c.min};},{gross:0,fee:0,net:0,km:0,min:0});
+  const explicitDeadKm=dayEvents.filter(e=>e.type==="dead_km").reduce((s,e)=>s+(Number(e.km)||0),0);
+  const totalKm=Math.max(tripStats.km+explicitDeadKm,Number(trackedKm)||0);
+  const deadKm=Math.max(explicitDeadKm,totalKm-tripStats.km);
+  const deadCost=distanceCost(deadKm,cfg);
+  const refuels=dayEvents.filter(e=>e.type==="refuel");
+  const fuelPurchased=refuels.reduce((s,e)=>s+(Number(e.amount)||0),0);
+  const litersPurchased=refuels.reduce((s,e)=>s+(Number(e.liters)||0),0);
+  const consumedGas=distanceCost(totalKm,cfg).gas;
+  return{
+    ...tripStats,totalKm,deadKm,fuelPurchased,litersPurchased,consumedGas,
+    net:tripStats.net-deadCost.gas-deadCost.wear,
+    cash:tripStats.gross-tripStats.fee-fuelPurchased,
+    productivePct:totalKm>0?tripStats.km/totalKm*100:0,
+  };
+};
 
 // ─── ICONOS SVG ───────────────────────────────────────────────────────────────
 const SVG=({d,size=18,color="currentColor",fill="none",sw=1.8})=>(
@@ -67,6 +128,10 @@ const IC={
   back:"M15 18l-6-6 6-6",send:"M22 2L11 13 M22 2L15 22l-4-9-9-4 22-7z",
   flag:["M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z","M4 22v-7"],
   road:["M3 17l3-10h12l3 10","M8 17v-5","M12 17V7","M16 17v-5"],
+  fuel:["M3 22V4a2 2 0 012-2h8a2 2 0 012 2v18","M3 10h12","M18 7l3 3v9a2 2 0 01-4 0v-4a2 2 0 00-2-2"],
+  gauge:["M4.93 19a10 10 0 1114.14 0","M12 15l4-4","M8 19h8"],
+  mic:["M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z","M19 10v2a7 7 0 01-14 0v-2","M12 19v3","M8 22h8"],
+  close:"M18 6L6 18 M6 6l12 12",
 };
 
 const CSS=`
@@ -129,6 +194,24 @@ function useDayGPS(isActive){
   return{dayKm,reset:()=>{distRef.current=0;setDayKm(0);LS.del(K.DAYGPS);}};
 }
 
+function useInstallApp(){
+  const[prompt,setPrompt]=useState(null);
+  const[installed,setInstalled]=useState(()=>window.matchMedia?.("(display-mode: standalone)").matches||window.navigator.standalone===true);
+  const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
+  useEffect(()=>{
+    const ready=e=>{e.preventDefault();setPrompt(e);};
+    const done=()=>{setInstalled(true);setPrompt(null);};
+    window.addEventListener("beforeinstallprompt",ready);window.addEventListener("appinstalled",done);
+    return()=>{window.removeEventListener("beforeinstallprompt",ready);window.removeEventListener("appinstalled",done);};
+  },[]);
+  const install=async()=>{
+    if(prompt){await prompt.prompt();await prompt.userChoice;setPrompt(null);return;}
+    if(isIOS)alert('En Safari toca Compartir, despues "Agregar a pantalla de inicio" y activa "Abrir como app".');
+    else alert('Abre el menu de Chrome y toca "Instalar app" o "Agregar a pantalla principal".');
+  };
+  return{available:!installed,installed,install,isIOS};
+}
+
 // ─── ATOMS ───────────────────────────────────────────────────────────────────
 const Card=({children,s,onClick})=><div onClick={onClick} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:15,...s}}>{children}</div>;
 const Lbl=({children,color=C.muted,s})=><div style={{fontSize:9,letterSpacing:"0.2em",textTransform:"uppercase",color,fontWeight:600,...s}}>{children}</div>;
@@ -157,6 +240,17 @@ const Toast=({msg,type="ok"})=>msg?(
     {type==="ok"?"✅":"⚠️"} {msg}
   </div>
 ):null;
+const UpgradeCard=({monthlyTripsCount=0,onUpgrade=openUpgrade,s})=>(
+  <div style={{background:`${C.accent}12`,border:`1px solid ${C.accent}3d`,borderRadius:12,padding:"12px 13px",display:"flex",alignItems:"center",gap:12,...s}}>
+    <div style={{flex:1}}>
+      <div className="B" style={{fontSize:17,fontWeight:800,color:C.accent,letterSpacing:1}}>RUTAFLOW PRO</div>
+      <div style={{fontSize:11,color:C.text,lineHeight:1.45,marginTop:3}}>
+        {monthlyTripsCount}/{FREE_MONTHLY_TRIP_LIMIT} viajes gratis este mes. Pro desbloquea GPS, Foto IA, asesor IA e historial ilimitado.
+      </div>
+    </div>
+    <button onClick={onUpgrade} style={{background:C.accent,color:"#000",borderRadius:8,padding:"9px 11px",fontSize:10,fontWeight:900,letterSpacing:"0.12em"}}>VER PRO</button>
+  </div>
+);
 
 // ─── MODAL: DETALLE / EDICIÓN DE VIAJE ────────────────────────────────────────
 function TripDetail({trip,cfg,onClose,onSave,onDelete}){
@@ -297,7 +391,7 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
 // ─── MODAL: NUEVO VIAJE ───────────────────────────────────────────────────────
 const DRAFT0={fare:"",pickup_km:"",pickup_min:"",dest_km:"",dest_min:"",platform:"uber",gps_km:null,gps_min:null,mode:"manual",phase:0,gpsOn:false,gpsStartMs:null,gpsDistKm:0};
 
-function TripModal({cfg,saveTrip,activeDay,onClose}){
+function TripModal({cfg,saveTrip,activeDay,onClose,isPro,onUpgrade=openUpgrade}){
   const draft=LS.get(K.DRAFT,DRAFT0);
   const[trip,setTrip]=useState(draft);
   const[mode,setMode]=useState(draft.mode||"manual");
@@ -353,7 +447,10 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
     );
   };
 
-  const startGPS=()=>{persist({gpsOn:true,gpsStartMs:Date.now(),gpsDistKm:0});setGpsStatus("📍 Buscando señal GPS...");_activateGPS(true);};
+  const startGPS=()=>{
+    if(!isPro){onUpgrade();return;}
+    persist({gpsOn:true,gpsStartMs:Date.now(),gpsDistKm:0});setGpsStatus("📍 Buscando señal GPS...");_activateGPS(true);
+  };
   const stopGPS=()=>{
     if(watchRef.current)navigator.geolocation.clearWatch(watchRef.current);
     clearInterval(timerRef.current);
@@ -365,31 +462,22 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
   };
 
   const handlePhoto=async e=>{
+    if(!isPro){onUpgrade();return;}
     const file=e.target.files[0];if(!file)return;
     setProc(true);
-    const reader=new FileReader();
-    reader.onload=async ev=>{
-      const b64=ev.target.result;
-      try{
-        const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${process.env.REACT_APP_GROQ_API_KEY}`},
-          body:JSON.stringify({model:"meta-llama/llama-4-scout-17b-16e-instruct",temperature:0.1,max_tokens:200,
-            messages:[{role:"user",content:[
-              {type:"image_url",image_url:{url:b64}},
-              {type:"text",text:'Eres un extractor de datos de capturas de Uber/Didi. Extrae: tarifa cobrada, km y minutos de RECOLECCIÓN, km y minutos al DESTINO. Responde SOLO este JSON: {"fare":0,"pickup_km":0,"pickup_min":0,"dest_km":0,"dest_min":0}'}
-            ]}]})
-        });
-        const data=await res.json();
-        if(data.error)throw new Error(data.error.message);
-        const raw=data.choices?.[0]?.message?.content||"{}";
+    try{
+        const b64=await imageToDataUrl(file);
+        const raw=await callGroq("vision",[{role:"user",content:[
+          {type:"image_url",image_url:{url:b64}},
+          {type:"text",text:"Extrae los datos visibles de este viaje."}
+        ]}],300);
         const match=raw.match(/\{[\s\S]*\}/);
         const parsed=JSON.parse(match?match[0]:"{}");
         if(!parsed.fare&&!parsed.dest_km)throw new Error("No se detectaron datos");
         setTrip(p=>{const n={...p,fare:String(parsed.fare||""),pickup_km:String(parsed.pickup_km||""),pickup_min:String(parsed.pickup_min||""),dest_km:String(parsed.dest_km||""),dest_min:String(parsed.dest_min||"")};persist(n);return n;});
         setModeP("manual");setPhaseP(parsed.dest_km||parsed.dest_min?1:0);toast_("Captura analizada ✓");
-      }catch(err){toast_("Error: "+err.message,"err");}
-      setProc(false);
-    };
-    reader.readAsDataURL(file);
+    }catch(err){toast_("IA: "+err.message,"err");}
+    setProc(false);
   };
 
   const handleSave=async()=>{
@@ -443,6 +531,7 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
           {mode==="gps"&&(
             <div style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:12,padding:15,marginBottom:12}}>
               <Lbl s={{marginBottom:10}}>Rastreo GPS en tiempo real</Lbl>
+              {!isPro&&<UpgradeCard onUpgrade={onUpgrade} s={{marginBottom:12}}/>}
               {gpsOn&&<div className="B" style={{fontSize:46,fontWeight:900,color:C.teal,textAlign:"center",marginBottom:8}}>{fmtClock(gpsMs)}</div>}
               {gpsStatus&&<div style={{fontSize:13,color:gpsOn?C.teal:C.muted,textAlign:"center",marginBottom:10}}>{gpsStatus}</div>}
               {!gpsOn?(
@@ -472,6 +561,7 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
           {mode==="photo"&&(
             <div style={{marginBottom:12}}>
               <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}}/>
+              {!isPro&&<UpgradeCard onUpgrade={onUpgrade} s={{marginBottom:12}}/>}
               {proc?(
                 <div style={{textAlign:"center",padding:"28px 0"}}>
                   <div className="sp" style={{width:28,height:28,border:`2px solid ${C.border}`,borderTopColor:C.accent,borderRadius:"50%",margin:"0 auto 10px"}}/>
@@ -510,8 +600,75 @@ function TripModal({cfg,saveTrip,activeDay,onClose}){
   );
 }
 
+// ─── REGISTRO OPERATIVO ───────────────────────────────────────────────────────
+const OP0={type:"dead_km",km:"",amount:"",liters:"",tank_liters:"",odometer:"",fare:"",trip_km:"",platform:"didi",note:""};
+function OperationModal({onClose,onSaveOperation,onSaveTrip}){
+  const[form,setForm]=useState(OP0);
+  const[text,setText]=useState("");
+  const[parsing,setParsing]=useState(false);
+  const[saving,setSaving]=useState(false);
+  const[listening,setListening]=useState(false);
+  const set=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const TYPES=[
+    {id:"trip",label:"Viaje",d:IC.trips},
+    {id:"dead_km",label:"Sin pasaje",d:IC.road},
+    {id:"refuel",label:"Gasolina",d:IC.fuel},
+    {id:"tank_checkpoint",label:"Tanque",d:IC.gauge},
+  ];
+  const parse=async()=>{
+    if(!text.trim()||parsing)return;
+    setParsing(true);
+    try{
+      const raw=await callGroq("parser",[{role:"user",content:text.trim()}],260);
+      const match=raw.match(/\{[\s\S]*\}/);
+      const data=JSON.parse(match?match[0]:"{}");
+      if(!TYPES.some(t=>t.id===data.type))throw new Error("No entendi el movimiento. Prueba con importe, km o litros.");
+      setForm(p=>({...p,...Object.fromEntries(Object.entries(data).map(([k,v])=>[k,v===0?"":String(v)])),type:data.type}));
+    }catch(err){alert(err.message);}
+    setParsing(false);
+  };
+  const listen=()=>{
+    const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!Recognition){alert("El dictado no esta disponible en este navegador. Puedes escribir el movimiento.");return;}
+    const rec=new Recognition();rec.lang="es-MX";rec.interimResults=false;
+    rec.onstart=()=>setListening(true);
+    rec.onend=()=>setListening(false);
+    rec.onerror=()=>setListening(false);
+    rec.onresult=e=>setText(e.results[0][0].transcript);
+    rec.start();
+  };
+  const valid=form.type==="trip"?Number(form.fare)>0:Number(form.type==="dead_km"?form.km:form.type==="refuel"?(form.liters||form.amount):form.tank_liters)>0;
+  const save=async()=>{
+    if(!valid||saving)return;setSaving(true);
+    let ok=false;
+    if(form.type==="trip")ok=await onSaveTrip({fare:Number(form.fare)||0,dest_km:Number(form.trip_km)||0,platform:form.platform||"otra",date:today(),end_time:new Date().toISOString()});
+    else ok=await onSaveOperation({type:form.type,km:Number(form.km)||0,amount:Number(form.amount)||0,liters:Number(form.liters)||0,tank_liters:Number(form.tank_liters)||0,odometer:Number(form.odometer)||0,note:form.note||""});
+    setSaving(false);if(ok)onClose();
+  };
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.76)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div className="su" style={{width:"100%",maxWidth:480,maxHeight:"92dvh",overflowY:"auto",background:C.card,border:`1px solid ${C.bord2}`,borderRadius:"14px 14px 0 0",padding:"15px 14px calc(18px + env(safe-area-inset-bottom))"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div><Big size={23} color={C.accent}>REGISTRO RAPIDO</Big><div style={{fontSize:10,color:C.muted,marginTop:3}}>Escribe, dicta o elige un movimiento</div></div><button onClick={onClose} aria-label="Cerrar"><SVG d={IC.close} color={C.muted}/></button></div>
+        <div style={{display:"flex",gap:6,marginBottom:8}}>
+          <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&parse()} placeholder='Ej. "Cargue 10 litros por $243.90"' style={{flex:1,minWidth:0,background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"11px",color:C.text,fontSize:12,outline:"none"}}/>
+          <button onClick={listen} title="Dictar movimiento" style={{width:42,height:42,border:`1px solid ${listening?C.danger:C.border}`,borderRadius:8,display:"grid",placeItems:"center",background:listening?`${C.danger}18`:C.card2}}><SVG d={IC.mic} color={listening?C.danger:C.muted}/></button>
+          <button onClick={parse} disabled={!text.trim()||parsing} style={{padding:"0 12px",border:`1px solid ${C.teal}`,borderRadius:8,color:C.teal,fontSize:10,fontWeight:700}}>{parsing?"...":"IA"}</button>
+        </div>
+        <div style={{fontSize:9,color:C.dim,lineHeight:1.45,marginBottom:14}}>La IA prepara el registro. Tu confirmas antes de guardarlo.</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:15}}>{TYPES.map(t=><button key={t.id} onClick={()=>set("type",t.id)} style={{minHeight:66,padding:"8px 3px",border:`1px solid ${form.type===t.id?C.accent:C.border}`,borderRadius:8,background:form.type===t.id?`${C.accent}12`:C.card2,color:form.type===t.id?C.accent:C.muted,fontSize:8,fontWeight:700,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6}}><SVG d={t.d} size={17} color={form.type===t.id?C.accent:C.muted}/>{t.label}</button>)}</div>
+        {form.type==="trip"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Tarifa" type="number" value={form.fare} onChange={v=>set("fare",v)} unit="$"/><Inp label="Distancia" type="number" value={form.trip_km} onChange={v=>set("trip_km",v)} unit="km"/><div style={{gridColumn:"1 / -1"}}><Lbl s={{marginBottom:5}}>Plataforma</Lbl><select value={form.platform} onChange={e=>set("platform",e.target.value)} style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px",color:C.text}}>{["didi","uber","inDrive","otra"].map(p=><option key={p}>{p}</option>)}</select></div></div>}
+        {form.type==="dead_km"&&<Inp label="Kilometros sin pasajero" type="number" value={form.km} onChange={v=>set("km",v)} unit="km"/>}
+        {form.type==="refuel"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Litros cargados" type="number" value={form.liters} onChange={v=>set("liters",v)} unit="L"/><Inp label="Importe pagado" type="number" value={form.amount} onChange={v=>set("amount",v)} unit="$"/></div>}
+        {form.type==="tank_checkpoint"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Litros estimados" type="number" value={form.tank_liters} onChange={v=>set("tank_liters",v)} unit="L"/><Inp label="Odometro opcional" type="number" value={form.odometer} onChange={v=>set("odometer",v)} unit="km"/></div>}
+        <div style={{marginTop:10}}><Lbl s={{marginBottom:5}}>Nota opcional</Lbl><input value={form.note} onChange={e=>set("note",e.target.value)} placeholder="Zona, referencia o aclaracion" style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 11px",color:C.text,fontSize:12,outline:"none"}}/></div>
+        <Btn full onClick={save} disabled={!valid||saving} color={C.teal} s={{marginTop:14}}><SVG d={IC.check} size={13} color={valid?C.teal:C.dim}/>{saving?"Guardando...":"Confirmar movimiento"}</Btn>
+      </div>
+    </div>
+  );
+}
+
 // ─── HOME TAB ─────────────────────────────────────────────────────────────────
-function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm:propDayKm,onSelect}){
+function HomeTab({cfg,trips,events,activeDay,startDay,onEndDay,onNew,onQuick,dayKm:propDayKm,onSelect,onDeleteEvent,isPro,monthlyTripsCount,onUpgrade}){
   const[elapsed,setElapsed]=useState(0);
   const[showAll,setShowAll]=useState(false);
   const timerRef=useRef(null);
@@ -538,25 +695,31 @@ function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm:propDayKm,on
     .filter(t=>(t.date||"")===today())
     .sort((a,b)=>new Date(b.created_at||b.end_time||0)-new Date(a.created_at||a.end_time||0));
 
-  const stats=todayTrips.reduce((a,t)=>{const c=calcTrip(t,cfg);return{net:a.net+c.net,km:a.km+c.km,min:a.min+c.min,gross:a.gross+c.fare,gas:a.gas+c.gas};},{net:0,km:0,min:0,gross:0,gas:0});
+  const stats=operationalSummary(trips,events,cfg,today(),propDayKm);
+  const tank=estimateTank(trips,events,cfg);
+  const todayEvents=events.filter(e=>(e.date||"")===today()).sort((a,b)=>eventMs(b)-eventMs(a));
   const dayNph=elapsed>0?stats.net/(elapsed/3600000):0;
-  const deadKm=Math.max(0,propDayKm-stats.km);
+  const deadKm=stats.deadKm;
   const visibleTrips=showAll?todayTrips:todayTrips.slice(0,4);
 
   return(
     <div className="fu" style={{padding:"15px 14px 90px"}}>
+      {!isPro&&<UpgradeCard monthlyTripsCount={monthlyTripsCount} onUpgrade={onUpgrade} s={{marginBottom:13}}/>}
       <div style={{marginBottom:14}}>
         <Lbl s={{marginBottom:3}}>Ganancia neta hoy</Lbl>
         <div className="B" style={{fontSize:54,fontWeight:900,color:stats.net>=0?C.teal:C.danger,lineHeight:1}}>{fmtMXN(stats.net)}</div>
         <div style={{fontSize:11,color:C.muted,marginTop:5}}>
-          {todayTrips.length} viajes · {fmt(stats.km,1)} km en viajes · {stats.min.toFixed(0)} min
+          {todayTrips.length} viajes · {fmt(stats.productivePct,0)}% de km productivos · {stats.min.toFixed(0)} min
         </div>
       </div>
 
       <Card s={{marginBottom:13}}>
         <Lbl s={{marginBottom:11}}>Estado de jornada</Lbl>
         {!activeDay?(
-          <Btn full onClick={startDay} color={C.teal}><SVG d={IC.play} size={13} color={C.teal} fill={C.teal}/>Iniciar jornada de trabajo</Btn>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <Btn full onClick={startDay} color={C.teal}><SVG d={IC.play} size={13} color={C.teal} fill={C.teal}/>Iniciar jornada</Btn>
+            <Btn full onClick={onQuick} color={C.accent}><SVG d={IC.plus} size={13} color={C.accent}/>Registrar</Btn>
+          </div>
         ):(
           <div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}>
@@ -571,21 +734,21 @@ function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm:propDayKm,on
               </div>
             </div>
 
-            {todayTrips.length>0&&(
+            {(todayTrips.length>0||todayEvents.length>0)&&(
               <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:11}}>
-                {[{l:"Bruto",v:fmtMXN(stats.gross),c:C.text},{l:"Neto",v:fmtMXN(stats.net),c:stats.net>=0?C.teal:C.danger},{l:"Gas",v:fmtMXN(stats.gas),c:C.danger},{l:"Km viajes",v:fmt(stats.km,0),c:C.accent}].map(({l,v,c})=>(
+                {[{l:"Bruto",v:fmtMXN(stats.gross),c:C.text},{l:"Utilidad",v:fmtMXN(stats.net),c:stats.net>=0?C.teal:C.danger},{l:"Efectivo",v:fmtMXN(stats.cash),c:stats.cash>=0?C.text:C.danger},{l:"Gas usado",v:fmtMXN(stats.consumedGas),c:C.danger}].map(({l,v,c})=>(
                   <div key={l} style={{background:C.card2,borderRadius:8,padding:"8px 6px",textAlign:"center"}}><Lbl s={{marginBottom:3,fontSize:8}}>{l}</Lbl><Big size={13} color={c}>{v}</Big></div>
                 ))}
               </div>
             )}
 
-            {propDayKm>0&&(
+            {stats.totalKm>0&&(
               <div style={{background:`${C.accent}0a`,border:`1px solid ${C.accent}22`,borderRadius:9,padding:"9px 12px",marginBottom:11,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div style={{display:"flex",alignItems:"center",gap:7}}>
                   <SVG d={IC.road} size={14} color={C.accent}/>
                   <div>
                     <Lbl s={{fontSize:8,marginBottom:2}}>Km totales jornada</Lbl>
-                    <div style={{fontSize:12,color:C.text}}>{fmt(propDayKm,1)} km recorridos</div>
+                    <div style={{fontSize:12,color:C.text}}>{fmt(stats.totalKm,1)} km · {fmt(stats.productivePct,0)}% productivos</div>
                   </div>
                 </div>
                 <div style={{textAlign:"right"}}>
@@ -595,13 +758,36 @@ function HomeTab({cfg,trips,activeDay,startDay,onEndDay,onNew,dayKm:propDayKm,on
               </div>
             )}
 
-            <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:8}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
               <Btn full onClick={onNew} color={C.accent}><SVG d={IC.plus} size={13} color={C.accent}/>Nuevo viaje</Btn>
-              <Btn onClick={onEndDay} color={C.danger}><SVG d={IC.flag} size={12} color={C.danger}/>Fin</Btn>
+              <Btn full onClick={onQuick} color={C.teal}><SVG d={IC.mic} size={13} color={C.teal}/>Registro rapido</Btn>
             </div>
+            <Btn full onClick={onEndDay} color={C.danger} outline><SVG d={IC.flag} size={12} color={C.danger}/>Terminar y ver cierre</Btn>
           </div>
         )}
       </Card>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:13}}>
+        <Card s={{padding:12}}>
+          <Lbl s={{marginBottom:6}}>Tanque estimado</Lbl>
+          <Big size={24} color={tank.liters===null?C.dim:tank.rangeKm<50?C.danger:C.teal}>{tank.liters===null?"--":`${fmt(tank.liters,1)} L`}</Big>
+          <div style={{fontSize:10,color:C.muted,marginTop:5}}>{tank.rangeKm===null?"Sin punto de partida":`~${fmt(tank.rangeKm,0)} km · confianza ${tank.confidence}`}</div>
+        </Card>
+        <Card s={{padding:12}}>
+          <Lbl s={{marginBottom:6}}>Gasolina comprada</Lbl>
+          <Big size={24} color={C.accent}>{fmtMXN(stats.fuelPurchased)}</Big>
+          <div style={{fontSize:10,color:C.muted,marginTop:5}}>{fmt(stats.litersPurchased,2)} L cargados hoy</div>
+        </Card>
+      </div>
+
+      {activeDay&&todayEvents.length>0&&<Card s={{marginBottom:13}}>
+        <Lbl s={{marginBottom:9}}>Movimientos de jornada</Lbl>
+        {todayEvents.slice(0,5).map(e=>{
+          const label=e.type==="dead_km"?`${fmt(e.km,1)} km sin pasajero`:e.type==="refuel"?`${fmt(e.liters,2)} L · ${fmtMXN(e.amount)}`:`Tanque ajustado a ${fmt(e.tank_liters,1)} L`;
+          const icon=e.type==="dead_km"?IC.road:e.type==="refuel"?IC.fuel:IC.gauge;
+          return <div key={e.id} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 0",borderBottom:`1px solid ${C.border}`}}><SVG d={icon} size={15} color={C.accent}/><div style={{flex:1}}><div style={{fontSize:11,color:C.text}}>{label}</div><div style={{fontSize:9,color:C.dim,marginTop:2}}>{fmtHour(e.occurred_at)}{e.note?` · ${e.note}`:""}</div></div><button onClick={()=>onDeleteEvent(e.id)} title="Eliminar movimiento"><SVG d={IC.trash} size={14} color={C.danger}/></button></div>;
+        })}
+      </Card>}
 
       {todayTrips.length>0&&(
         <Card>
@@ -764,7 +950,7 @@ function StatsTab({cfg,trips}){
 }
 
 // ─── AI TAB ───────────────────────────────────────────────────────────────────
-function AITab({cfg,trips}){
+function AITab({cfg,trips,isPro,monthlyTripsCount,onUpgrade}){
   const[msgs,setMsgs]=useState([{role:"assistant",content:"¡Hola! Soy tu asesor de rentabilidad 🚗\n\nAnalizo tus datos para darte consejos accionables:\n• ¿En qué horas gano más?\n• ¿Qué plataforma me conviene?\n• ¿Cómo reduzco mis costos?"}]);
   const[input,setInput]=useState("");
   const[loading,setLoading]=useState(false);
@@ -813,23 +999,24 @@ POR PLATAFORMA: ${platS||"sin datos"}
   };
   useEffect(()=>{endRef.current?.scrollIntoView({behavior:"smooth"});},[msgs,loading]);
   const send=async()=>{
+    if(!isPro){onUpgrade();return;}
     if(!input.trim()||loading)return;
     const um={role:"user",content:input};
     setMsgs(p=>[...p,um]);setInput("");setLoading(true);
     try{
-      const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${process.env.REACT_APP_GROQ_API_KEY}`},
-        body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:700,
-          messages:[{role:"system",content:`Asesor experto en rentabilidad para conductores Uber/Didi México. Consejos concisos y accionables en español mexicano informal. ${ctx()}`},...msgs,um].map(m=>({role:m.role,content:m.content}))
-        })});
-      const data=await res.json();
-      setMsgs(p=>[...p,{role:"assistant",content:data.choices?.[0]?.message?.content||"Error."}]);
-    }catch{setMsgs(p=>[...p,{role:"assistant",content:"Error de conexión."}]);}
+      const content=await callGroq("advisor",[
+        {role:"system",content:`Eres el asesor de rentabilidad de RutaFlow para conductores de plataformas en Mexico. Responde en espanol claro, conciso y accionable. Distingue hechos de estimaciones. ${ctx()}`},
+        ...msgs,um
+      ].map(m=>({role:m.role,content:m.content})),700);
+      setMsgs(p=>[...p,{role:"assistant",content}]);
+    }catch(err){setMsgs(p=>[...p,{role:"assistant",content:`No pude consultar la IA: ${err.message}`}]);}
     setLoading(false);
   };
   const SUGG=["¿En qué horarios gano más?","¿Qué plataforma me conviene?","Dame un diagnóstico rápido","¿Cómo bajo mis costos?"];
   return(
     <div className="fu" style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)",paddingBottom:"calc(60px + env(safe-area-inset-bottom))"}}>
       {recent.length<5&&<div style={{margin:"11px 14px 0",background:`${C.accent}12`,border:`1px solid ${C.accent}33`,borderRadius:9,padding:"9px 13px",fontSize:11,color:C.accent}}>⚠️ Con más viajes el análisis mejora ({recent.length} actuales)</div>}
+      {!isPro&&<UpgradeCard monthlyTripsCount={monthlyTripsCount} onUpgrade={onUpgrade} s={{margin:"11px 14px 0"}}/>}
       {msgs.length<=1&&<div style={{padding:"11px 14px 0"}}><Lbl s={{marginBottom:7}}>Preguntas frecuentes</Lbl><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{SUGG.map(s=><button key={s} onClick={()=>setInput(s)} style={{padding:"6px 11px",background:`${C.teal}12`,border:`1px solid ${C.teal}33`,borderRadius:18,color:C.teal,fontSize:11,fontWeight:600}}>{s}</button>)}</div></div>}
       <div style={{flex:1,overflowY:"auto",padding:"11px 14px",display:"flex",flexDirection:"column",gap:9}}>
         {msgs.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}><div style={{maxWidth:"88%",padding:"10px 13px",borderRadius:m.role==="user"?"13px 13px 3px 13px":"13px 13px 13px 3px",background:m.role==="user"?`${C.accent}1e`:C.card,border:`1px solid ${m.role==="user"?C.accent+"44":C.border}`,fontSize:13,lineHeight:1.6,whiteSpace:"pre-wrap",color:C.text}}>{m.content}</div></div>)}
@@ -845,7 +1032,7 @@ POR PLATAFORMA: ${platS||"sin datos"}
 }
 
 // ─── CONFIG TAB ───────────────────────────────────────────────────────────────
-function ConfigTab({cfg,saveConfig,onLogout}){
+function ConfigTab({cfg,saveConfig,onLogout,installApp}){
   const[local,setLocal]=useState(cfg);
   const[saved,setSaved]=useState(false);
   useEffect(()=>setLocal(cfg),[cfg]);
@@ -868,6 +1055,7 @@ function ConfigTab({cfg,saveConfig,onLogout}){
   return(
     <div className="fu" style={{padding:"15px 14px 100px"}}>
       <div className="B" style={{fontSize:22,fontWeight:800,color:C.accent,marginBottom:16,letterSpacing:1}}>CONFIGURACIÓN</div>
+      {installApp?.available&&<div style={{background:`${C.teal}10`,border:`1px solid ${C.teal}33`,borderRadius:10,padding:"12px 13px",display:"flex",alignItems:"center",gap:11,marginBottom:14}}><SVG d={IC.home} size={18} color={C.teal}/><div style={{flex:1}}><div style={{fontSize:12,color:C.text,fontWeight:700}}>Instalar RutaFlow</div><div style={{fontSize:10,color:C.muted,marginTop:3}}>Acceso directo a pantalla completa</div></div><button onClick={installApp.install} style={{padding:"8px 10px",border:`1px solid ${C.teal}`,borderRadius:7,color:C.teal,fontSize:9,fontWeight:800}}>INSTALAR</button></div>}
       <Lbl s={{marginBottom:9}}>Variables base</Lbl>
       <Card s={{marginBottom:13}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
@@ -950,34 +1138,42 @@ export default function RutaFlow(){
   const[tab,setTab]=useState("home");
   const[cfg,setCfg]=useState(DCFG);
   const[trips,setTrips]=useState([]);
+  const[events,setEvents]=useState([]);
   const[days,setDays]=useState([]);
   const[activeDay,setActiveDay]=useState(null);
   const[session,setSession]=useState(null);
+  const[profile,setProfile]=useState(null);
   const[loading,setLoading]=useState(true);
   const[toast,setToast]=useState(null);
   const[selTrip,setSelTrip]=useState(null);
   const[showNew,setShowNew]=useState(false);
+  const[showOperation,setShowOperation]=useState(false);
+  const installApp=useInstallApp();
 
   const showToast=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
   const{dayKm,reset:resetDayGPS}=useDayGPS(!!activeDay?.running);
 
   useEffect(()=>{
-    supabase.auth.getSession().then(({data:{session}})=>{setSession(session);if(session)loadCloud(session.user.id);else setLoading(false);});
-    const{data:{subscription}}=supabase.auth.onAuthStateChange((ev,session)=>{setSession(session);if(session)loadCloud(session.user.id);else setLoading(false);});
+    supabase.auth.getSession().then(({data:{session}})=>{setSession(session);if(session)loadCloud(session.user.id);else{setProfile(null);setLoading(false);}});
+    const{data:{subscription}}=supabase.auth.onAuthStateChange((ev,session)=>{setSession(session);if(session)loadCloud(session.user.id);else{setProfile(null);setLoading(false);}});
     return()=>subscription.unsubscribe();
   },[]);
 
   const loadCloud=useCallback(async uid=>{
     setLoading(true);
     try{
-      const[{data:tr},{data:pr},{data:dy},{data:ad}]=await Promise.all([
+      const[{data:tr},{data:pr},{data:dy},{data:ad},{data:oe,error:oeError}]=await Promise.all([
         supabase.from("trips").select("*").eq("user_id",uid).order("created_at",{ascending:false}),
         supabase.from("profiles").select("*").eq("id",uid).single(),
         supabase.from("days").select("*").eq("user_id",uid).order("date",{ascending:false}),
         supabase.from("active_days").select("*").eq("user_id",uid).maybeSingle(),
+        supabase.from("operational_events").select("*").eq("user_id",uid).order("occurred_at",{ascending:false}),
       ]);
       if(tr)setTrips(tr);
+      if(oe)setEvents(oe);
+      if(oeError&&oeError.code!=="42P01")console.warn("Operational events",oeError.message);
       if(dy)setDays(dy);
+      if(pr)setProfile(pr);
       if(pr?.config&&Object.keys(pr.config).length>0)setCfg({...DCFG,...pr.config});
       if(ad){const obj={id:ad.id,date:ad.date,startTime:new Date(ad.start_time).getTime(),running:true};setActiveDay(obj);LS.set(K.DAY,obj);}
       else{LS.del(K.DAY);setActiveDay(null);}
@@ -987,6 +1183,16 @@ export default function RutaFlow(){
 
   const saveTrip=async data=>{
     if(!session)return false;
+    const monthlyTripsCount=trips.filter(t=>{
+      const d=new Date(t.created_at||t.end_time||0);
+      const now=new Date();
+      return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth();
+    }).length;
+    if(paymentUrl()&&!isProProfile(profile)&&monthlyTripsCount>=FREE_MONTHLY_TRIP_LIMIT){
+      openUpgrade();
+      showToast(`Tu plan gratis incluye ${FREE_MONTHLY_TRIP_LIMIT} viajes al mes`,"err");
+      return false;
+    }
     try{
       const{data:saved,error}=await supabase.from("trips").insert([{
         user_id:session.user.id,fare:Number(data.fare)||0,platform:data.platform||"uber",
@@ -1016,6 +1222,28 @@ export default function RutaFlow(){
     if(!error){setTrips(p=>p.filter(t=>t.id!==id));showToast("Viaje eliminado");}
   };
 
+  const saveOperation=async data=>{
+    if(!session)return false;
+    try{
+      const{data:saved,error}=await supabase.from("operational_events").insert([{
+        user_id:session.user.id,type:data.type,km:Number(data.km)||0,amount:Number(data.amount)||0,
+        liters:Number(data.liters)||0,tank_liters:Number(data.tank_liters)||0,odometer:Number(data.odometer)||0,
+        note:data.note||"",date:today(),occurred_at:new Date().toISOString(),
+      }]).select().single();
+      if(error){
+        const msg=error.code==="42P01"?"Falta instalar la tabla de Jornada Inteligente en Supabase.":error.message;
+        showToast(msg,"err");return false;
+      }
+      setEvents(p=>[saved,...p]);showToast("Movimiento guardado");return true;
+    }catch(e){showToast("Error de conexion","err");return false;}
+  };
+
+  const deleteOperation=async id=>{
+    if(!window.confirm("Eliminar este movimiento de la jornada?"))return;
+    const{error}=await supabase.from("operational_events").delete().eq("id",id);
+    if(!error){setEvents(p=>p.filter(e=>e.id!==id));showToast("Movimiento eliminado");}
+  };
+
   const startDay=async()=>{
     if(!session)return;
     const{data,error}=await supabase.from("active_days").upsert({user_id:session.user.id,date:today(),start_time:new Date().toISOString()},{onConflict:"user_id"}).select().single();
@@ -1025,17 +1253,17 @@ export default function RutaFlow(){
   const endDay=async()=>{
     if(!activeDay||!session)return;
     const dayTrips=trips.filter(t=>t.date===activeDay.date);
-    const tots=dayTrips.reduce((a,t)=>{const c=calcTrip(t,cfg);return{net:a.net+c.net,km:a.km+c.km,min:a.min+c.min};},{net:0,km:0,min:0});
+    const tots=operationalSummary(trips,events,cfg,activeDay.date,dayKm);
     const totalMs=Date.now()-activeDay.startTime;
     await supabase.from("active_days").delete().eq("user_id",session.user.id);
     await supabase.from("days").insert([{
       user_id:session.user.id,date:activeDay.date,
-      total_net:tots.net,total_km:Math.max(tots.km,dayKm),
+      total_net:tots.net,total_km:tots.totalKm,
       total_min:tots.min,total_ms:totalMs,trip_count:dayTrips.length,
     }]);
     resetDayGPS();
     LS.del(K.DAY);setActiveDay(null);
-    showToast(`Jornada finalizada · ${fmtMXN(tots.net)} neto`);
+    showToast(`Cierre: ${fmtMXN(tots.net)} · ${fmt(tots.productivePct,0)}% productivo`);
   };
 
   const saveConfig=async newCfg=>{
@@ -1055,7 +1283,13 @@ export default function RutaFlow(){
   if(!session)return <><style>{CSS}</style><Auth/></>;
 
   const uname=session?.user?.user_metadata?.full_name||session?.user?.email?.split("@")[0]||"Driver";
-  const todayNet=trips.filter(t=>t.date===today()).reduce((s,t)=>s+calcTrip(t,cfg).net,0);
+  const todayNet=operationalSummary(trips,events,cfg,today(),dayKm).net;
+  const isPro=!paymentUrl()||isProProfile(profile);
+  const monthlyTripsCount=trips.filter(t=>{
+    const d=new Date(t.created_at||t.end_time||0);
+    const now=new Date();
+    return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth();
+  }).length;
   const NAV=[{id:"home",d:IC.home,l:"Hoy"},{id:"trips",d:IC.trips,l:"Viajes"},{id:"stats",d:IC.stats,l:"Stats"},{id:"ai",d:IC.ai,l:"IA"},{id:"config",d:IC.cfg,l:"Config"}];
 
   return(
@@ -1074,11 +1308,11 @@ export default function RutaFlow(){
           </div>
         </div>
 
-        {tab==="home"   &&<HomeTab cfg={cfg} trips={trips} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} dayKm={dayKm} onSelect={setSelTrip}/>}
+        {tab==="home"   &&<HomeTab cfg={cfg} trips={trips} events={events} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} onQuick={()=>setShowOperation(true)} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade}/>}
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} saveTrip={saveTrip} updateTrip={updateTrip} deleteTrip={deleteTrip} onSelect={setSelTrip} onNew={()=>setShowNew(true)}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips}/>}
-        {tab==="ai"     &&<AITab cfg={cfg} trips={trips}/>}
-        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()}/>}
+        {tab==="ai"     &&<AITab cfg={cfg} trips={trips} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade}/>}
+        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp}/>}
 
         {/* NAVEGACIÓN FIJA */}
         <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100,paddingBottom:"calc(10px + env(safe-area-inset-bottom))",paddingTop:"10px"}}>
@@ -1093,7 +1327,8 @@ export default function RutaFlow(){
       </div>{/* ← CIERRE DEL DIV PRINCIPAL */}
 
       {/* MODALES FUERA DEL DIV — flotan sobre todo incluyendo la NAV */}
-      {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} onClose={()=>setShowNew(false)}/>}
+      {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} onClose={()=>setShowNew(false)} isPro={isPro} onUpgrade={openUpgrade}/>}
+      {showOperation&&<OperationModal onClose={()=>setShowOperation(false)} onSaveOperation={saveOperation} onSaveTrip={saveTrip}/>}
       {selTrip&&<TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)}
         onSave={async(id,d)=>{await updateTrip(id,d);setSelTrip(null);}}
         onDelete={async id=>{await deleteTrip(id);setSelTrip(null);}}/>}
