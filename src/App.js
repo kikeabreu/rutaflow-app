@@ -34,13 +34,17 @@ const openUpgrade=()=>{
 const fmt=(n,d=2)=>(parseFloat(n)||0).toFixed(d);
 const fmtMXN=n=>`$${fmt(n)}`;
 const fmtPct=n=>`${fmt(n,1)}%`;
-const dateKey=value=>{const d=new Date(value),pad=n=>String(n).padStart(2,"0");return`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;};
+const dateKey=value=>{
+  if(typeof value==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(value))return value;
+  const d=new Date(value),pad=n=>String(n).padStart(2,"0");
+  return`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+};
 const today=()=>dateKey(Date.now());
 const fmtDate=d=>new Date(typeof d==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(d)?`${d}T12:00:00`:d).toLocaleDateString("es-MX",{weekday:"short",day:"numeric",month:"short"});
 const fmtHour=d=>new Date(d).toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"});
 const fmtClock=ms=>{const s=Math.floor(Math.abs(ms)/1000);return`${String(Math.floor(s/3600)).padStart(2,"0")}:${String(Math.floor((s%3600)/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;};
 const haversine=(a,b)=>{const R=6371,r=x=>x*Math.PI/180;const dLat=r(b.lat-a.lat),dLon=r(b.lon-a.lon);const x=Math.sin(dLat/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLon/2)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));};
-const dateOf=x=>x?.date||dateKey(x?.end_time||x?.occurred_at||x?.created_at||Date.now());
+const dateOf=x=>dateKey(x?.end_time||x?.occurred_at||x?.paid_at||x?.created_at||x?.date||Date.now());
 const shiftDate=(days=0)=>{const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()+days);return dateKey(d);};
 const localDateTime=value=>{const d=new Date(value||Date.now());const pad=n=>String(n).padStart(2,"0");return`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;};
 const inDateRange=(item,range)=>{const d=dateOf(item);return(!range.from||d>=range.from)&&(!range.to||d<=range.to);};
@@ -78,6 +82,40 @@ const calcTrip=(trip,cfg)=>{
   const net=fare-fee-gas-fx,hrs=min/60;
   return{km,min,fare,gas,fee,fx,net,hrs,nph:hrs>0?net/hrs:0,npk:km>0?net/km:0,pct:fare>0?(net/fare)*100:0};
 };
+const calcBonus=(bonus,cfg)=>{
+  const amount=Number(bonus.amount)||0;
+  const extraKm=Number(bonus.extra_km)||0;
+  const extraMin=Number(bonus.extra_min)||0;
+  const completed=Number(bonus.completed_trips)||0;
+  const required=Number(bonus.required_trips)||0;
+  const cost=distanceCost(extraKm,cfg);
+  const gas=cost.gas,wear=cost.wear;
+  const net=amount-gas-wear;
+  const targetCost=extraMin>0?((cfg.targetHourlyRate||200)*extraMin)/60:0;
+  return{amount,extraKm,extraMin,gas,wear,net,targetCost,valueAfterTime:net-targetCost,progress:required>0?Math.min(completed/required,1):0};
+};
+const evaluateTripForBonus=(trip,bonus,cfg)=>{
+  const c=calcTrip(trip,cfg),b=calcBonus(bonus,cfg);
+  const required=Number(bonus.required_trips)||0,completed=Number(bonus.completed_trips)||0;
+  const remaining=Math.max(required-completed,0),remainingAfter=Math.max(remaining-1,0);
+  const exp=bonus.expires_at?new Date(bonus.expires_at):null;
+  const minLeft=exp?Math.max((exp.getTime()-Date.now())/60000,0):null;
+  const avgMinNeeded=minLeft!==null&&remainingAfter>0?minLeft/remainingAfter:null;
+  const bonusShare=remaining>0?b.net/remaining:0;
+  const effectiveNet=c.net+bonusShare;
+  const effectiveHourly=c.min>0?effectiveNet/(c.min/60):0;
+  const target=cfg.targetHourlyRate||200;
+  const enoughTime=minLeft===null||minLeft>Math.max(c.min,1);
+  const paceOk=avgMinNeeded===null||avgMinNeeded>=12;
+  const profitable=effectiveHourly>=target&&c.net>=0;
+  let verdict="neutral";
+  if(remaining<=0)verdict="done";
+  else if(!enoughTime)verdict="skip";
+  else if(profitable&&paceOk)verdict="take";
+  else if(effectiveNet>0&&enoughTime)verdict="maybe";
+  else verdict="skip";
+  return{trip:c,bonus:b,remaining,remainingAfter,minLeft,avgMinNeeded,bonusShare,effectiveNet,effectiveHourly,target,enoughTime,paceOk,profitable,verdict};
+};
 const eventMs=e=>new Date(e.occurred_at||e.created_at||0).getTime();
 const tripMs=t=>new Date(t.end_time||t.created_at||0).getTime();
 const distanceCost=(km,cfg)=>{
@@ -110,10 +148,12 @@ const estimateTank=(trips,events,cfg)=>{
     basis:base.type==="tank_checkpoint"?"Desde tu ultimo punto de control":"Desde tu ultima carga; no cuenta el combustible anterior",
   };
 };
-const operationalSummary=(trips,events,cfg,date,trackedKm=0)=>{
-  const dayTrips=trips.filter(t=>(t.date||today())===date);
-  const dayEvents=events.filter(e=>(e.date||today())===date);
+const operationalSummary=(trips,events,cfg,date,trackedKm=0,bonuses=[])=>{
+  const dayTrips=trips.filter(t=>dateOf(t)===date);
+  const dayEvents=events.filter(e=>dateOf(e)===date);
+  const dayBonuses=bonuses.filter(b=>dateOf(b)===date&&["paid","earned"].includes(String(b.status||"")));
   const tripStats=dayTrips.reduce((a,t)=>{const c=calcTrip(t,cfg);return{gross:a.gross+c.fare,fee:a.fee+c.fee,net:a.net+c.net,km:a.km+c.km,min:a.min+c.min};},{gross:0,fee:0,net:0,km:0,min:0});
+  const bonusStats=dayBonuses.reduce((a,b)=>{const c=calcBonus(b,cfg);return{gross:a.gross+c.amount,net:a.net+c.net,gas:a.gas+c.gas,wear:a.wear+c.wear,n:a.n+1};},{gross:0,net:0,gas:0,wear:0,n:0});
   const explicitDeadKm=dayEvents.filter(e=>e.type==="dead_km").reduce((s,e)=>s+(Number(e.km)||0),0);
   const totalKm=Math.max(tripStats.km+explicitDeadKm,Number(trackedKm)||0);
   const deadKm=Math.max(explicitDeadKm,totalKm-tripStats.km);
@@ -124,8 +164,9 @@ const operationalSummary=(trips,events,cfg,date,trackedKm=0)=>{
   const consumedGas=distanceCost(totalKm,cfg).gas;
   return{
     ...tripStats,totalKm,deadKm,fuelPurchased,litersPurchased,consumedGas,
-    net:tripStats.net-deadCost.gas-deadCost.wear,
-    cash:tripStats.gross-tripStats.fee-fuelPurchased,
+    bonusGross:bonusStats.gross,bonusNet:bonusStats.net,bonusCount:bonusStats.n,
+    net:tripStats.net+bonusStats.net-deadCost.gas-deadCost.wear,
+    cash:tripStats.gross+bonusStats.gross-tripStats.fee-fuelPurchased,
     productivePct:totalKm>0?tripStats.km/totalKm*100:0,
   };
 };
@@ -454,7 +495,7 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
 // ─── MODAL: NUEVO VIAJE ───────────────────────────────────────────────────────
 const DRAFT0={fare:"",pickup_km:"",pickup_min:"",dest_km:"",dest_min:"",platform:"uber",gps_km:null,gps_min:null,mode:"manual",phase:0,gpsOn:false,gpsStartMs:null,gpsDistKm:0};
 
-function TripModal({cfg,saveTrip,activeDay,onClose,isPro,onUpgrade=openUpgrade}){
+function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgrade=openUpgrade}){
   const platforms=enabledPlatforms(cfg);
   const storedDraft=LS.get(K.DRAFT,DRAFT0);
   const draft={...storedDraft,platform:platforms.some(p=>p.id===storedDraft.platform)?storedDraft.platform:(platforms[0]?.id||"")};
@@ -562,6 +603,9 @@ function TripModal({cfg,saveTrip,activeDay,onClose,isPro,onUpgrade=openUpgrade})
 
   const c=calcTrip(trip,cfg);
   const hasData=trip.fare&&(trip.dest_km||trip.dest_min||(parseFloat(trip.gps_km)>0));
+  const bonusInsights=hasData?activeBonuses
+    .filter(b=>String(b.platform||"").toLowerCase()===String(trip.platform||"").toLowerCase())
+    .map(b=>({bonus:b,insight:evaluateTripForBonus(trip,b,cfg)})):[];
   const V=c.nph>=cfg.targetHourlyRate?{col:C.teal,lbl:"✅ Excelente"}:c.nph>=cfg.targetHourlyRate*.75?{col:C.accent,lbl:"⚠️ Aceptable"}:{col:C.danger,lbl:"❌ No conviene"};
   const mBtn=id=>({padding:"8px 4px",borderRadius:8,fontSize:10,fontWeight:600,fontFamily:"inherit",background:mode===id?`${C.teal}1e`:"transparent",border:`1px solid ${mode===id?C.teal:C.border}`,color:mode===id?C.teal:C.muted});
 
@@ -652,6 +696,10 @@ function TripModal({cfg,saveTrip,activeDay,onClose,isPro,onUpgrade=openUpgrade})
               </div>
             </div>
           )}
+          {bonusInsights.length>0&&<div style={{marginBottom:12}}>
+            <Lbl s={{marginBottom:7}}>Impacto en bono activo</Lbl>
+            {bonusInsights.map(({bonus,insight})=><BonusTripAdvice key={bonus.id} bonus={bonus} insight={insight}/>)}
+          </div>}
           <div style={{height:8}}/>
         </div>
         <div style={{padding:"12px 18px 20px",flexShrink:0,borderTop:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"1fr 2fr",gap:9}}>
@@ -667,14 +715,14 @@ function TripModal({cfg,saveTrip,activeDay,onClose,isPro,onUpgrade=openUpgrade})
 }
 
 // ─── REGISTRO OPERATIVO ───────────────────────────────────────────────────────
-const OP0={type:"dead_km",km:"",amount:"",liters:"",tank_liters:"",odometer:"",fare:"",trip_km:"",platform:"didi",note:"",occurred_at:""};
-function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,initial,cfg}){
+const OP0={type:"dead_km",km:"",amount:"",liters:"",tank_liters:"",odometer:"",fare:"",trip_km:"",platform:"didi",note:"",occurred_at:"",bonus_mode:"paid",bonus_type:"racha",required_trips:"",completed_trips:"",extra_km:"",extra_min:"",expires_at:""};
+function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,onSaveBonus,initial,cfg}){
   const platforms=enabledPlatforms(cfg);
   const defaultPlatform=platforms.find(p=>p.id===OP0.platform)?.id||platforms[0]?.id||"";
   const[form,setForm]=useState(()=>{
     const base=initial?{
       ...OP0,...initial,km:String(initial.km||""),amount:String(initial.amount||""),liters:String(initial.liters||""),tank_liters:String(initial.tank_liters||""),odometer:String(initial.odometer||""),occurred_at:localDateTime(initial.occurred_at||initial.created_at),
-    }:{...OP0,occurred_at:localDateTime()};
+    }:{...OP0,occurred_at:localDateTime(),expires_at:localDateTime()};
     return{...base,platform:platforms.some(p=>p.id===base.platform)?base.platform:defaultPlatform};
   });
   const[text,setText]=useState("");
@@ -689,6 +737,7 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,in
     {id:"dead_km",label:"Sin pasaje",d:IC.road},
     {id:"refuel",label:"Gasolina",d:IC.fuel},
     {id:"tank_checkpoint",label:"Tanque",d:IC.gauge},
+    {id:"bonus",label:"Bono",d:IC.flag},
   ];
   const parse=async()=>{
     if(!text.trim()||parsing)return;
@@ -718,12 +767,26 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,in
     rec.onresult=e=>{let heard="";for(let i=0;i<e.results.length;i++)heard+=`${e.results[i][0].transcript} `;setText(`${base}${base?" ":""}${heard.trim()}`);};
     rec.start();
   };
-  const valid=form.type==="trip"?Number(form.fare)>0&&!!form.platform:Number(form.type==="dead_km"?form.km:form.type==="refuel"?(form.liters||form.amount):form.tank_liters)>0;
+  const valid=form.type==="trip"
+    ? Number(form.fare)>0&&!!form.platform
+    : form.type==="bonus"
+      ? Number(form.amount)>0&&!!form.platform&&(form.bonus_mode!=="active"||Number(form.required_trips)>0)
+      : Number(form.type==="dead_km"?form.km:form.type==="refuel"?(form.liters||form.amount):form.tank_liters)>0;
   const save=async()=>{
     if(!valid||saving)return;setSaving(true);
     let ok=false;
     const occurredAt=new Date(form.occurred_at||Date.now()).toISOString();
     if(form.type==="trip")ok=await onSaveTrip({fare:Number(form.fare)||0,dest_km:Number(form.trip_km)||0,platform:form.platform,date:form.occurred_at.split("T")[0],end_time:occurredAt});
+    else if(form.type==="bonus")ok=await onSaveBonus({
+      platform:form.platform,bonus_type:form.bonus_type,amount:Number(form.amount)||0,
+      status:form.bonus_mode==="active"?"active":"paid",
+      required_trips:form.bonus_mode==="active"?Number(form.required_trips)||0:null,
+      completed_trips:form.bonus_mode==="active"?Number(form.completed_trips)||0:null,
+      extra_km:Number(form.extra_km)||0,extra_min:Number(form.extra_min)||0,
+      notes:form.note||"",starts_at:form.occurred_at?new Date(form.occurred_at).toISOString():null,
+      expires_at:form.bonus_mode==="active"&&form.expires_at?new Date(form.expires_at).toISOString():null,
+      paid_at:form.bonus_mode==="active"?null:occurredAt,
+    });
     else{
       const payload={type:form.type,km:Number(form.km)||0,amount:Number(form.amount)||0,liters:Number(form.liters)||0,tank_liters:Number(form.tank_liters)||0,odometer:Number(form.odometer)||0,note:form.note||"",occurred_at:occurredAt,date:form.occurred_at.split("T")[0]};
       ok=initial?await onUpdateOperation(initial.id,payload):await onSaveOperation(payload);
@@ -741,11 +804,26 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,in
         </div>
         <div style={{fontSize:9,color:listening?C.teal:C.dim,lineHeight:1.45,marginBottom:voiceError?6:14}}>{listening?"Escuchando... puedes corregir el texto antes de enviarlo a IA.":"La IA prepara el registro. Tu confirmas antes de guardarlo."}</div>
         {voiceError&&<div style={{fontSize:10,color:C.danger,background:`${C.danger}10`,border:`1px solid ${C.danger}33`,borderRadius:7,padding:"8px 9px",marginBottom:12}}>{voiceError}</div>}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:15}}>{TYPES.map(t=><button key={t.id} onClick={()=>set("type",t.id)} style={{minHeight:66,padding:"8px 3px",border:`1px solid ${form.type===t.id?C.accent:C.border}`,borderRadius:8,background:form.type===t.id?`${C.accent}12`:C.card2,color:form.type===t.id?C.accent:C.muted,fontSize:8,fontWeight:700,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6}}><SVG d={t.d} size={17} color={form.type===t.id?C.accent:C.muted}/>{t.label}</button>)}</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:5,marginBottom:15}}>{TYPES.map(t=><button key={t.id} onClick={()=>set("type",t.id)} style={{minHeight:66,padding:"8px 3px",border:`1px solid ${form.type===t.id?C.accent:C.border}`,borderRadius:8,background:form.type===t.id?`${C.accent}12`:C.card2,color:form.type===t.id?C.accent:C.muted,fontSize:8,fontWeight:700,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6}}><SVG d={t.d} size={17} color={form.type===t.id?C.accent:C.muted}/>{t.label}</button>)}</div>
         {form.type==="trip"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Tarifa" type="number" value={form.fare} onChange={v=>set("fare",v)} unit="$"/><Inp label="Distancia" type="number" value={form.trip_km} onChange={v=>set("trip_km",v)} unit="km"/><div style={{gridColumn:"1 / -1"}}><Lbl s={{marginBottom:5}}>Plataforma</Lbl><select value={form.platform} onChange={e=>set("platform",e.target.value)} disabled={!platforms.length} style={{width:"100%",background:C.card2,border:`1px solid ${platforms.length?C.border:C.danger}`,borderRadius:8,padding:"10px",color:platforms.length?C.text:C.danger}}>{!platforms.length&&<option value="">Activa una plataforma en Config</option>}{platforms.map(p=><option key={p.id} value={p.id}>{p.name} · {p.commission}%</option>)}</select></div></div>}
         {form.type==="dead_km"&&<Inp label="Kilometros sin pasajero" type="number" value={form.km} onChange={v=>set("km",v)} unit="km"/>}
         {form.type==="refuel"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Litros cargados" type="number" value={form.liters} onChange={v=>set("liters",v)} unit="L"/><Inp label="Importe pagado" type="number" value={form.amount} onChange={v=>set("amount",v)} unit="$"/></div>}
         {form.type==="tank_checkpoint"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Litros estimados" type="number" value={form.tank_liters} onChange={v=>set("tank_liters",v)} unit="L"/><Inp label="Odometro opcional" type="number" value={form.odometer} onChange={v=>set("odometer",v)} unit="km"/></div>}
+        {form.type==="bonus"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
+          <div style={{gridColumn:"1 / -1",display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
+            {[{id:"paid",l:"Recibido"},{id:"active",l:"Activo"}].map(m=><button key={m.id} onClick={()=>set("bonus_mode",m.id)} style={{padding:"9px",background:form.bonus_mode===m.id?`${C.accent}1a`:"transparent",border:`1px solid ${form.bonus_mode===m.id?C.accent:C.border}`,borderRadius:8,color:form.bonus_mode===m.id?C.accent:C.muted,fontSize:10,fontWeight:700}}>{m.l}</button>)}
+          </div>
+          <Inp label="Monto del bono" type="number" value={form.amount} onChange={v=>set("amount",v)} unit="$"/>
+          <div><Lbl s={{marginBottom:5}}>Tipo</Lbl><select value={form.bonus_type} onChange={e=>set("bonus_type",e.target.value)} style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px",color:C.text}}>{["racha","desafio","garantia","referido","promocion","ajuste"].map(x=><option key={x} value={x}>{x}</option>)}</select></div>
+          <div style={{gridColumn:"1 / -1"}}><Lbl s={{marginBottom:5}}>Plataforma</Lbl><select value={form.platform} onChange={e=>set("platform",e.target.value)} disabled={!platforms.length} style={{width:"100%",background:C.card2,border:`1px solid ${platforms.length?C.border:C.danger}`,borderRadius:8,padding:"10px",color:platforms.length?C.text:C.danger}}>{!platforms.length&&<option value="">Activa una plataforma en Config</option>}{platforms.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+          {form.bonus_mode==="active"&&<>
+            <Inp label="Viajes hechos" type="number" value={form.completed_trips} onChange={v=>set("completed_trips",v)} />
+            <Inp label="Viajes meta" type="number" value={form.required_trips} onChange={v=>set("required_trips",v)} />
+            <div style={{gridColumn:"1 / -1"}}><Lbl s={{marginBottom:5}}>Vence</Lbl><input type="datetime-local" value={form.expires_at||localDateTime()} onChange={e=>set("expires_at",e.target.value)} style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 11px",color:C.text,fontSize:12}}/></div>
+          </>}
+          <Inp label="Km extra estimados" type="number" value={form.extra_km} onChange={v=>set("extra_km",v)} unit="km"/>
+          <Inp label="Min extra estimados" type="number" value={form.extra_min} onChange={v=>set("extra_min",v)} unit="min"/>
+        </div>}
         <div style={{marginTop:10}}><Lbl s={{marginBottom:5}}>Fecha y hora reales</Lbl><input type="datetime-local" value={form.occurred_at} onChange={e=>set("occurred_at",e.target.value)} style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 11px",color:C.text,fontSize:12}}/></div>
         <div style={{marginTop:10}}><Lbl s={{marginBottom:5}}>Nota opcional</Lbl><input value={form.note} onChange={e=>set("note",e.target.value)} placeholder="Zona, referencia o aclaracion" style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 11px",color:C.text,fontSize:12,outline:"none"}}/></div>
         <Btn full onClick={save} disabled={!valid||saving} color={C.teal} s={{marginTop:14}}><SVG d={IC.check} size={13} color={valid?C.teal:C.dim}/>{saving?"Guardando...":initial?"Guardar cambios":"Confirmar movimiento"}</Btn>
@@ -775,8 +853,58 @@ function ClosureModal({closure,onClose}){
   </div>;
 }
 
+function BonusCard({bonus,cfg,onProgress}){
+  const c=calcBonus(bonus,cfg);
+  const required=Number(bonus.required_trips)||0,completed=Number(bonus.completed_trips)||0;
+  const pct=Math.round((required>0?Math.min(completed/required,1):0)*100);
+  const left=Math.max(required-completed,0);
+  const exp=bonus.expires_at?new Date(bonus.expires_at):null;
+  const minLeft=exp?Math.max((exp.getTime()-Date.now())/60000,0):null;
+  const avgMin=left>0&&minLeft!==null?minLeft/left:null;
+  const bump=async delta=>{
+    const next=Math.max(0,completed+delta);
+    const status=required>0&&next>=required?"earned":"active";
+    await onProgress(bonus.id,{completed_trips:next,status,paid_at:status==="earned"?new Date().toISOString():bonus.paid_at});
+  };
+  return <div style={{padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
+    <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"flex-start"}}>
+      <div>
+        <div style={{fontSize:11,color:C.text,fontWeight:800,textTransform:"uppercase"}}>{bonus.platform} · {bonus.bonus_type}</div>
+        <div style={{fontSize:9,color:C.muted,marginTop:3}}>{completed}/{required||"-"} viajes · faltan {left}{exp?` · vence ${fmtHour(exp)}`:""}</div>
+      </div>
+      <Big size={18} color={c.net>=0?C.teal:C.danger}>{fmtMXN(c.net)}</Big>
+    </div>
+    <div style={{height:5,background:C.card2,borderRadius:9,overflow:"hidden",marginTop:8}}><div style={{height:"100%",width:`${pct}%`,background:C.teal}}/></div>
+    <div style={{display:"flex",alignItems:"center",gap:7,marginTop:8}}>
+      <span style={{fontSize:10,color:avgMin&&avgMin<15?C.danger:C.muted,flex:1}}>{avgMin?`Ritmo max: ${fmt(avgMin,0)} min/viaje restante`:"Sin vencimiento calculado"}</span>
+      <button onClick={()=>bump(-1)} style={{width:30,height:28,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,fontWeight:900}}>-</button>
+      <button onClick={()=>bump(1)} style={{width:30,height:28,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,fontWeight:900}}>+</button>
+    </div>
+  </div>;
+}
+
+function BonusTripAdvice({bonus,insight}){
+  const color=insight.verdict==="take"?C.teal:insight.verdict==="maybe"?C.accent:C.danger;
+  const title={take:"TOMAR: ayuda al bono",maybe:"Solo si no hay mejor",skip:"Mejor espera otro",done:"Bono completo",neutral:"Revisa el bono"}[insight.verdict];
+  const shape=insight.avgMinNeeded&&insight.avgMinNeeded<22
+    ? `Busca viajes cortos de ${fmt(Math.max(8,insight.avgMinNeeded-4),0)}-${fmt(insight.avgMinNeeded+4,0)} min.`
+    : "Acepta medianos solo si quedan arriba de tu meta por hora.";
+  return <div style={{background:C.card2,border:`1px solid ${color}66`,borderRadius:10,padding:"10px 12px",marginBottom:10}}>
+    <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
+      <div style={{fontSize:11,color,fontWeight:900,letterSpacing:"0.08em"}}>{title}</div>
+      <div style={{fontSize:11,color:C.text,fontWeight:800}}>+{fmtMXN(insight.bonusShare)}</div>
+    </div>
+    <div style={{fontSize:11,color:C.text,lineHeight:1.5,marginTop:6}}>
+      Faltarían {insight.remainingAfter} viajes. Neto con parte del bono: {fmtMXN(insight.effectiveNet)} · {fmtMXN(insight.effectiveHourly)}/hr.
+    </div>
+    <div style={{fontSize:10,color:C.muted,lineHeight:1.45,marginTop:5}}>
+      {insight.avgMinNeeded?`Ritmo restante: max ${fmt(insight.avgMinNeeded,0)} min/viaje. `:""}{shape}{bonus.expires_at?` Vence ${fmtHour(bonus.expires_at)}.`:""}
+    </div>
+  </div>;
+}
+
 // ─── HOME TAB ─────────────────────────────────────────────────────────────────
-function HomeTab({cfg,trips,events,closures,activeDay,startDay,onEndDay,onNew,onQuick,dayKm:propDayKm,onSelect,onDeleteEvent,onEditEvent,onSelectClosure,isPro,monthlyTripsCount,onUpgrade}){
+function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,onNew,onQuick,dayKm:propDayKm,onSelect,onDeleteEvent,onEditEvent,onSelectClosure,onUpdateBonus,isPro,monthlyTripsCount,onUpgrade}){
   const[elapsed,setElapsed]=useState(0);
   const[showAll,setShowAll]=useState(false);
   const timerRef=useRef(null);
@@ -800,12 +928,13 @@ function HomeTab({cfg,trips,events,closures,activeDay,startDay,onEndDay,onNew,on
   },[activeDay]);
 
   const todayTrips=trips
-    .filter(t=>(t.date||"")===today())
+    .filter(t=>dateOf(t)===today())
     .sort((a,b)=>new Date(b.end_time||b.created_at||0)-new Date(a.end_time||a.created_at||0));
 
-  const stats=operationalSummary(trips,events,cfg,today(),propDayKm);
+  const stats=operationalSummary(trips,events,cfg,today(),propDayKm,bonuses);
   const tank=estimateTank(trips,events,cfg);
-  const todayEvents=events.filter(e=>(e.date||"")===today()).sort((a,b)=>eventMs(b)-eventMs(a));
+  const todayEvents=events.filter(e=>dateOf(e)===today()).sort((a,b)=>eventMs(b)-eventMs(a));
+  const activeBonuses=bonuses.filter(b=>String(b.status||"")==="active").slice(0,3);
   const dayNph=elapsed>0?stats.net/(elapsed/3600000):0;
   const deadKm=stats.deadKm;
   const visibleTrips=showAll?todayTrips:todayTrips.slice(0,4);
@@ -874,6 +1003,11 @@ function HomeTab({cfg,trips,events,closures,activeDay,startDay,onEndDay,onNew,on
           </div>
         )}
       </Card>
+
+      {activeBonuses.length>0&&<Card s={{marginBottom:13}}>
+        <Lbl s={{marginBottom:9}}>Bonos activos</Lbl>
+        {activeBonuses.map(b=><BonusCard key={b.id} bonus={b} cfg={cfg} onProgress={onUpdateBonus}/>)}
+      </Card>}
 
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:13}}>
         <Card s={{padding:12}}>
@@ -985,12 +1119,13 @@ function TripsTab({cfg,trips,saveTrip,updateTrip,deleteTrip,onSelect,onNew}){
 }
 
 // ─── STATS TAB ────────────────────────────────────────────────────────────────
-function StatsTab({cfg,trips,events}){
+function StatsTab({cfg,trips,events,bonuses}){
   const[range,setRange]=useState({preset:"month",from:shiftDate(-29),to:shiftDate(0)});
   const filtered=trips.filter(t=>inDateRange(t,range));
   const filteredEvents=events.filter(e=>inDateRange(e,range));
-  const dates=[...new Set([...filtered.map(dateOf),...filteredEvents.map(dateOf)])].sort();
-  const chart=dates.map(date=>{const d=operationalSummary(trips,events,cfg,date);return{date,...d,trips:trips.filter(t=>dateOf(t)===date).length,nph:d.min>0?d.net/(d.min/60):0,label:new Date(`${date}T12:00:00`).toLocaleDateString("es-MX",{day:"numeric",month:"short"})};});
+  const filteredBonuses=bonuses.filter(b=>inDateRange(b,range));
+  const dates=[...new Set([...filtered.map(dateOf),...filteredEvents.map(dateOf),...filteredBonuses.map(dateOf)])].sort();
+  const chart=dates.map(date=>{const d=operationalSummary(trips,events,cfg,date,0,bonuses);return{date,...d,trips:trips.filter(t=>dateOf(t)===date).length,nph:d.min>0?d.net/(d.min/60):0,label:new Date(`${date}T12:00:00`).toLocaleDateString("es-MX",{day:"numeric",month:"short"})};});
   const tot=chart.reduce((a,d)=>({net:a.net+d.net,km:a.km+d.totalKm,gas:a.gas+d.consumedGas,gross:a.gross+d.gross,min:a.min+d.min,deadKm:a.deadKm+d.deadKm,fuelPurchased:a.fuelPurchased+d.fuelPurchased,cash:a.cash+d.cash,productiveKm:a.productiveKm+d.km}),{net:0,km:0,gas:0,gross:0,min:0,deadKm:0,fuelPurchased:0,cash:0,productiveKm:0});
   const byPlat={};filtered.forEach(t=>{const p=t.platform||"uber";if(!byPlat[p])byPlat[p]={name:p.toUpperCase(),net:0,count:0};byPlat[p].net+=calcTrip(t,cfg).net;byPlat[p].count++;});
   const platData=Object.values(byPlat);const PIE=[C.accent,C.teal,"#a855f7","#f43f5e"];
@@ -1058,8 +1193,8 @@ function StatsTab({cfg,trips,events}){
 }
 
 // ─── AI TAB ───────────────────────────────────────────────────────────────────
-function AITab({cfg,trips,isPro,monthlyTripsCount,onUpgrade,userId}){
-  const WELCOME={role:"assistant",content:"## Asesor de rentabilidad\n\nPuedo analizar tus viajes, horarios, plataformas y costos. Pregúntame algo concreto o elige una sugerencia."};
+function AITab({cfg,trips,bonuses,isPro,monthlyTripsCount,onUpgrade,userId}){
+  const WELCOME={role:"assistant",content:"## Asesor de rentabilidad\n\nTe digo qué tomar, qué evitar y cuándo un bono deja de convenir."};
   const[msgs,setMsgs]=useState([WELCOME]);
   const[conversations,setConversations]=useState([]);
   const[activeId,setActiveId]=useState(null);
@@ -1105,6 +1240,8 @@ function AITab({cfg,trips,isPro,monthlyTripsCount,onUpgrade,userId}){
     const all=[...trips].sort((a,b)=>tripMs(b)-tripMs(a)); // todos los viajes, no solo 30d
     const s30=recent.reduce((a,t)=>{const c=calcTrip(t,cfg);return{net:a.net+c.net,km:a.km+c.km,gas:a.gas+c.gas,min:a.min+c.min,n:a.n+1};},{net:0,km:0,gas:0,min:0,n:0});
     const sAll=all.reduce((a,t)=>{const c=calcTrip(t,cfg);return{net:a.net+c.net,km:a.km+c.km,gas:a.gas+c.gas,min:a.min+c.min,n:a.n+1};},{net:0,km:0,gas:0,min:0,n:0});
+    const activeBonuses=bonuses.filter(b=>String(b.status||"")==="active");
+    const paidBonuses=bonuses.filter(b=>["paid","earned"].includes(String(b.status||"")));
 
     // Mejor y peor hora (todos los viajes)
     const bh={};all.forEach(t=>{const h=new Date(t.end_time||t.created_at||0).getHours();if(!bh[h])bh[h]={net:0,n:0};bh[h].net+=calcTrip(t,cfg).net;bh[h].n++;});
@@ -1121,7 +1258,7 @@ function AITab({cfg,trips,isPro,monthlyTripsCount,onUpgrade,userId}){
     const diaS=Object.entries(bd).sort((a,b)=>(b[1].net/b[1].n)-(a[1].net/a[1].n)).map(([d,v])=>`${d}:${fmtMXN(v.net/v.n)}/viaje`).join(", ");
 
     // Últimos 5 viajes detallados
-    const last5=all.slice(0,5).map(t=>{const c=calcTrip(t,cfg);const d=new Date(t.end_time||t.created_at||0);return`${d.toLocaleDateString("es-MX")} ${d.getHours()}h ${t.platform||"uber"} $${t.fare} pickup:${t.pickup_km||0}km/${t.pickup_min||0}min dest:${t.dest_km||0}km/${t.dest_min||0}min neto:${fmtMXN(c.net)}`;}).join(" | ");
+    const last3=all.slice(0,3).map(t=>{const c=calcTrip(t,cfg);const d=new Date(t.end_time||t.created_at||0);return`${dateKey(d)} ${d.getHours()}h ${t.platform||"uber"} bruto ${fmtMXN(t.fare)} neto ${fmtMXN(c.net)} ${fmt(c.min,0)}min`;}).join(" | ");
 
     // Tendencia: esta semana vs semana anterior
     const now=Date.now();
@@ -1130,17 +1267,24 @@ function AITab({cfg,trips,isPro,monthlyTripsCount,onUpgrade,userId}){
     const wNet1=w1.reduce((a,t)=>a+calcTrip(t,cfg).net,0);
     const wNet2=w2.reduce((a,t)=>a+calcTrip(t,cfg).net,0);
     const tendencia=wNet2>0?`${wNet1>wNet2?"+":""}${(((wNet1-wNet2)/wNet2)*100).toFixed(0)}% vs semana anterior`:"primera semana";
+    const bonusNet=paidBonuses.reduce((a,b)=>a+calcBonus(b,cfg).net,0);
+    const bonusCtx=activeBonuses.slice(0,6).map(b=>{
+      const c=calcBonus(b,cfg);
+      const req=Number(b.required_trips)||0,done=Number(b.completed_trips)||0,left=Math.max(req-done,0);
+      const exp=b.expires_at?new Date(b.expires_at):null;
+      const minLeft=exp?Math.max((exp.getTime()-Date.now())/60000,0):null;
+      const pace=minLeft&&left>0?`${fmt(minLeft/left,0)} min max/viaje`:"sin ritmo";
+      return `${b.platform} ${b.bonus_type}: ${done}/${req} viajes, faltan ${left}, vence ${exp?fmtDate(exp)+" "+fmtHour(exp):"sin vencimiento"}, ${pace}, neto bono ${fmtMXN(c.net)}`;
+    }).join(" | ");
 
-    return`=== CONTEXTO COMPLETO RUTAFLOW ===
-CONDUCTOR: ${cfg.name||"sin nombre"} | Meta: ${fmtMXN(cfg.targetHourlyRate)}/hr | Gas: $${cfg.gasPricePerLiter}/L ${cfg.kmPerLiter}km/L
-COSTOS FIJOS: renta ${fmtMXN(cfg.monthlyRent)} + seguro ${fmtMXN(cfg.insurance)} + llantas ${fmtMXN(cfg.tires)} + mant ${fmtMXN(cfg.maintenance)} = ${fmtMXN((cfg.monthlyRent||0)+(cfg.insurance||0)+(cfg.tires||0)+(cfg.maintenance||0))}/mes
-HISTÓRICO TOTAL (${sAll.n} viajes): neto ${fmtMXN(sAll.net)}, ${fmt(sAll.km,0)}km, ${(sAll.min/60).toFixed(0)}hrs trabajadas, promedio ${fmtMXN(sAll.n>0?sAll.net/sAll.n:0)}/viaje
-ÚLTIMOS 30 DÍAS (${s30.n} viajes): neto ${fmtMXN(s30.net)}, ${fmt(s30.km,0)}km, ${fmtMXN(s30.gas)} gas, ${(s30.min/60).toFixed(1)}hrs, ${fmtMXN(s30.min>0?s30.net/(s30.min/60):0)}/hr
-TENDENCIA: ${tendencia}
-MEJORES HORAS: ${bestH||"sin datos"} | PEORES: ${worstH||"sin datos"}
-POR DÍA: ${diaS||"sin datos"}
-POR PLATAFORMA: ${platS||"sin datos"}
-ÚLTIMOS 5 VIAJES: ${last5||"sin datos"}`;
+    return`CTX RUTAFLOW
+FECHA LOCAL: ${today()} ${fmtHour(new Date())}
+META ${fmtMXN(cfg.targetHourlyRate)}/hr | GAS $${cfg.gasPricePerLiter}/L ${cfg.kmPerLiter}km/L
+TOTAL ${sAll.n} viajes: neto ${fmtMXN(sAll.net)}, ${fmt(sAll.km,0)}km, ${(sAll.min/60).toFixed(0)}h, prom ${fmtMXN(sAll.n>0?sAll.net/sAll.n:0)}/viaje
+30D ${s30.n} viajes: neto ${fmtMXN(s30.net)}, ${(s30.min/60).toFixed(1)}h, ${fmtMXN(s30.min>0?s30.net/(s30.min/60):0)}/hr, gas ${fmtMXN(s30.gas)}
+BONOS cobrados ${paidBonuses.length}: ${fmtMXN(bonusNet)} | activos: ${bonusCtx||"ninguno"}
+SEÑALES tendencia ${tendencia}; mejores ${bestH||"s/d"}; peores ${worstH||"s/d"}; dias ${diaS||"s/d"}; plataformas ${platS||"s/d"}
+ULTIMOS ${last3||"s/d"}`;
   };
   useEffect(()=>{endRef.current?.scrollIntoView({behavior:"smooth"});},[msgs,loading]);
   const send=async()=>{
@@ -1151,16 +1295,17 @@ POR PLATAFORMA: ${platS||"sin datos"}
     const pending=[...msgs,um];
     setMsgs(pending);setInput("");setLoading(true);
     try{
+      const recentMessages=pending.slice(-5);
       const content=await callGroq("advisor",[
-        {role:"system",content:`Eres el asesor de rentabilidad de RutaFlow para conductores de plataformas en Mexico. Responde en espanol claro, conciso y accionable. Distingue hechos de estimaciones. Usa Markdown GFM normal. Cuando presentes una tabla, conserva sus saltos de linea y nunca la encierres en un bloque de codigo ni escribas \`\`\`markdown. ${ctx()}`},
-        ...pending
-      ].map(m=>({role:m.role,content:m.content})),4096);
+        {role:"system",content:`Copiloto RutaFlow. Responde maximo 4 bullets, breve y con numeros. Da decision: tomar, esperar, evitar, perseguir bono o abandonar bono. Usa hechos del contexto; si faltan datos, dilo en 1 linea. ${ctx()}`},
+        ...recentMessages
+      ].map(m=>({role:m.role,content:m.content})),900);
       const next=[...pending,{role:"assistant",content}];setMsgs(next);
       await persistConversation(next,conversations.find(c=>c.id===activeId)?.title||question.slice(0,52));
     }catch(err){const next=[...pending,{role:"assistant",content:`No pude consultar la IA: ${err.message}`}];setMsgs(next);await persistConversation(next,conversations.find(c=>c.id===activeId)?.title||question.slice(0,52));}
     setLoading(false);
   };
-  const SUGG=["¿En qué horarios gano más?","¿Qué plataforma me conviene?","Dame un diagnóstico rápido","¿Cómo bajo mis costos?"];
+  const SUGG=["¿Qué debo tomar para el bono?","¿Este bono sí conviene?","¿Qué viajes debo evitar?","Dame un diagnóstico rápido"];
   return(
     <div className="fu" style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)",paddingBottom:"calc(60px + env(safe-area-inset-bottom))"}}>
       <div style={{padding:"9px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:7,position:"relative"}}>
@@ -1302,6 +1447,7 @@ export default function RutaFlow(){
   const[cfg,setCfg]=useState(DCFG);
   const[trips,setTrips]=useState([]);
   const[events,setEvents]=useState([]);
+  const[bonuses,setBonuses]=useState([]);
   const[days,setDays]=useState([]);
   const[closures,setClosures]=useState([]);
   const[activeDay,setActiveDay]=useState(null);
@@ -1328,17 +1474,20 @@ export default function RutaFlow(){
   const loadCloud=useCallback(async uid=>{
     setLoading(true);
     try{
-      const[{data:tr},{data:pr},{data:dy},{data:ad},{data:oe,error:oeError},{data:cl,error:clError}]=await Promise.all([
+      const[{data:tr},{data:pr},{data:dy},{data:ad},{data:oe,error:oeError},{data:cl,error:clError},{data:bn,error:bnError}]=await Promise.all([
         supabase.from("trips").select("*").eq("user_id",uid).order("created_at",{ascending:false}),
         supabase.from("profiles").select("*").eq("id",uid).single(),
         supabase.from("days").select("*").eq("user_id",uid).order("date",{ascending:false}),
         supabase.from("active_days").select("*").eq("user_id",uid).maybeSingle(),
         supabase.from("operational_events").select("*").eq("user_id",uid).order("occurred_at",{ascending:false}),
         supabase.from("shift_closures").select("*").eq("user_id",uid).order("date",{ascending:false}),
+        supabase.from("bonuses").select("*").eq("user_id",uid).order("created_at",{ascending:false}),
       ]);
       if(tr)setTrips(tr);
       if(oe)setEvents(oe);
       if(oeError&&oeError.code!=="42P01")console.warn("Operational events",oeError.message);
+      if(bn)setBonuses(bn);
+      if(bnError&&bnError.code!=="42P01")console.warn("Bonuses",bnError.message);
       if(dy)setDays(dy);
       if(cl)setClosures(cl);
       if(clError&&clError.code!=="42P01")console.warn("Shift closures",clError.message);
@@ -1352,11 +1501,7 @@ export default function RutaFlow(){
 
   const saveTrip=async data=>{
     if(!session)return false;
-    const monthlyTripsCount=trips.filter(t=>{
-      const d=new Date(t.end_time||t.created_at||0);
-      const now=new Date();
-      return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth();
-    }).length;
+    const monthlyTripsCount=trips.filter(t=>dateOf(t).slice(0,7)===today().slice(0,7)).length;
     if(paymentUrl()&&!isProProfile(profile)&&monthlyTripsCount>=FREE_MONTHLY_TRIP_LIMIT){
       openUpgrade();
       showToast(`Tu plan gratis incluye ${FREE_MONTHLY_TRIP_LIMIT} viajes al mes`,"err");
@@ -1407,6 +1552,31 @@ export default function RutaFlow(){
     }catch(e){showToast("Error de conexion","err");return false;}
   };
 
+  const saveBonus=async data=>{
+    if(!session)return false;
+    try{
+      const{data:saved,error}=await supabase.from("bonuses").insert([{
+        user_id:session.user.id,platform:data.platform||"uber",bonus_type:data.bonus_type||"racha",
+        amount:Number(data.amount)||0,status:data.status||"paid",
+        required_trips:data.required_trips===null?null:Number(data.required_trips)||0,
+        completed_trips:data.completed_trips===null?null:Number(data.completed_trips)||0,
+        extra_km:Number(data.extra_km)||0,extra_min:Number(data.extra_min)||0,
+        starts_at:data.starts_at||null,expires_at:data.expires_at||null,paid_at:data.paid_at||null,
+        notes:data.notes||"",
+      }]).select().single();
+      if(error){showToast(error.code==="42P01"?"Falta instalar la tabla de bonos en Supabase.":error.message,"err");return false;}
+      setBonuses(p=>[saved,...p]);showToast("Bono guardado");return true;
+    }catch(e){showToast("Error de conexion","err");return false;}
+  };
+
+  const updateBonus=async(id,data)=>{
+    try{
+      const{data:updated,error}=await supabase.from("bonuses").update({...data,updated_at:new Date().toISOString()}).eq("id",id).select().single();
+      if(error){showToast("No se pudo actualizar el bono","err");return false;}
+      setBonuses(p=>p.map(b=>b.id===id?updated:b));return true;
+    }catch(e){showToast("Error de conexion","err");return false;}
+  };
+
   const updateOperation=async(id,data)=>{
     try{
       const{data:updated,error}=await supabase.from("operational_events").update({...data,date:data.date||dateOf(data)}).eq("id",id).select().single();
@@ -1429,8 +1599,8 @@ export default function RutaFlow(){
 
   const endDay=async()=>{
     if(!activeDay||!session)return;
-    const dayTrips=trips.filter(t=>t.date===activeDay.date);
-    const tots=operationalSummary(trips,events,cfg,activeDay.date,dayKm);
+    const dayTrips=trips.filter(t=>dateOf(t)===activeDay.date);
+    const tots=operationalSummary(trips,events,cfg,activeDay.date,dayKm,bonuses);
     const totalMs=Date.now()-activeDay.startTime;
     await supabase.from("active_days").delete().eq("user_id",session.user.id);
     await supabase.from("days").insert([{
@@ -1467,12 +1637,12 @@ export default function RutaFlow(){
   if(!session)return <><style>{CSS}</style><Auth/></>;
 
   const uname=session?.user?.user_metadata?.full_name||session?.user?.email?.split("@")[0]||"Driver";
-  const todayNet=operationalSummary(trips,events,cfg,today(),dayKm).net;
+  const todayNet=operationalSummary(trips,events,cfg,today(),dayKm,bonuses).net;
   const isPro=!paymentUrl()||isProProfile(profile);
   const monthlyTripsCount=trips.filter(t=>{
     const d=new Date(t.end_time||t.created_at||0);
     const now=new Date();
-    return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth();
+    return dateKey(d).slice(0,7)===today().slice(0,7);
   }).length;
   const NAV=[{id:"home",d:IC.home,l:"Hoy"},{id:"trips",d:IC.trips,l:"Viajes"},{id:"stats",d:IC.stats,l:"Stats"},{id:"ai",d:IC.ai,l:"IA"},{id:"config",d:IC.cfg,l:"Config"}];
 
@@ -1492,10 +1662,10 @@ export default function RutaFlow(){
           </div>
         </div>
 
-        {tab==="home"   &&<HomeTab cfg={cfg} trips={trips} events={events} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setShowOperation(true);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setShowOperation(true);}} onSelectClosure={setSelectedClosure} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade}/>}
+        {tab==="home"   &&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setShowOperation(true);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade}/>}
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} saveTrip={saveTrip} updateTrip={updateTrip} deleteTrip={deleteTrip} onSelect={setSelTrip} onNew={()=>setShowNew(true)}/>}
-        {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events}/>}
-        {tab==="ai"     &&<AITab cfg={cfg} trips={trips} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} userId={session.user.id}/>}
+        {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses}/>}
+        {tab==="ai"     &&<AITab cfg={cfg} trips={trips} bonuses={bonuses} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} userId={session.user.id}/>}
         {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp}/>}
 
         {/* NAVEGACIÓN FIJA */}
@@ -1511,8 +1681,8 @@ export default function RutaFlow(){
       </div>{/* ← CIERRE DEL DIV PRINCIPAL */}
 
       {/* MODALES FUERA DEL DIV — flotan sobre todo incluyendo la NAV */}
-      {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} onClose={()=>setShowNew(false)} isPro={isPro} onUpgrade={openUpgrade}/>}
-      {showOperation&&<OperationModal cfg={cfg} initial={editingEvent} onClose={()=>{setShowOperation(false);setEditingEvent(null);}} onSaveOperation={saveOperation} onUpdateOperation={updateOperation} onSaveTrip={saveTrip}/>}
+      {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} activeBonuses={bonuses.filter(b=>String(b.status||"")==="active")} onClose={()=>setShowNew(false)} isPro={isPro} onUpgrade={openUpgrade}/>}
+      {showOperation&&<OperationModal cfg={cfg} initial={editingEvent} onClose={()=>{setShowOperation(false);setEditingEvent(null);}} onSaveOperation={saveOperation} onUpdateOperation={updateOperation} onSaveTrip={saveTrip} onSaveBonus={saveBonus}/>}
       {selectedClosure&&<ClosureModal closure={selectedClosure} onClose={()=>setSelectedClosure(null)}/>}
       {selTrip&&<TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)}
         onSave={async(id,d)=>{await updateTrip(id,d);setSelTrip(null);}}
