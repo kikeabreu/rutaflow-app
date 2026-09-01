@@ -1141,7 +1141,7 @@ POR PLATAFORMA: ${platS||"sin datos"}
     setMsgs(pending);setInput("");setLoading(true);
     try{
       const content=await callGroq("advisor",[
-        {role:"system",content:`Eres el asesor de rentabilidad de RutaFlow para conductores de plataformas en Mexico. Responde en espanol claro, conciso y accionable. Distingue hechos de estimaciones. ${ctx()}`},
+        {role:"system",content:`Eres el asesor de rentabilidad de RutaFlow para conductores de plataformas en Mexico. Responde en espanol claro, conciso y accionable. Distingue hechos de estimaciones. Usa Markdown GFM normal. Cuando presentes una tabla, conserva sus saltos de linea y nunca la encierres en un bloque de codigo ni escribas \`\`\`markdown. ${ctx()}`},
         ...pending
       ].map(m=>({role:m.role,content:m.content})),4096);
       const next=[...pending,{role:"assistant",content}];setMsgs(next);
