@@ -120,6 +120,18 @@ const evaluateTripForBonus=(trip,bonus,cfg)=>{
 };
 const eventMs=e=>new Date(e.occurred_at||e.created_at||0).getTime();
 const tripMs=t=>new Date(t.end_time||t.created_at||0).getTime();
+const closureIncludes=(closure,time,fallbackDate)=>{
+  const point=new Date(time||0).getTime();
+  const start=new Date(closure?.start_time||0).getTime();
+  const end=new Date(closure?.end_time||0).getTime();
+  if(Number.isFinite(point)&&point>0&&Number.isFinite(start)&&start>0&&Number.isFinite(end)&&end>0)return point>=start&&point<=end;
+  return dateKey(fallbackDate||time)===dateKey(closure?.date);
+};
+const closureMovements=(closure,trips,events,bonuses,cfg)=>[
+  ...trips.filter(t=>closureIncludes(closure,t.end_time||t.created_at,dateOf(t))).map(t=>{const c=calcTrip(t,cfg);return{kind:"trip",id:t.id,time:t.end_time||t.created_at,title:`Viaje · ${platformInfo(cfg,t.platform).name}`,detail:`${fmtMXN(t.fare)} · ${fmt(c.km,1)} km · ${fmt(c.min,0)} min`,value:c.net,color:c.net>=0?C.teal:C.danger,icon:IC.trips};}),
+  ...events.filter(e=>closureIncludes(closure,e.occurred_at||e.created_at,dateOf(e))).map(e=>{const meta=eventMeta(e.type);const value=e.type==="tip"?Number(e.amount)||0:e.type==="refuel"?-(Number(e.amount)||0):null;return{kind:"event",id:e.id,time:e.occurred_at||e.created_at,title:meta.label,detail:`${eventDescription(e)}${e.platform?` · ${platformInfo(cfg,e.platform).name}`:""}${e.note?` · ${e.note}`:""}`,value,color:meta.color,icon:meta.icon};}),
+  ...bonuses.filter(b=>["paid","earned"].includes(String(b.status||""))&&closureIncludes(closure,b.paid_at||b.created_at,dateOf(b))).map(b=>{const c=calcBonus(b,cfg);return{kind:"bonus",id:b.id,time:b.paid_at||b.created_at,title:`Bono · ${platformInfo(cfg,b.platform).name}`,detail:b.bonus_type||"Bono cobrado",value:c.net,color:c.net>=0?C.teal:C.danger,icon:IC.flag};}),
+].sort((a,b)=>new Date(a.time)-new Date(b.time));
 const distanceCost=(km,cfg)=>{
   const n=Number(km)||0;
   let wear=0;
@@ -876,10 +888,11 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
   );
 }
 
-function ClosureModal({closure,onClose}){
+function ClosureModal({closure,cfg,trips=[],events=[],bonuses=[],onClose}){
   const s=closure?.snapshot||closure||{};
+  const movements=closureMovements(closure,trips,events,bonuses,cfg);
   const rows=[
-    ["Ingreso bruto",s.gross],["Comisiones",-(s.fee||0)],["Gasolina consumida",-(s.consumedGas||0)],["Utilidad operativa",s.net],["Flujo de efectivo",s.cash],
+    ["Ingreso bruto",s.gross],["Propinas",s.tipIncome],["Bonos",s.bonusGross],["Comisiones",-(s.fee||0)],["Gasolina consumida",-(s.consumedGas||0)],["Utilidad operativa",s.net],["Flujo de efectivo",s.cash],
   ];
   return <div style={{position:"fixed",inset:0,zIndex:10000,background:"rgba(0,0,0,.82)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={onClose}>
     <div className="su" onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,maxHeight:"90dvh",overflowY:"auto",background:C.card,border:`1px solid ${C.bord2}`,borderRadius:"16px 16px 0 0",padding:"17px 16px calc(22px + env(safe-area-inset-bottom))"}}>
@@ -887,11 +900,16 @@ function ClosureModal({closure,onClose}){
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:7,marginBottom:14}}>
         {[{l:"Viajes",v:closure.trip_count||0},{l:"Duración",v:fmtClock(closure.total_ms||0)},{l:"Productivo",v:fmtPct(s.productivePct||closure.productive_pct||0)}].map(x=><div key={x.l} style={{background:C.card2,borderRadius:8,padding:"9px 7px",textAlign:"center"}}><Lbl s={{marginBottom:4}}>{x.l}</Lbl><Big size={16}>{x.v}</Big></div>)}
       </div>
-      <Card s={{marginBottom:12}}>{rows.map(([l,v],i)=><div key={l} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:i<rows.length-1?`1px solid ${C.border}`:"none"}}><span style={{fontSize:11,color:C.muted}}>{l}</span><strong style={{color:i===3?((v||0)>=0?C.teal:C.danger):C.text}}>{fmtMXN(v||0)}</strong></div>)}</Card>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,padding:"9px 11px",background:C.card2,borderRadius:8}}><div><Lbl s={{marginBottom:4}}>Horario registrado</Lbl><div style={{fontSize:11,color:C.text}}>{closure.start_time?fmtHour(closure.start_time):"--"} a {closure.end_time?fmtHour(closure.end_time):"--"}</div></div><div style={{textAlign:"right"}}><Lbl s={{marginBottom:4}}>Movimientos</Lbl><Big size={17}>{movements.length}</Big></div></div>
+      <Card s={{marginBottom:12}}>{rows.map(([l,v],i)=>{const color=l==="Utilidad operativa"?((v||0)>=0?C.teal:C.danger):(["Propinas","Bonos"].includes(l)&&(v||0)>0?C.teal:["Comisiones","Gasolina consumida"].includes(l)&&(v||0)<0?C.danger:C.text);return <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:i<rows.length-1?`1px solid ${C.border}`:"none"}}><span style={{fontSize:11,color:C.muted}}>{l}</span><strong style={{color}}>{fmtMXN(v||0)}</strong></div>;})}</Card>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
         <Card s={{padding:11}}><Lbl s={{marginBottom:5}}>Km totales</Lbl><Big size={20}>{fmt(s.totalKm||closure.total_km,1)} km</Big></Card>
         <Card s={{padding:11}}><Lbl s={{marginBottom:5}}>Sin pasajero</Lbl><Big size={20} color={C.accent}>{fmt(s.deadKm||closure.dead_km,1)} km</Big></Card>
       </div>
+      <Lbl s={{marginBottom:8}}>Cronología de la jornada</Lbl>
+      <Card s={{padding:"4px 12px",marginBottom:14}}>
+        {movements.length===0?<div style={{padding:"14px 0",fontSize:10,color:C.dim,textAlign:"center"}}>No hay movimientos vinculados a este horario.</div>:movements.map((item,i)=><div key={`${item.kind}-${item.id}`} style={{display:"flex",alignItems:"center",gap:9,padding:"10px 0",borderBottom:i<movements.length-1?`1px solid ${C.border}`:"none"}}><div style={{width:27,height:27,borderRadius:7,background:`${item.color}16`,display:"grid",placeItems:"center"}}><SVG d={item.icon} size={14} color={item.color}/></div><div style={{flex:1,minWidth:0}}><div style={{fontSize:10,color:C.text,fontWeight:700}}>{item.title}</div><div style={{fontSize:9,color:C.muted,marginTop:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.detail}</div></div><div style={{textAlign:"right",flexShrink:0}}>{item.value!==null&&item.value!==undefined&&<div style={{fontSize:11,fontWeight:800,color:item.value>=0?C.teal:C.danger}}>{fmtMXN(item.value)}</div>}<div style={{fontSize:8,color:C.dim,marginTop:3}}>{fmtHour(item.time)}</div></div></div>)}
+      </Card>
       <div style={{fontSize:11,color:C.muted,lineHeight:1.55,background:`${C.accent}0b`,border:`1px solid ${C.accent}28`,borderRadius:9,padding:"10px 12px"}}>{(s.productivePct||0)<45?"Tu mayor oportunidad esta en reducir kilometros sin pasajero antes de buscar mas viajes.":(s.net||0)<0?"La jornada cerro en negativo: revisa comisiones, combustible y viajes de baja rentabilidad.":"Jornada positiva. Compara este cierre con tus mejores dias para repetir horarios y plataformas."}</div>
     </div>
   </div>;
@@ -1116,7 +1134,7 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
 }
 
 // ─── TRIPS TAB ────────────────────────────────────────────────────────────────
-function TripsTab({cfg,trips,events,bonuses,onSelect,onNew,onQuick,onEditEvent,onDeleteEvent,onDeleteBonus}){
+function TripsTab({cfg,trips,events,bonuses,closures,onSelect,onNew,onQuick,onEditEvent,onDeleteEvent,onDeleteBonus,onSelectClosure}){
   const[range,setRange]=useState({preset:"all",from:"",to:""});
   const[section,setSection]=useState("trips");
   const[extraType,setExtraType]=useState("all");
@@ -1134,12 +1152,14 @@ function TripsTab({cfg,trips,events,bonuses,onSelect,onNew,onQuick,onEditEvent,o
     return a;
   },{tips:0,liters:0,fuel:0,dead:0,bonuses:0});
   const filters=[{id:"all",label:"Todos"},{id:"dead_km",label:"Sin pasaje"},{id:"refuel",label:"Gasolina"},{id:"tank_checkpoint",label:"Tanque"},{id:"tip",label:"Propinas"},{id:"bonus",label:"Bonos"}];
+  const filteredClosures=(closures||[]).filter(c=>{const d=dateKey(c.date);return(!range.from||d>=range.from)&&(!range.to||d<=range.to);}).sort((a,b)=>new Date(b.end_time||b.created_at||0)-new Date(a.end_time||a.created_at||0));
+  const closureSummary=filteredClosures.reduce((a,c)=>{const s=c.snapshot||c;a.net+=Number(s.net??c.total_net)||0;a.ms+=Number(c.total_ms)||0;a.trips+=Number(c.trip_count)||0;return a;},{net:0,ms:0,trips:0});
 
   return(
     <div className="fu" style={{padding:"15px 14px 90px"}}>
       <div className="B" style={{fontSize:22,fontWeight:800,color:C.accent,marginBottom:13,letterSpacing:1}}>HISTORIAL</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,background:C.card2,borderRadius:8,padding:4,marginBottom:11}}>
-        {[{id:"trips",label:"Viajes"},{id:"extras",label:"Extras"}].map(item=><button key={item.id} onClick={()=>setSection(item.id)} style={{padding:"9px",borderRadius:6,background:section===item.id?C.card:"transparent",border:`1px solid ${section===item.id?C.bord2:"transparent"}`,color:section===item.id?C.text:C.muted,fontSize:10,fontWeight:800,textTransform:"uppercase"}}>{item.label}</button>)}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,background:C.card2,borderRadius:8,padding:4,marginBottom:11}}>
+        {[{id:"trips",label:"Viajes"},{id:"extras",label:"Extras"},{id:"shifts",label:"Jornadas"}].map(item=><button key={item.id} onClick={()=>setSection(item.id)} style={{padding:"9px 4px",borderRadius:6,background:section===item.id?C.card:"transparent",border:`1px solid ${section===item.id?C.bord2:"transparent"}`,color:section===item.id?C.text:C.muted,fontSize:9,fontWeight:800,textTransform:"uppercase"}}>{item.label}</button>)}
       </div>
       <DateRangeControl value={range} onChange={setRange}/>
       {section==="trips"?<>
@@ -1175,7 +1195,7 @@ function TripsTab({cfg,trips,events,bonuses,onSelect,onNew,onQuick,onEditEvent,o
             </div>
           </Card>
         );
-      })}</>:<>
+      })}</>:section==="extras"?<>
         <Btn full onClick={onQuick} color={C.teal} s={{marginBottom:11}}><SVG d={IC.plus} size={13} color={C.teal}/>Agregar extra</Btn>
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:11}}>{filters.map(item=><button key={item.id} onClick={()=>setExtraType(item.id)} style={{padding:"7px 3px",border:`1px solid ${extraType===item.id?C.accent:C.border}`,borderRadius:7,background:extraType===item.id?`${C.accent}12`:C.card2,color:extraType===item.id?C.accent:C.muted,fontSize:8,fontWeight:800}}>{item.label}</button>)}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:7,marginBottom:13}}>
@@ -1194,6 +1214,19 @@ function TripsTab({cfg,trips,events,bonuses,onSelect,onNew,onQuick,onEditEvent,o
             </Card>;
           })}
         </section>)}
+      </>:<>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:7,marginBottom:13}}>
+          {[{label:"Jornadas",value:filteredClosures.length,color:C.text},{label:"Tiempo",value:fmtClock(closureSummary.ms).slice(0,5),color:C.accent},{label:"Neto",value:fmtMXN(closureSummary.net),color:closureSummary.net>=0?C.teal:C.danger}].map(item=><Card key={item.label} s={{padding:"10px 7px",textAlign:"center"}}><Lbl s={{marginBottom:5,fontSize:8}}>{item.label}</Lbl><Big size={16} color={item.color}>{item.value}</Big></Card>)}
+        </div>
+        {filteredClosures.length===0?<div style={{textAlign:"center",padding:"42px 0",color:C.dim}}><SVG d={IC.flag} size={28} color={C.dim}/><Lbl s={{marginTop:10}}>Sin jornadas cerradas en este periodo</Lbl></div>:filteredClosures.map(cl=>{
+          const s=cl.snapshot||cl;
+          const movements=closureMovements(cl,trips,events,bonuses,cfg);
+          const net=Number(s.net??cl.total_net)||0;
+          return <Card key={cl.id} s={{marginBottom:8,padding:12,cursor:"pointer"}} onClick={()=>onSelectClosure(cl)}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}><div style={{minWidth:0}}><Lbl s={{marginBottom:5}}>{fmtDate(cl.date)}</Lbl><div style={{fontSize:11,color:C.text,fontWeight:700}}>{cl.start_time?fmtHour(cl.start_time):"--"} a {cl.end_time?fmtHour(cl.end_time):"--"}</div><div style={{fontSize:9,color:C.muted,marginTop:4}}>{cl.trip_count||0} viajes · {movements.length} movimientos · {fmtClock(cl.total_ms||0).slice(0,5)} h</div></div><div style={{textAlign:"right",flexShrink:0}}><Big size={20} color={net>=0?C.teal:C.danger}>{fmtMXN(net)}</Big><div style={{fontSize:8,color:C.muted,marginTop:5}}>{fmtPct(s.productivePct||cl.productive_pct||0)} productivo</div></div></div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginTop:10,paddingTop:9,borderTop:`1px solid ${C.border}`}}><div><Lbl s={{fontSize:8,marginBottom:3}}>Km totales</Lbl><div style={{fontSize:11,color:C.text}}>{fmt(s.totalKm||cl.total_km,1)} km</div></div><div><Lbl s={{fontSize:8,marginBottom:3}}>Sin pasaje</Lbl><div style={{fontSize:11,color:C.accent}}>{fmt(s.deadKm||cl.dead_km,1)} km</div></div></div>
+          </Card>;
+        })}
       </>}
     </div>
   );
@@ -1847,7 +1880,7 @@ export default function RutaFlow(){
         </div>
 
         {tab==="home"   &&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setShowOperation(true);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade}/>}
-        {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} onSelect={setSelTrip} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setShowOperation(true);}} onEditEvent={e=>{setEditingEvent(e);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus}/>}
+        {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setShowOperation(true);}} onEditEvent={e=>{setEditingEvent(e);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses}/>}
         {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} userId={session.user.id}/>}
         {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp}/>}
@@ -1867,7 +1900,7 @@ export default function RutaFlow(){
       {/* MODALES FUERA DEL DIV — flotan sobre todo incluyendo la NAV */}
       {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} activeBonuses={bonuses.filter(b=>String(b.status||"")==="active")} onClose={()=>setShowNew(false)} isPro={isPro} onUpgrade={openUpgrade}/>}
       {showOperation&&<OperationModal cfg={cfg} initial={editingEvent} onClose={()=>{setShowOperation(false);setEditingEvent(null);}} onSaveOperation={saveOperation} onUpdateOperation={updateOperation} onSaveTrip={saveTrip} onSaveBonus={saveBonus}/>}
-      {selectedClosure&&<ClosureModal closure={selectedClosure} onClose={()=>setSelectedClosure(null)}/>}
+      {selectedClosure&&<ClosureModal closure={selectedClosure} cfg={cfg} trips={trips} events={events} bonuses={bonuses} onClose={()=>setSelectedClosure(null)}/>}
       {selTrip&&<TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)}
         onSave={async(id,d)=>{await updateTrip(id,d);setSelTrip(null);}}
         onDelete={async id=>{await deleteTrip(id);setSelTrip(null);}}/>}
