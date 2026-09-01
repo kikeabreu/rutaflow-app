@@ -57,6 +57,7 @@ const normalizeConfig=raw=>{
   return{...base,platforms:DEFAULT_PLATFORMS.map(p=>({...p}))};
 };
 const platformList=cfg=>(cfg?.platforms?.length?cfg.platforms:DEFAULT_PLATFORMS);
+const enabledPlatforms=cfg=>platformList(cfg).filter(p=>p.enabled!==false);
 const platformInfo=(cfg,id)=>platformList(cfg).find(p=>p.id===String(id||"").toLowerCase())||platformList(cfg).find(p=>p.name.toLowerCase()===String(id||"").toLowerCase())||{id:id||"otra",name:id||"Otra",commission:Number(cfg?.platformCut)||0,color:C.muted,enabled:true};
 const platformCommission=(cfg,id)=>Number(platformInfo(cfg,id).commission)||0;
 
@@ -168,6 +169,7 @@ const CSS=`
 body{background:#07080d;color:#dde0f5;font-family:'IBM Plex Mono',monospace;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
 input,select,textarea{font-family:'IBM Plex Mono',monospace;}
 input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;}
+input[type=date]::-webkit-calendar-picker-indicator,input[type=datetime-local]::-webkit-calendar-picker-indicator{filter:invert(1);opacity:1;cursor:pointer;}
 button{cursor:pointer;font-family:'IBM Plex Mono',monospace;border:none;background:none;}
 button:active{transform:scale(0.97);}
 .B{font-family:'Barlow Condensed',sans-serif;}
@@ -453,7 +455,9 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
 const DRAFT0={fare:"",pickup_km:"",pickup_min:"",dest_km:"",dest_min:"",platform:"uber",gps_km:null,gps_min:null,mode:"manual",phase:0,gpsOn:false,gpsStartMs:null,gpsDistKm:0};
 
 function TripModal({cfg,saveTrip,activeDay,onClose,isPro,onUpgrade=openUpgrade}){
-  const draft=LS.get(K.DRAFT,DRAFT0);
+  const platforms=enabledPlatforms(cfg);
+  const storedDraft=LS.get(K.DRAFT,DRAFT0);
+  const draft={...storedDraft,platform:platforms.some(p=>p.id===storedDraft.platform)?storedDraft.platform:(platforms[0]?.id||"")};
   const[trip,setTrip]=useState(draft);
   const[mode,setMode]=useState(draft.mode||"manual");
   const[phase,setPhase]=useState(draft.phase||0);
@@ -542,10 +546,10 @@ function TripModal({cfg,saveTrip,activeDay,onClose,isPro,onUpgrade=openUpgrade})
   };
 
   const handleSave=async()=>{
-    if(!trip.fare||saving)return;
+    if(!trip.fare||!trip.platform||saving)return;
     setSaving(true);
     const ok=await saveTrip({
-      fare:parseFloat(trip.fare)||0,platform:trip.platform||"uber",
+      fare:parseFloat(trip.fare)||0,platform:trip.platform,
       pickup_km:parseFloat(trip.pickup_km)||0,pickup_min:parseFloat(trip.pickup_min)||0,
       dest_km:parseFloat(trip.dest_km)||0,dest_min:parseFloat(trip.dest_min)||0,
       gps_km:parseFloat(trip.gps_km)||0,gps_min:parseFloat(trip.gps_min)||0,
@@ -572,10 +576,11 @@ function TripModal({cfg,saveTrip,activeDay,onClose,isPro,onUpgrade=openUpgrade})
             <button onClick={onClose} style={{color:C.muted,fontSize:20,lineHeight:1,padding:"4px 8px"}}>✕</button>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:10}}>
-            {platformList(cfg).filter(p=>p.enabled!==false||p.id===trip.platform).map(p=>(
+            {platforms.map(p=>(
               <button key={p.id} onClick={()=>setF("platform",p.id)} style={{padding:"7px 4px",background:trip.platform===p.id?`${C.accent}1e`:"transparent",border:`1px solid ${trip.platform===p.id?C.accent:C.border}`,borderRadius:7,color:trip.platform===p.id?C.accent:C.muted,fontSize:10,letterSpacing:"0.08em",textTransform:"uppercase"}}>{p.name}</button>
             ))}
           </div>
+          {!platforms.length&&<div style={{fontSize:10,color:C.danger,margin:"-3px 0 10px",lineHeight:1.45}}>Activa al menos una plataforma en Config para registrar viajes.</div>}
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:10}}>
             {[{id:"manual",l:"✍️ Manual"},{id:"gps",l:"📍 GPS"},{id:"photo",l:"📸 Foto IA"}].map(m=>(
               <button key={m.id} onClick={()=>setModeP(m.id)} style={mBtn(m.id)}>{m.l}</button>
@@ -651,8 +656,8 @@ function TripModal({cfg,saveTrip,activeDay,onClose,isPro,onUpgrade=openUpgrade})
         </div>
         <div style={{padding:"12px 18px 20px",flexShrink:0,borderTop:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"1fr 2fr",gap:9}}>
           <Btn onClick={onClose} color={C.muted} outline>Cancelar</Btn>
-          <Btn full onClick={handleSave} disabled={!trip.fare||gpsOn||saving}>
-            {saving?<div className="sp" style={{width:14,height:14,border:`2px solid ${C.dim}`,borderTopColor:C.accent,borderRadius:"50%"}}/>:<SVG d={IC.check} size={13} color={!trip.fare||gpsOn?C.dim:C.accent}/>}
+          <Btn full onClick={handleSave} disabled={!trip.fare||!trip.platform||gpsOn||saving}>
+            {saving?<div className="sp" style={{width:14,height:14,border:`2px solid ${C.dim}`,borderTopColor:C.accent,borderRadius:"50%"}}/>:<SVG d={IC.check} size={13} color={!trip.fare||!trip.platform||gpsOn?C.dim:C.accent}/>}
             {saving?"Guardando...":"Guardar viaje"}
           </Btn>
         </div>
@@ -664,9 +669,14 @@ function TripModal({cfg,saveTrip,activeDay,onClose,isPro,onUpgrade=openUpgrade})
 // ─── REGISTRO OPERATIVO ───────────────────────────────────────────────────────
 const OP0={type:"dead_km",km:"",amount:"",liters:"",tank_liters:"",odometer:"",fare:"",trip_km:"",platform:"didi",note:"",occurred_at:""};
 function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,initial,cfg}){
-  const[form,setForm]=useState(()=>initial?{
-    ...OP0,...initial,km:String(initial.km||""),amount:String(initial.amount||""),liters:String(initial.liters||""),tank_liters:String(initial.tank_liters||""),odometer:String(initial.odometer||""),occurred_at:localDateTime(initial.occurred_at||initial.created_at),
-  }:{...OP0,occurred_at:localDateTime()});
+  const platforms=enabledPlatforms(cfg);
+  const defaultPlatform=platforms.find(p=>p.id===OP0.platform)?.id||platforms[0]?.id||"";
+  const[form,setForm]=useState(()=>{
+    const base=initial?{
+      ...OP0,...initial,km:String(initial.km||""),amount:String(initial.amount||""),liters:String(initial.liters||""),tank_liters:String(initial.tank_liters||""),odometer:String(initial.odometer||""),occurred_at:localDateTime(initial.occurred_at||initial.created_at),
+    }:{...OP0,occurred_at:localDateTime()};
+    return{...base,platform:platforms.some(p=>p.id===base.platform)?base.platform:defaultPlatform};
+  });
   const[text,setText]=useState("");
   const[parsing,setParsing]=useState(false);
   const[saving,setSaving]=useState(false);
@@ -688,7 +698,8 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,in
       const raw=await callGroq("parser",[{role:"user",content:text.trim()}],500);
       const data=parseJsonContent(raw);
       if(!TYPES.some(t=>t.id===data.type))throw new Error("No entendi el movimiento. Prueba con importe, km o litros.");
-      const parsedPlatform=platformInfo(cfg,data.platform).id;
+      const requestedPlatform=platformInfo(cfg,data.platform).id;
+      const parsedPlatform=platforms.some(p=>p.id===requestedPlatform)?requestedPlatform:defaultPlatform;
       const normalized={...data,platform:parsedPlatform,km:data.dead_km||data.km||0};
       setForm(p=>({...p,...Object.fromEntries(Object.entries(normalized).filter(([k])=>k!=="dead_km").map(([k,v])=>[k,v===0?"":String(v)])),type:data.type,occurred_at:p.occurred_at}));
     }catch(err){setVoiceError(err.message||"No pude interpretar el movimiento. Puedes llenar los campos manualmente.");}
@@ -707,12 +718,12 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,in
     rec.onresult=e=>{let heard="";for(let i=0;i<e.results.length;i++)heard+=`${e.results[i][0].transcript} `;setText(`${base}${base?" ":""}${heard.trim()}`);};
     rec.start();
   };
-  const valid=form.type==="trip"?Number(form.fare)>0:Number(form.type==="dead_km"?form.km:form.type==="refuel"?(form.liters||form.amount):form.tank_liters)>0;
+  const valid=form.type==="trip"?Number(form.fare)>0&&!!form.platform:Number(form.type==="dead_km"?form.km:form.type==="refuel"?(form.liters||form.amount):form.tank_liters)>0;
   const save=async()=>{
     if(!valid||saving)return;setSaving(true);
     let ok=false;
     const occurredAt=new Date(form.occurred_at||Date.now()).toISOString();
-    if(form.type==="trip")ok=await onSaveTrip({fare:Number(form.fare)||0,dest_km:Number(form.trip_km)||0,platform:form.platform||"otra",date:form.occurred_at.split("T")[0],end_time:occurredAt});
+    if(form.type==="trip")ok=await onSaveTrip({fare:Number(form.fare)||0,dest_km:Number(form.trip_km)||0,platform:form.platform,date:form.occurred_at.split("T")[0],end_time:occurredAt});
     else{
       const payload={type:form.type,km:Number(form.km)||0,amount:Number(form.amount)||0,liters:Number(form.liters)||0,tank_liters:Number(form.tank_liters)||0,odometer:Number(form.odometer)||0,note:form.note||"",occurred_at:occurredAt,date:form.occurred_at.split("T")[0]};
       ok=initial?await onUpdateOperation(initial.id,payload):await onSaveOperation(payload);
@@ -731,7 +742,7 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,in
         <div style={{fontSize:9,color:listening?C.teal:C.dim,lineHeight:1.45,marginBottom:voiceError?6:14}}>{listening?"Escuchando... puedes corregir el texto antes de enviarlo a IA.":"La IA prepara el registro. Tu confirmas antes de guardarlo."}</div>
         {voiceError&&<div style={{fontSize:10,color:C.danger,background:`${C.danger}10`,border:`1px solid ${C.danger}33`,borderRadius:7,padding:"8px 9px",marginBottom:12}}>{voiceError}</div>}
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:15}}>{TYPES.map(t=><button key={t.id} onClick={()=>set("type",t.id)} style={{minHeight:66,padding:"8px 3px",border:`1px solid ${form.type===t.id?C.accent:C.border}`,borderRadius:8,background:form.type===t.id?`${C.accent}12`:C.card2,color:form.type===t.id?C.accent:C.muted,fontSize:8,fontWeight:700,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6}}><SVG d={t.d} size={17} color={form.type===t.id?C.accent:C.muted}/>{t.label}</button>)}</div>
-        {form.type==="trip"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Tarifa" type="number" value={form.fare} onChange={v=>set("fare",v)} unit="$"/><Inp label="Distancia" type="number" value={form.trip_km} onChange={v=>set("trip_km",v)} unit="km"/><div style={{gridColumn:"1 / -1"}}><Lbl s={{marginBottom:5}}>Plataforma</Lbl><select value={form.platform} onChange={e=>set("platform",e.target.value)} style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px",color:C.text}}>{platformList(cfg).filter(p=>p.enabled!==false||p.id===form.platform).map(p=><option key={p.id} value={p.id}>{p.name} · {p.commission}%</option>)}</select></div></div>}
+        {form.type==="trip"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Tarifa" type="number" value={form.fare} onChange={v=>set("fare",v)} unit="$"/><Inp label="Distancia" type="number" value={form.trip_km} onChange={v=>set("trip_km",v)} unit="km"/><div style={{gridColumn:"1 / -1"}}><Lbl s={{marginBottom:5}}>Plataforma</Lbl><select value={form.platform} onChange={e=>set("platform",e.target.value)} disabled={!platforms.length} style={{width:"100%",background:C.card2,border:`1px solid ${platforms.length?C.border:C.danger}`,borderRadius:8,padding:"10px",color:platforms.length?C.text:C.danger}}>{!platforms.length&&<option value="">Activa una plataforma en Config</option>}{platforms.map(p=><option key={p.id} value={p.id}>{p.name} · {p.commission}%</option>)}</select></div></div>}
         {form.type==="dead_km"&&<Inp label="Kilometros sin pasajero" type="number" value={form.km} onChange={v=>set("km",v)} unit="km"/>}
         {form.type==="refuel"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Litros cargados" type="number" value={form.liters} onChange={v=>set("liters",v)} unit="L"/><Inp label="Importe pagado" type="number" value={form.amount} onChange={v=>set("amount",v)} unit="$"/></div>}
         {form.type==="tank_checkpoint"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Litros estimados" type="number" value={form.tank_liters} onChange={v=>set("tank_liters",v)} unit="L"/><Inp label="Odometro opcional" type="number" value={form.odometer} onChange={v=>set("odometer",v)} unit="km"/></div>}
