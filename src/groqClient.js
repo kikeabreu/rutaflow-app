@@ -17,6 +17,20 @@ export async function callGroq(mode, messages, maxTokens = 700) {
   return data.content;
 }
 
+export function parseJsonContent(value) {
+  const text = String(value || "").trim();
+  try { return JSON.parse(text); } catch {}
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) {
+    try { return JSON.parse(fenced[1].trim()); } catch {}
+  }
+  const object = text.match(/\{[\s\S]*\}/);
+  if (object) {
+    try { return JSON.parse(object[0]); } catch {}
+  }
+  throw new Error("La IA no devolvio datos validos. Intenta decir importe, kilometros y tipo de movimiento.");
+}
+
 export async function imageToDataUrl(file, maxWidth = 1440, quality = 0.78) {
   const source = await new Promise((resolve, reject) => {
     const reader = new FileReader();
