@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { supabase } from "./supabaseClient";
 import { callGroq, imageToDataUrl, parseJsonContent } from "./groqClient";
+import { locateDriver } from "./locationClient";
 
 // ─── PALETA ──────────────────────────────────────────────────────────────────
 const C={bg:"#07080d",card:"#0d0f1a",card2:"#111320",border:"#1a1d2e",bord2:"#242740",accent:"#f0a500",teal:"#00c9a7",danger:"#ff4055",dim:"#3a3d55",muted:"#6b6e8a",text:"#dde0f5"};
@@ -14,7 +15,7 @@ const LS={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}},
   del:(k)=>{try{localStorage.removeItem(k);}catch{}},
 };
-const K={DRAFT:"rf_draft",DAY:"rf_day",DAYGPS:"rf_daygps",CHATS:"rf_ai_conversations"};
+const K={DRAFT:"rf_draft",DAY:"rf_day",DAYGPS:"rf_daygps",CHATS:"rf_ai_conversations",LOCATIONS:"rf_location_checkpoints"};
 const FREE_MONTHLY_TRIP_LIMIT=30;
 const paymentUrl=()=>process.env.REACT_APP_STRIPE_PAYMENT_LINK||process.env.REACT_APP_MERCADOPAGO_PAYMENT_LINK||"";
 const isProProfile=profile=>{
@@ -48,6 +49,7 @@ const dateOf=x=>dateKey(x?.end_time||x?.occurred_at||x?.paid_at||x?.created_at||
 const shiftDate=(days=0)=>{const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()+days);return dateKey(d);};
 const localDateTime=value=>{const d=new Date(value||Date.now());const pad=n=>String(n).padStart(2,"0");return`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;};
 const inDateRange=(item,range)=>{const d=dateOf(item);return(!range.from||d>=range.from)&&(!range.to||d<=range.to);};
+const locationName=point=>point?.zone||point?.city||(Number.isFinite(Number(point?.latitude??point?.lat))?`${Number(point.latitude??point.lat).toFixed(3)}, ${Number(point.longitude??point.lon).toFixed(3)}`:"");
 
 const DEFAULT_PLATFORMS=[
   {id:"uber",name:"Uber",commission:25,enabled:true,color:"#00b4d8"},
@@ -508,7 +510,7 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
 }
 
 // ─── MODAL: NUEVO VIAJE ───────────────────────────────────────────────────────
-const DRAFT0={fare:"",pickup_km:"",pickup_min:"",dest_km:"",dest_min:"",platform:"uber",gps_km:null,gps_min:null,mode:"manual",phase:0,gpsOn:false,gpsStartMs:null,gpsDistKm:0};
+const DRAFT0={fare:"",pickup_km:"",pickup_min:"",dest_km:"",dest_min:"",platform:"uber",gps_km:null,gps_min:null,mode:"manual",phase:0,gpsOn:false,gpsStartMs:null,gpsDistKm:0,start_location:null};
 
 function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgrade=openUpgrade}){
   const platforms=enabledPlatforms(cfg);
@@ -520,12 +522,14 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
   const[gpsOn,setGpsOn]=useState(false);
   const[gpsMs,setGpsMs]=useState(draft.gpsOn&&draft.gpsStartMs?Date.now()-draft.gpsStartMs:0);
   const[gpsStatus,setGpsStatus]=useState(draft.gps_km?`✅ ${fmt(draft.gps_km,2)} km · ${fmt(draft.gps_min,0)} min`:"");
+  const[startLocation,setStartLocation]=useState(draft.start_location||null);
   const[proc,setProc]=useState(false);
   const[saving,setSaving]=useState(false);
   const[toast,setToast]=useState(null);
 
   const watchRef=useRef(null),timerRef=useRef(null),startRef=useRef(null);
   const distRef=useRef(parseFloat(draft.gpsDistKm)||0),lastRef=useRef(null);
+  const startLocationRef=useRef(draft.start_location||null);
   const fileRef=useRef();
 
   useEffect(()=>{
@@ -533,6 +537,11 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
       startRef.current=draft.gpsStartMs;
       distRef.current=parseFloat(draft.gpsDistKm)||0;
       _activateGPS(false);
+    }
+    if(!draft.gpsOn){
+      locateDriver({timeout:8000}).then(point=>{
+        startLocationRef.current=point;setStartLocation(point);persist({start_location:point});
+      }).catch(()=>{});
     }
   },[]);
 
@@ -604,12 +613,18 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
   const handleSave=async()=>{
     if(!trip.fare||!trip.platform||saving)return;
     setSaving(true);
+    let endLocation=null;
+    try{endLocation=await locateDriver({timeout:8000});}
+    catch{
+      if(lastRef.current)endLocation={...lastRef.current,accuracy_m:null,captured_at:new Date().toISOString()};
+    }
     const ok=await saveTrip({
       fare:parseFloat(trip.fare)||0,platform:trip.platform,
       pickup_km:parseFloat(trip.pickup_km)||0,pickup_min:parseFloat(trip.pickup_min)||0,
       dest_km:parseFloat(trip.dest_km)||0,dest_min:parseFloat(trip.dest_min)||0,
       gps_km:parseFloat(trip.gps_km)||0,gps_min:parseFloat(trip.gps_min)||0,
       date:today(),end_time:new Date().toISOString(),day_id:activeDay?.id||null,
+      start_location:startLocationRef.current||startLocation||trip.start_location||null,end_location:endLocation,
     });
     setSaving(false);
     if(ok){LS.del(K.DRAFT);onClose();}
@@ -645,6 +660,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
               <button key={m.id} onClick={()=>setModeP(m.id)} style={mBtn(m.id)}>{m.l}</button>
             ))}
           </div>
+          {startLocation&&<div style={{fontSize:9,color:C.muted,margin:"-3px 0 10px"}}>Inicio detectado: {locationName(startLocation)}</div>}
         </div>
         <div style={{flex:1,overflowY:"auto",padding:"0 18px",WebkitOverflowScrolling:"touch"}}>
           <div style={{marginBottom:12}}>
@@ -1208,7 +1224,7 @@ function StatsTab({cfg,trips,events,bonuses}){
 }
 
 // ─── AI TAB ───────────────────────────────────────────────────────────────────
-function AITab({cfg,trips,bonuses,isPro,monthlyTripsCount,onUpgrade,userId}){
+function AITab({cfg,trips,bonuses,locations=[],isPro,monthlyTripsCount,onUpgrade,userId}){
   const WELCOME={role:"assistant",content:"## Asesor de rentabilidad\n\nTe digo qué tomar, qué evitar y cuándo un bono deja de convenir."};
   const[msgs,setMsgs]=useState([WELCOME]);
   const[conversations,setConversations]=useState([]);
@@ -1292,6 +1308,29 @@ function AITab({cfg,trips,bonuses,isPro,monthlyTripsCount,onUpgrade,userId}){
       return `${b.platform} ${b.bonus_type}: ${done}/${req} viajes, faltan ${left}, vence ${exp?fmtDate(exp)+" "+fmtHour(exp):"sin vencimiento"}, ${pace}, neto bono ${fmtMXN(c.net)}`;
     }).join(" | ");
 
+    const tripLocations={};
+    locations.forEach(point=>{
+      if(!point.trip_id)return;
+      if(!tripLocations[point.trip_id])tripLocations[point.trip_id]={};
+      if(point.event_type==="trip_start")tripLocations[point.trip_id].start=point;
+      if(point.event_type==="trip_end")tripLocations[point.trip_id].end=point;
+    });
+    const zoneBuckets={};
+    all.forEach(t=>{
+      const point=tripLocations[String(t.id)]?.start;
+      const zone=locationName(point);
+      if(!zone)return;
+      if(!zoneBuckets[zone])zoneBuckets[zone]={n:0,net:0,min:0};
+      const c=calcTrip(t,cfg);zoneBuckets[zone].n++;zoneBuckets[zone].net+=c.net;zoneBuckets[zone].min+=c.min;
+    });
+    const zoneCtx=Object.entries(zoneBuckets)
+      .sort((a,b)=>(b[1].net/b[1].n)-(a[1].net/a[1].n))
+      .slice(0,6)
+      .map(([zone,d])=>`${zone}: ${d.n} viajes, ${fmtMXN(d.net/d.n)}/viaje, ${fmtMXN(d.min>0?d.net/(d.min/60):0)}/hr`)
+      .join(" | ");
+    const locatedTrips=all.filter(t=>tripLocations[String(t.id)]?.start).length;
+    const latestPoint=[...locations].sort((a,b)=>new Date(b.captured_at||0)-new Date(a.captured_at||0))[0];
+
     return`CTX RUTAFLOW
 FECHA LOCAL: ${today()} ${fmtHour(new Date())}
 META ${fmtMXN(cfg.targetHourlyRate)}/hr | GAS $${cfg.gasPricePerLiter}/L ${cfg.kmPerLiter}km/L
@@ -1299,6 +1338,8 @@ TOTAL ${sAll.n} viajes: neto ${fmtMXN(sAll.net)}, ${fmt(sAll.km,0)}km, ${(sAll.m
 30D ${s30.n} viajes: neto ${fmtMXN(s30.net)}, ${(s30.min/60).toFixed(1)}h, ${fmtMXN(s30.min>0?s30.net/(s30.min/60):0)}/hr, gas ${fmtMXN(s30.gas)}
 BONOS cobrados ${paidBonuses.length}: ${fmtMXN(bonusNet)} | activos: ${bonusCtx||"ninguno"}
 SEÑALES tendencia ${tendencia}; mejores ${bestH||"s/d"}; peores ${worstH||"s/d"}; dias ${diaS||"s/d"}; plataformas ${platS||"s/d"}
+ZONAS ORIGEN (${locatedTrips}/${all.length} viajes con GPS): ${zoneCtx||"aun sin viajes geolocalizados"}
+UBICACION RECIENTE: ${locationName(latestPoint)||"sin dato"}
 ULTIMOS ${last3||"s/d"}`;
   };
   useEffect(()=>{endRef.current?.scrollIntoView({behavior:"smooth"});},[msgs,loading]);
@@ -1312,7 +1353,7 @@ ULTIMOS ${last3||"s/d"}`;
     try{
       const recentMessages=pending.slice(-5);
       const content=await callGroq("advisor",[
-        {role:"system",content:`Copiloto RutaFlow. Responde maximo 4 bullets, breve y con numeros. Da decision: tomar, esperar, evitar, perseguir bono o abandonar bono. Usa hechos del contexto; si faltan datos, dilo en 1 linea. ${ctx()}`},
+        {role:"system",content:`Copiloto RutaFlow. Responde maximo 4 bullets, breve y con numeros. Da decision: tomar, esperar, evitar, perseguir bono o abandonar bono. Para zonas, usa rentabilidad real por zona de origen y aclara que es historial personal, no demanda en vivo de la plataforma. No inventes colonias ni zonas. Usa hechos del contexto; si faltan datos, dilo en 1 linea. ${ctx()}`},
         ...recentMessages
       ].map(m=>({role:m.role,content:m.content})),900);
       const next=[...pending,{role:"assistant",content}];setMsgs(next);
@@ -1395,6 +1436,7 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp}){
       <FCRow ek="mantenimientoEnabled" mk="mantenimientoMonto" xk="mantenimientoKmVida" xl="Cada (km)" label="🔩 Mantenimiento"/>
       <Btn full onClick={save} color={saved?C.teal:C.accent} s={{marginTop:6,marginBottom:9}}><SVG d={IC.check} size={13} color={saved?C.teal:C.accent}/>{saved?"¡Guardado!":"Guardar cambios"}</Btn>
       <Btn full onClick={onLogout} color={C.danger} outline><SVG d={IC.out} size={13} color={C.danger}/>Cerrar sesión</Btn>
+      <div style={{fontSize:8,color:C.dim,textAlign:"center",marginTop:12}}>Zonas por OpenStreetMap contributors</div>
     </div>
   );
 }
@@ -1463,6 +1505,7 @@ export default function RutaFlow(){
   const[trips,setTrips]=useState([]);
   const[events,setEvents]=useState([]);
   const[bonuses,setBonuses]=useState([]);
+  const[locations,setLocations]=useState([]);
   const[days,setDays]=useState([]);
   const[closures,setClosures]=useState([]);
   const[activeDay,setActiveDay]=useState(null);
@@ -1489,7 +1532,7 @@ export default function RutaFlow(){
   const loadCloud=useCallback(async uid=>{
     setLoading(true);
     try{
-      const[{data:tr},{data:pr},{data:dy},{data:ad},{data:oe,error:oeError},{data:cl,error:clError},{data:bn,error:bnError}]=await Promise.all([
+      const[{data:tr},{data:pr},{data:dy},{data:ad},{data:oe,error:oeError},{data:cl,error:clError},{data:bn,error:bnError},{data:lc,error:lcError}]=await Promise.all([
         supabase.from("trips").select("*").eq("user_id",uid).order("created_at",{ascending:false}),
         supabase.from("profiles").select("*").eq("id",uid).single(),
         supabase.from("days").select("*").eq("user_id",uid).order("date",{ascending:false}),
@@ -1497,12 +1540,19 @@ export default function RutaFlow(){
         supabase.from("operational_events").select("*").eq("user_id",uid).order("occurred_at",{ascending:false}),
         supabase.from("shift_closures").select("*").eq("user_id",uid).order("date",{ascending:false}),
         supabase.from("bonuses").select("*").eq("user_id",uid).order("created_at",{ascending:false}),
+        supabase.from("location_checkpoints").select("*").eq("user_id",uid).order("captured_at",{ascending:false}).limit(500),
       ]);
       if(tr)setTrips(tr);
       if(oe)setEvents(oe);
       if(oeError&&oeError.code!=="42P01")console.warn("Operational events",oeError.message);
       if(bn)setBonuses(bn);
       if(bnError&&bnError.code!=="42P01")console.warn("Bonuses",bnError.message);
+      const localLocations=LS.get(`${K.LOCATIONS}_${uid}`,[]);
+      if(lc){
+        const cloudIds=new Set(lc.map(x=>x.id));
+        setLocations([...lc,...localLocations.filter(x=>String(x.id).startsWith("local-")&&!cloudIds.has(x.id))].slice(0,500));
+      }else setLocations(localLocations);
+      if(lcError&&lcError.code!=="42P01")console.warn("Location checkpoints",lcError.message);
       if(dy)setDays(dy);
       if(cl)setClosures(cl);
       if(clError&&clError.code!=="42P01")console.warn("Shift closures",clError.message);
@@ -1513,6 +1563,29 @@ export default function RutaFlow(){
     }catch(e){console.error(e);}
     setLoading(false);
   },[]);
+
+  const saveCheckpoints=async points=>{
+    if(!session||!points.length)return;
+    const rows=points.filter(p=>p&&Number.isFinite(Number(p.lat))).map(p=>({
+      user_id:session.user.id,event_type:p.event_type,trip_id:p.trip_id?String(p.trip_id):null,day_id:p.day_id?String(p.day_id):null,
+      latitude:Number(p.lat),longitude:Number(p.lon),accuracy_m:p.accuracy_m!==null&&p.accuracy_m!==undefined&&Number.isFinite(Number(p.accuracy_m))?Number(p.accuracy_m):null,
+      zone:p.zone||"",city:p.city||"",captured_at:p.captured_at||new Date().toISOString(),
+    }));
+    if(!rows.length)return;
+    const localRows=rows.map((row,i)=>({...row,id:`local-${Date.now()}-${i}`}));
+    setLocations(prev=>{
+      const next=[...localRows,...prev].slice(0,500);
+      LS.set(`${K.LOCATIONS}_${session.user.id}`,next);return next;
+    });
+    const{data,error}=await supabase.from("location_checkpoints").insert(rows).select();
+    if(!error&&data){
+      setLocations(prev=>{
+        const localIds=new Set(localRows.map(x=>x.id));
+        const next=[...data,...prev.filter(x=>!localIds.has(x.id))].slice(0,500);
+        LS.set(`${K.LOCATIONS}_${session.user.id}`,next);return next;
+      });
+    }else if(error&&error.code!=="42P01")console.warn("Save location checkpoint",error.message);
+  };
 
   const saveTrip=async data=>{
     if(!session)return false;
@@ -1531,7 +1604,16 @@ export default function RutaFlow(){
         date:data.date||today(),end_time:data.end_time||new Date().toISOString(),day_id:data.day_id||null,
       }]).select().single();
       if(error){showToast("Error: "+error.message,"err");return false;}
-      if(saved){setTrips(p=>[saved,...p]);showToast("Viaje guardado ✓");return true;}
+      if(saved){
+        setTrips(p=>[saved,...p]);
+        let endLocation=data.end_location||null;
+        if(!endLocation){try{endLocation=await locateDriver({timeout:6000});}catch{}}
+        await saveCheckpoints([
+          data.start_location&&{...data.start_location,event_type:"trip_start",trip_id:saved.id,day_id:data.day_id},
+          endLocation&&{...endLocation,event_type:"trip_end",trip_id:saved.id,day_id:data.day_id},
+        ].filter(Boolean));
+        showToast("Viaje guardado ✓");return true;
+      }
     }catch(e){console.error(e);showToast("Error de conexión","err");}
     return false;
   };
@@ -1608,12 +1690,19 @@ export default function RutaFlow(){
 
   const startDay=async()=>{
     if(!session)return;
+    const locationPromise=locateDriver({timeout:8000}).catch(()=>null);
     const{data,error}=await supabase.from("active_days").upsert({user_id:session.user.id,date:today(),start_time:new Date().toISOString()},{onConflict:"user_id"}).select().single();
-    if(!error&&data){const obj={id:data.id,date:data.date,startTime:new Date(data.start_time).getTime(),running:true};setActiveDay(obj);LS.set(K.DAY,obj);}
+    if(!error&&data){
+      const obj={id:data.id,date:data.date,startTime:new Date(data.start_time).getTime(),running:true};setActiveDay(obj);LS.set(K.DAY,obj);
+      const point=await locationPromise;
+      if(point)await saveCheckpoints([{...point,event_type:"shift_start",day_id:data.id}]);
+      showToast(point?`Jornada iniciada en ${locationName(point)}`:"Jornada iniciada; GPS sin ubicacion","ok");
+    }
   };
 
   const endDay=async()=>{
     if(!activeDay||!session)return;
+    const locationPromise=locateDriver({timeout:8000}).catch(()=>null);
     const dayTrips=trips.filter(t=>dateOf(t)===activeDay.date);
     const tots=operationalSummary(trips,events,cfg,activeDay.date,dayKm,bonuses);
     const totalMs=Date.now()-activeDay.startTime;
@@ -1630,6 +1719,8 @@ export default function RutaFlow(){
     const{data:closed,error:closeError}=await supabase.from("shift_closures").insert(closurePayload).select().single();
     if(closed){setClosures(p=>[closed,...p]);setSelectedClosure(closed);}
     if(closeError)showToast(closeError.code==="42P01"?"Falta instalar la migracion de cierres en Supabase":closeError.message,"err");
+    const endLocation=await locationPromise;
+    if(endLocation)await saveCheckpoints([{...endLocation,event_type:"shift_end",day_id:activeDay.id}]);
     resetDayGPS();
     LS.del(K.DAY);setActiveDay(null);
     if(!closeError)showToast("Jornada cerrada y guardada");
@@ -1680,7 +1771,7 @@ export default function RutaFlow(){
         {tab==="home"   &&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setShowOperation(true);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade}/>}
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} saveTrip={saveTrip} updateTrip={updateTrip} deleteTrip={deleteTrip} onSelect={setSelTrip} onNew={()=>setShowNew(true)}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses}/>}
-        {tab==="ai"     &&<AITab cfg={cfg} trips={trips} bonuses={bonuses} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} userId={session.user.id}/>}
+        {tab==="ai"     &&<AITab cfg={cfg} trips={trips} bonuses={bonuses} locations={locations} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} userId={session.user.id}/>}
         {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp}/>}
 
         {/* NAVEGACIÓN FIJA */}
