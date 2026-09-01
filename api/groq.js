@@ -2,8 +2,27 @@ const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 const MODELS = {
   advisor: "openai/gpt-oss-120b",
-  parser: "qwen/qwen3.6-27b",
+  parser: "openai/gpt-oss-20b",
   vision: "qwen/qwen3.6-27b",
+};
+
+const PARSER_SCHEMA = {
+  type: "json_schema",
+  json_schema: {
+    name: "rutaflow_movement",
+    strict: true,
+    schema: {
+      type: "object",
+      properties: {
+        type: { type: "string", enum: ["trip", "dead_km", "refuel", "tank_checkpoint", "unknown"] },
+        fare: { type: "number" }, trip_km: { type: "number" }, dead_km: { type: "number" },
+        amount: { type: "number" }, liters: { type: "number" }, tank_liters: { type: "number" }, odometer: { type: "number" },
+        platform: { type: "string" }, note: { type: "string" },
+      },
+      required: ["type", "fare", "trip_km", "dead_km", "amount", "liters", "tank_liters", "odometer", "platform", "note"],
+      additionalProperties: false,
+    },
+  },
 };
 
 const SYSTEM_PROMPTS = {
@@ -55,15 +74,15 @@ module.exports = async function handler(req, res) {
     const mode = ["advisor", "parser", "vision"].includes(req.body?.mode)
       ? req.body.mode
       : "advisor";
-    const incoming = Array.isArray(req.body?.messages) ? req.body.messages.slice(-16) : [];
+    const incoming = Array.isArray(req.body?.messages) ? req.body.messages.slice(-30) : [];
     if (!incoming.length) return res.status(400).json({ error: "Falta el mensaje para la IA." });
 
     const messages = SYSTEM_PROMPTS[mode]
       ? [{ role: "system", content: SYSTEM_PROMPTS[mode] }, ...incoming]
       : incoming;
-    const maxTokens = Math.min(Math.max(Number(req.body?.max_tokens) || 700, 80), 1200);
+    const maxTokens = Math.min(Math.max(Number(req.body?.max_tokens) || 700, 80), 6000);
 
-    const response = await fetch(GROQ_URL, {
+    const requestCompletion = async completionMessages => fetch(GROQ_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -71,21 +90,37 @@ module.exports = async function handler(req, res) {
       },
       body: JSON.stringify({
         model: MODELS[mode],
-        messages,
+        messages: completionMessages,
         max_tokens: maxTokens,
         temperature: mode === "advisor" ? 0.35 : 0.1,
-        ...(mode !== "advisor" ? { response_format: { type: "json_object" } } : {}),
+        ...(mode === "parser" ? { response_format: PARSER_SCHEMA, reasoning_effort: "low" } : {}),
+        ...(mode === "vision" ? { response_format: { type: "json_object" }, reasoning_effort: "none" } : {}),
       }),
     });
 
+    const response = await requestCompletion(messages);
+
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const detail = data?.error?.message || `Groq respondio con error ${response.status}`;
+      const rawDetail = data?.error?.message || `Groq respondio con error ${response.status}`;
+      const detail = /failed_generation|failed to validate json/i.test(rawDetail)
+        ? "La IA no pudo estructurar el movimiento. Intenta decirlo de forma breve, por ejemplo: 12 km sin pasajero."
+        : rawDetail;
       return res.status(response.status).json({ error: detail });
     }
 
-    const content = data?.choices?.[0]?.message?.content;
+    let content = data?.choices?.[0]?.message?.content;
     if (!content) return res.status(502).json({ error: "Groq no devolvio una respuesta." });
+    let finishReason = data?.choices?.[0]?.finish_reason;
+    for (let part = 0; mode === "advisor" && finishReason === "length" && part < 2; part += 1) {
+      const continuationMessages = [...messages, { role: "assistant", content }, { role: "user", content: "Continua exactamente desde donde terminaste, sin repetir lo anterior. Completa la respuesta." }];
+      const continuationResponse = await requestCompletion(continuationMessages);
+      const continuationData = await continuationResponse.json().catch(() => ({}));
+      const continuation = continuationData?.choices?.[0]?.message?.content;
+      if (!continuation) break;
+      content += `\n\n${continuation}`;
+      finishReason = continuationData?.choices?.[0]?.finish_reason;
+    }
     return res.status(200).json({ content, model: MODELS[mode] });
   } catch (error) {
     console.error("RutaFlow Groq proxy error", error);
