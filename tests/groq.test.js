@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const handler = require("./groq");
+const handler = require("../api/groq");
 
 function responseRecorder() {
   return {
