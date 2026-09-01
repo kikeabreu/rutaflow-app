@@ -78,6 +78,46 @@ test("uses strict structured output for quick-entry parsing", async () => {
   }
 });
 
+test("preserves image content for vision requests", async () => {
+  process.env.SUPABASE_URL = "https://example.supabase.co";
+  process.env.SUPABASE_ANON_KEY = "anon-test";
+  process.env.GROQ_API_KEY = "groq-test";
+  const calls = [];
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    if (String(url).includes("/auth/v1/user")) return { ok: true };
+    return {
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: '{"fare":120,"pickup_km":0,"pickup_min":0,"dest_km":7,"dest_min":18}' } }] }),
+    };
+  };
+
+  try {
+    const req = {
+      method: "POST",
+      headers: { authorization: "Bearer user-token" },
+      body: {
+        mode: "vision",
+        messages: [{ role: "user", content: [
+          { type: "image_url", image_url: { url: "data:image/jpeg;base64,abc" } },
+          { type: "text", text: "Extrae el viaje" },
+        ] }],
+      },
+    };
+    const res = responseRecorder();
+    await handler(req, res);
+
+    assert.equal(res.statusCode, 200);
+    const groqRequest = JSON.parse(calls[1].options.body);
+    assert.equal(groqRequest.model, "qwen/qwen3.6-27b");
+    assert.equal(groqRequest.messages[1].content[0].type, "image_url");
+    assert.equal(groqRequest.messages[1].content[0].image_url.url, "data:image/jpeg;base64,abc");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("continues advisor responses that reach the token limit", async () => {
   process.env.SUPABASE_URL = "https://example.supabase.co";
   process.env.SUPABASE_ANON_KEY = "anon-test";

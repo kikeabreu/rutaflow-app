@@ -40,7 +40,7 @@ No inventes valores. Usa 0 o "" cuando el usuario no los proporcione. "Sin pasaj
   vision: `Extrae datos de una captura de Uber, DiDi, inDrive u otra plataforma.
 Responde unicamente JSON valido con esta forma:
 {"fare":0,"pickup_km":0,"pickup_min":0,"dest_km":0,"dest_min":0}
-No inventes valores y usa 0 para cualquier dato que no sea visible.`,
+fare es la tarifa/ganancia visible en MXN. pickup_km/pickup_min son distancia y tiempo para recoger. dest_km/dest_min son distancia y tiempo al destino o duracion/distancia del viaje. Acepta textos como "min", "mins", "km", "$", "MXN". No inventes valores y usa 0 para cualquier dato que no sea visible.`,
 };
 
 function env(name, fallback) {
@@ -83,10 +83,23 @@ module.exports = async function handler(req, res) {
       : "advisor";
     const rawIncoming = Array.isArray(req.body?.messages) ? req.body.messages : [];
     const maxIncoming = mode === "advisor" ? 6 : 12;
-    const incoming = rawIncoming.slice(-maxIncoming).map(message => ({
-      role: message.role === "assistant" ? "assistant" : message.role === "system" ? "system" : "user",
-      content: String(message.content || "").slice(0, mode === "advisor" ? 2200 : 1200),
-    }));
+    const incoming = rawIncoming.slice(-maxIncoming).map(message => {
+      const role = message.role === "assistant" ? "assistant" : message.role === "system" ? "system" : "user";
+      if (Array.isArray(message.content)) {
+        return {
+          role,
+          content: message.content.map(part => {
+            if (part?.type === "text") return { ...part, text: String(part.text || "").slice(0, 1200) };
+            if (part?.type === "image_url") return part;
+            return { type: "text", text: String(part?.text || "").slice(0, 300) };
+          }),
+        };
+      }
+      return {
+        role,
+        content: String(message.content || "").slice(0, mode === "advisor" ? 2200 : 1200),
+      };
+    });
     if (!incoming.length) return res.status(400).json({ error: "Falta el mensaje para la IA." });
 
     const messages = SYSTEM_PROMPTS[mode]
@@ -117,6 +130,8 @@ module.exports = async function handler(req, res) {
       const rawDetail = data?.error?.message || `Groq respondio con error ${response.status}`;
       const detail = /failed_generation|failed to validate json/i.test(rawDetail)
         ? "La IA no pudo estructurar el movimiento. Intenta decirlo de forma breve, por ejemplo: 12 km sin pasajero."
+        : /request too large|tokens per minute|TPM|rate limit/i.test(rawDetail)
+        ? "La IA recibio demasiada informacion. Intenta de nuevo con una pregunta mas corta."
         : rawDetail;
       return res.status(response.status).json({ error: detail });
     }

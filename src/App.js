@@ -125,6 +125,21 @@ const distanceCost=(km,cfg)=>{
   if(cfg.mantenimientoEnabled)wear+=((cfg.mantenimientoMonto||0)/(cfg.mantenimientoKmVida||5000))*n;
   return{gas:n/(cfg.kmPerLiter||12)*(cfg.gasPricePerLiter||24),wear};
 };
+const numFrom=(...values)=>{
+  for(const value of values){
+    if(value===null||value===undefined||value==="")continue;
+    const n=Number(String(value).replace(/[^\d.,-]/g,"").replace(",","."));
+    if(Number.isFinite(n)&&n>0)return n;
+  }
+  return 0;
+};
+const normalizeVisionTrip=data=>({
+  fare:numFrom(data.fare,data.amount,data.total,data.price,data.earnings,data.tarifa,data.ganancia,data.pago),
+  pickup_km:numFrom(data.pickup_km,data.pickupKm,data.pickup_distance_km,data.recoleccion_km,data.recogida_km),
+  pickup_min:numFrom(data.pickup_min,data.pickupMin,data.pickup_time_min,data.recoleccion_min,data.recogida_min),
+  dest_km:numFrom(data.dest_km,data.destKm,data.destination_km,data.trip_km,data.distance_km,data.distancia_km,data.km),
+  dest_min:numFrom(data.dest_min,data.destMin,data.destination_min,data.trip_min,data.duration_min,data.duracion_min,data.min),
+});
 const estimateTank=(trips,events,cfg)=>{
   const checkpoints=events.filter(e=>e.type==="tank_checkpoint"&&Number(e.tank_liters)>0).sort((a,b)=>eventMs(b)-eventMs(a));
   const refuels=events.filter(e=>e.type==="refuel"&&Number(e.liters)>0).sort((a,b)=>eventMs(b)-eventMs(a));
@@ -575,14 +590,14 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
         const b64=await imageToDataUrl(file);
         const raw=await callGroq("vision",[{role:"user",content:[
           {type:"image_url",image_url:{url:b64}},
-          {type:"text",text:"Extrae los datos visibles de este viaje."}
+          {type:"text",text:"Extrae tarifa/ganancia, distancia y tiempo visibles. Responde solo JSON."}
         ]}],300);
-        const match=raw.match(/\{[\s\S]*\}/);
-        const parsed=JSON.parse(match?match[0]:"{}");
-        if(!parsed.fare&&!parsed.dest_km)throw new Error("No se detectaron datos");
-        setTrip(p=>{const n={...p,fare:String(parsed.fare||""),pickup_km:String(parsed.pickup_km||""),pickup_min:String(parsed.pickup_min||""),dest_km:String(parsed.dest_km||""),dest_min:String(parsed.dest_min||"")};persist(n);return n;});
+        const parsed=normalizeVisionTrip(parseJsonContent(raw));
+        if(!parsed.fare&&!parsed.dest_km&&!parsed.dest_min)throw new Error("No pude leer tarifa, km o minutos. Recorta la captura donde salgan esos datos e intenta de nuevo.");
+        setTrip(p=>{const n={...p,fare:String(parsed.fare||p.fare||""),pickup_km:String(parsed.pickup_km||p.pickup_km||""),pickup_min:String(parsed.pickup_min||p.pickup_min||""),dest_km:String(parsed.dest_km||p.dest_km||""),dest_min:String(parsed.dest_min||p.dest_min||"")};persist(n);return n;});
         setModeP("manual");setPhaseP(parsed.dest_km||parsed.dest_min?1:0);toast_("Captura analizada ✓");
     }catch(err){toast_("IA: "+err.message,"err");}
+    if(fileRef.current)fileRef.current.value="";
     setProc(false);
   };
 
