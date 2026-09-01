@@ -32,7 +32,10 @@ module.exports=async function handler(req,res){
   if(req.method!=="POST"||req.headers.authorization!==`Bearer ${TOKEN}`)return res.status(404).json({error:"Not found"});
   const connectionString=process.env.POSTGRES_URL_NON_POOLING||process.env.POSTGRES_URL;
   if(!connectionString)return res.status(503).json({error:"Database unavailable"});
-  const client=new Client({connectionString,ssl:{rejectUnauthorized:false}});
+  const connectionUrl=new URL(connectionString);
+  connectionUrl.searchParams.delete("sslmode");
+  connectionUrl.searchParams.delete("sslrootcert");
+  const client=new Client({connectionString:connectionUrl.toString(),ssl:{rejectUnauthorized:false}});
   try{
     await client.connect();
     await client.query("begin");
