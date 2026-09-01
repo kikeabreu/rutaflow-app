@@ -73,6 +73,30 @@ test("uses strict structured output for quick-entry parsing", async () => {
     assert.equal(groqRequest.response_format.type, "json_schema");
     assert.equal(groqRequest.response_format.json_schema.strict, true);
     assert.equal(groqRequest.response_format.json_schema.schema.additionalProperties, false);
+    assert.ok(groqRequest.response_format.json_schema.schema.properties.type.enum.includes("tip"));
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("keeps the operational database context for advisor questions", async () => {
+  process.env.SUPABASE_URL = "https://example.supabase.co";
+  process.env.SUPABASE_ANON_KEY = "anon-test";
+  process.env.GROQ_API_KEY = "groq-test";
+  const calls = [];
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    if (String(url).includes("/auth/v1/user")) return { ok: true };
+    return { ok: true, json: async () => ({ choices: [{ message: { content: "10 litros" } }] }) };
+  };
+  try {
+    const context = `DATOS ${"x".repeat(3000)} ULTIMA CARGA: 10 L`;
+    const req = { method: "POST", headers: { authorization: "Bearer user-token" }, body: { mode: "advisor", messages: [{ role: "system", content: context }, { role: "user", content: "Cuantos litros cargue?" }] } };
+    const res = responseRecorder();
+    await handler(req, res);
+    const groqRequest = JSON.parse(calls[1].options.body);
+    assert.match(groqRequest.messages[0].content, /ULTIMA CARGA: 10 L/);
   } finally {
     global.fetch = originalFetch;
   }

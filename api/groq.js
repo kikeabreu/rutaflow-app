@@ -14,7 +14,7 @@ const PARSER_SCHEMA = {
     schema: {
       type: "object",
       properties: {
-        type: { type: "string", enum: ["trip", "dead_km", "refuel", "tank_checkpoint", "bonus", "unknown"] },
+        type: { type: "string", enum: ["trip", "dead_km", "refuel", "tank_checkpoint", "tip", "bonus", "unknown"] },
         fare: { type: "number" }, trip_km: { type: "number" }, dead_km: { type: "number" },
         amount: { type: "number" }, liters: { type: "number" }, tank_liters: { type: "number" }, odometer: { type: "number" },
         platform: { type: "string" }, note: { type: "string" },
@@ -35,8 +35,8 @@ const PARSER_SCHEMA = {
 const SYSTEM_PROMPTS = {
   parser: `Convierte mensajes breves de un conductor en un movimiento de RutaFlow.
 Responde unicamente JSON valido con esta forma:
-{"type":"trip|dead_km|refuel|tank_checkpoint|bonus|unknown","fare":0,"trip_km":0,"dead_km":0,"amount":0,"liters":0,"tank_liters":0,"odometer":0,"platform":"didi|uber|inDrive|otra","note":"","bonus_mode":"paid|active|","bonus_type":"","required_trips":0,"completed_trips":0,"extra_km":0,"extra_min":0,"expires_at":""}
-No inventes valores. Usa 0 o "" cuando el usuario no los proporcione. "Sin pasaje", "vacio" o "muertos" significa dead_km. Una carga de combustible significa refuel. Una correccion del tanque o lectura actual significa tank_checkpoint. Bonos, rachas, desafios, garantias o promociones significan bonus; si menciona meta pendiente usa bonus_mode active; si dice que ya lo cobro usa paid. expires_at debe ir en formato local YYYY-MM-DDTHH:mm solo si el usuario dio fecha/hora clara.`,
+{"type":"trip|dead_km|refuel|tank_checkpoint|tip|bonus|unknown","fare":0,"trip_km":0,"dead_km":0,"amount":0,"liters":0,"tank_liters":0,"odometer":0,"platform":"didi|uber|inDrive|otra","note":"","bonus_mode":"paid|active|","bonus_type":"","required_trips":0,"completed_trips":0,"extra_km":0,"extra_min":0,"expires_at":""}
+No inventes valores. Usa 0 o "" cuando el usuario no los proporcione. "Sin pasaje", "vacio" o "muertos" significa dead_km. Una carga de combustible significa refuel. Una correccion del tanque o lectura actual significa tank_checkpoint. Una propina significa tip y su monto va en amount. Bonos, rachas, desafios, garantias o promociones significan bonus; si menciona meta pendiente usa bonus_mode active; si dice que ya lo cobro usa paid. expires_at debe ir en formato local YYYY-MM-DDTHH:mm solo si el usuario dio fecha/hora clara.`,
   vision: `Extrae datos de una captura de Uber, DiDi, inDrive u otra plataforma.
 Responde unicamente JSON valido con esta forma:
 {"fare":0,"pickup_km":0,"pickup_min":0,"dest_km":0,"dest_min":0}
@@ -82,7 +82,7 @@ module.exports = async function handler(req, res) {
       ? req.body.mode
       : "advisor";
     const rawIncoming = Array.isArray(req.body?.messages) ? req.body.messages : [];
-    const maxIncoming = mode === "advisor" ? 6 : 12;
+    const maxIncoming = mode === "advisor" ? 5 : 12;
     const incoming = rawIncoming.slice(-maxIncoming).map(message => {
       const role = message.role === "assistant" ? "assistant" : message.role === "system" ? "system" : "user";
       if (Array.isArray(message.content)) {
@@ -97,7 +97,7 @@ module.exports = async function handler(req, res) {
       }
       return {
         role,
-        content: String(message.content || "").slice(0, mode === "advisor" ? 2200 : 1200),
+        content: String(message.content || "").slice(0, mode === "advisor" ? (role === "system" ? 5200 : 1400) : 1200),
       };
     });
     if (!incoming.length) return res.status(400).json({ error: "Falta el mensaje para la IA." });

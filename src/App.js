@@ -178,12 +178,14 @@ const operationalSummary=(trips,events,cfg,date,trackedKm=0,bonuses=[])=>{
   const refuels=dayEvents.filter(e=>e.type==="refuel");
   const fuelPurchased=refuels.reduce((s,e)=>s+(Number(e.amount)||0),0);
   const litersPurchased=refuels.reduce((s,e)=>s+(Number(e.liters)||0),0);
+  const tips=dayEvents.filter(e=>e.type==="tip");
+  const tipIncome=tips.reduce((s,e)=>s+(Number(e.amount)||0),0);
   const consumedGas=distanceCost(totalKm,cfg).gas;
   return{
-    ...tripStats,totalKm,deadKm,fuelPurchased,litersPurchased,consumedGas,
+    ...tripStats,gross:tripStats.gross+tipIncome,totalKm,deadKm,fuelPurchased,litersPurchased,consumedGas,tipIncome,tipCount:tips.length,
     bonusGross:bonusStats.gross,bonusNet:bonusStats.net,bonusCount:bonusStats.n,
-    net:tripStats.net+bonusStats.net-deadCost.gas-deadCost.wear,
-    cash:tripStats.gross+bonusStats.gross-tripStats.fee-fuelPurchased,
+    net:tripStats.net+bonusStats.net+tipIncome-deadCost.gas-deadCost.wear,
+    cash:tripStats.gross+bonusStats.gross+tipIncome-tripStats.fee-fuelPurchased,
     productivePct:totalKm>0?tripStats.km/totalKm*100:0,
   };
 };
@@ -216,9 +218,18 @@ const IC={
   road:["M3 17l3-10h12l3 10","M8 17v-5","M12 17V7","M16 17v-5"],
   fuel:["M3 22V4a2 2 0 012-2h8a2 2 0 012 2v18","M3 10h12","M18 7l3 3v9a2 2 0 01-4 0v-4a2 2 0 00-2-2"],
   gauge:["M4.93 19a10 10 0 1114.14 0","M12 15l4-4","M8 19h8"],
+  tip:["M12 2v20","M17 5H9.5a3.5 3.5 0 000 7H14a3.5 3.5 0 010 7H6"],
   mic:["M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z","M19 10v2a7 7 0 01-14 0v-2","M12 19v3","M8 22h8"],
   close:"M18 6L6 18 M6 6l12 12",
 };
+
+const eventMeta=type=>({
+  dead_km:{label:"Sin pasaje",icon:IC.road,color:C.accent},
+  refuel:{label:"Gasolina",icon:IC.fuel,color:C.danger},
+  tank_checkpoint:{label:"Tanque",icon:IC.gauge,color:C.teal},
+  tip:{label:"Propina",icon:IC.tip,color:C.teal},
+}[type]||{label:"Movimiento",icon:IC.trips,color:C.muted});
+const eventDescription=e=>e.type==="dead_km"?`${fmt(e.km,1)} km sin pasaje`:e.type==="refuel"?`${fmt(e.liters,2)} L · ${fmtMXN(e.amount)}`:e.type==="tank_checkpoint"?`Tanque ajustado a ${fmt(e.tank_liters,1)} L`:`${fmtMXN(e.amount)} de propina`;
 
 const CSS=`
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Barlow+Condensed:wght@700;800;900&display=swap');
@@ -768,6 +779,7 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
     {id:"dead_km",label:"Sin pasaje",d:IC.road},
     {id:"refuel",label:"Gasolina",d:IC.fuel},
     {id:"tank_checkpoint",label:"Tanque",d:IC.gauge},
+    {id:"tip",label:"Propina",d:IC.tip},
     {id:"bonus",label:"Bono",d:IC.flag},
   ];
   const parse=async()=>{
@@ -802,7 +814,7 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
     ? Number(form.fare)>0&&!!form.platform
     : form.type==="bonus"
       ? Number(form.amount)>0&&!!form.platform&&(form.bonus_mode!=="active"||Number(form.required_trips)>0)
-      : Number(form.type==="dead_km"?form.km:form.type==="refuel"?(form.liters||form.amount):form.tank_liters)>0;
+      : Number(form.type==="dead_km"?form.km:form.type==="refuel"?(form.liters||form.amount):form.type==="tip"?form.amount:form.tank_liters)>0;
   const save=async()=>{
     if(!valid||saving)return;setSaving(true);
     let ok=false;
@@ -819,7 +831,7 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
       paid_at:form.bonus_mode==="active"?null:occurredAt,
     });
     else{
-      const payload={type:form.type,km:Number(form.km)||0,amount:Number(form.amount)||0,liters:Number(form.liters)||0,tank_liters:Number(form.tank_liters)||0,odometer:Number(form.odometer)||0,note:form.note||"",occurred_at:occurredAt,date:form.occurred_at.split("T")[0]};
+      const payload={type:form.type,km:Number(form.km)||0,amount:Number(form.amount)||0,liters:Number(form.liters)||0,tank_liters:Number(form.tank_liters)||0,odometer:Number(form.odometer)||0,platform:form.platform||"",note:form.note||"",occurred_at:occurredAt,date:form.occurred_at.split("T")[0]};
       ok=initial?await onUpdateOperation(initial.id,payload):await onSaveOperation(payload);
     }
     setSaving(false);if(ok)onClose();
@@ -835,11 +847,12 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
         </div>
         <div style={{fontSize:9,color:listening?C.teal:C.dim,lineHeight:1.45,marginBottom:voiceError?6:14}}>{listening?"Escuchando... puedes corregir el texto antes de enviarlo a IA.":"La IA prepara el registro. Tu confirmas antes de guardarlo."}</div>
         {voiceError&&<div style={{fontSize:10,color:C.danger,background:`${C.danger}10`,border:`1px solid ${C.danger}33`,borderRadius:7,padding:"8px 9px",marginBottom:12}}>{voiceError}</div>}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:5,marginBottom:15}}>{TYPES.map(t=><button key={t.id} onClick={()=>set("type",t.id)} style={{minHeight:66,padding:"8px 3px",border:`1px solid ${form.type===t.id?C.accent:C.border}`,borderRadius:8,background:form.type===t.id?`${C.accent}12`:C.card2,color:form.type===t.id?C.accent:C.muted,fontSize:8,fontWeight:700,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6}}><SVG d={t.d} size={17} color={form.type===t.id?C.accent:C.muted}/>{t.label}</button>)}</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:15}}>{TYPES.map(t=><button key={t.id} onClick={()=>set("type",t.id)} style={{minHeight:58,padding:"7px 3px",border:`1px solid ${form.type===t.id?C.accent:C.border}`,borderRadius:8,background:form.type===t.id?`${C.accent}12`:C.card2,color:form.type===t.id?C.accent:C.muted,fontSize:8,fontWeight:700,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:5}}><SVG d={t.d} size={16} color={form.type===t.id?C.accent:C.muted}/>{t.label}</button>)}</div>
         {form.type==="trip"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Tarifa" type="number" value={form.fare} onChange={v=>set("fare",v)} unit="$"/><Inp label="Distancia" type="number" value={form.trip_km} onChange={v=>set("trip_km",v)} unit="km"/><div style={{gridColumn:"1 / -1"}}><Lbl s={{marginBottom:5}}>Plataforma</Lbl><select value={form.platform} onChange={e=>set("platform",e.target.value)} disabled={!platforms.length} style={{width:"100%",background:C.card2,border:`1px solid ${platforms.length?C.border:C.danger}`,borderRadius:8,padding:"10px",color:platforms.length?C.text:C.danger}}>{!platforms.length&&<option value="">Activa una plataforma en Config</option>}{platforms.map(p=><option key={p.id} value={p.id}>{p.name} · {p.commission}%</option>)}</select></div></div>}
         {form.type==="dead_km"&&<Inp label="Kilometros sin pasajero" type="number" value={form.km} onChange={v=>set("km",v)} unit="km"/>}
         {form.type==="refuel"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Litros cargados" type="number" value={form.liters} onChange={v=>set("liters",v)} unit="L"/><Inp label="Importe pagado" type="number" value={form.amount} onChange={v=>set("amount",v)} unit="$"/></div>}
         {form.type==="tank_checkpoint"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Litros estimados" type="number" value={form.tank_liters} onChange={v=>set("tank_liters",v)} unit="L"/><Inp label="Odometro opcional" type="number" value={form.odometer} onChange={v=>set("odometer",v)} unit="km"/></div>}
+        {form.type==="tip"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Monto de propina" type="number" value={form.amount} onChange={v=>set("amount",v)} unit="$"/><div><Lbl s={{marginBottom:5}}>Plataforma</Lbl><select value={form.platform} onChange={e=>set("platform",e.target.value)} style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px",color:C.text}}><option value="">Sin plataforma</option>{platforms.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></div></div>}
         {form.type==="bonus"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
           <div style={{gridColumn:"1 / -1",display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
             {[{id:"paid",l:"Recibido"},{id:"active",l:"Activo"}].map(m=><button key={m.id} onClick={()=>set("bonus_mode",m.id)} style={{padding:"9px",background:form.bonus_mode===m.id?`${C.accent}1a`:"transparent",border:`1px solid ${form.bonus_mode===m.id?C.accent:C.border}`,borderRadius:8,color:form.bonus_mode===m.id?C.accent:C.muted,fontSize:10,fontWeight:700}}>{m.l}</button>)}
@@ -977,7 +990,7 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
         <Lbl s={{marginBottom:3}}>Ganancia neta hoy</Lbl>
         <div className="B" style={{fontSize:54,fontWeight:900,color:stats.net>=0?C.teal:C.danger,lineHeight:1}}>{fmtMXN(stats.net)}</div>
         <div style={{fontSize:11,color:C.muted,marginTop:5}}>
-          {todayTrips.length} viajes · {fmt(stats.productivePct,0)}% de km productivos · {stats.min.toFixed(0)} min
+          {todayTrips.length} viajes · {fmt(stats.productivePct,0)}% de km productivos · {stats.min.toFixed(0)} min{stats.tipIncome>0?` · ${fmtMXN(stats.tipIncome)} propinas`:""}
         </div>
       </div>
 
@@ -1057,9 +1070,8 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
       {todayEvents.length>0&&<Card s={{marginBottom:13}}>
         <Lbl s={{marginBottom:9}}>Movimientos de jornada</Lbl>
         {todayEvents.slice(0,8).map(e=>{
-          const label=e.type==="dead_km"?`${fmt(e.km,1)} km sin pasajero`:e.type==="refuel"?`${fmt(e.liters,2)} L · ${fmtMXN(e.amount)}`:`Tanque ajustado a ${fmt(e.tank_liters,1)} L`;
-          const icon=e.type==="dead_km"?IC.road:e.type==="refuel"?IC.fuel:IC.gauge;
-          return <div key={e.id} onClick={()=>onEditEvent(e)} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}><SVG d={icon} size={15} color={C.accent}/><div style={{flex:1}}><div style={{fontSize:11,color:C.text}}>{label}</div><div style={{fontSize:9,color:C.dim,marginTop:2}}>{fmtHour(e.occurred_at)}{e.note?` · ${e.note}`:""}</div></div><button onClick={ev=>{ev.stopPropagation();onEditEvent(e);}} title="Editar movimiento"><SVG d={IC.edit} size={14} color={C.accent}/></button><button onClick={ev=>{ev.stopPropagation();onDeleteEvent(e.id);}} title="Eliminar movimiento"><SVG d={IC.trash} size={14} color={C.danger}/></button></div>;
+          const meta=eventMeta(e.type);
+          return <div key={e.id} onClick={()=>onEditEvent(e)} style={{display:"flex",alignItems:"center",gap:9,padding:"9px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}><SVG d={meta.icon} size={15} color={meta.color}/><div style={{flex:1}}><div style={{fontSize:11,color:C.text}}>{eventDescription(e)}</div><div style={{fontSize:9,color:C.dim,marginTop:2}}>{fmtHour(e.occurred_at)}{e.platform?` · ${platformInfo(cfg,e.platform).name}`:""}{e.note?` · ${e.note}`:""}</div></div><button onClick={ev=>{ev.stopPropagation();onEditEvent(e);}} title="Editar movimiento"><SVG d={IC.edit} size={14} color={C.accent}/></button><button onClick={ev=>{ev.stopPropagation();onDeleteEvent(e.id);}} title="Eliminar movimiento"><SVG d={IC.trash} size={14} color={C.danger}/></button></div>;
         })}
       </Card>}
 
@@ -1104,14 +1116,33 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
 }
 
 // ─── TRIPS TAB ────────────────────────────────────────────────────────────────
-function TripsTab({cfg,trips,saveTrip,updateTrip,deleteTrip,onSelect,onNew}){
+function TripsTab({cfg,trips,events,bonuses,onSelect,onNew,onQuick,onEditEvent,onDeleteEvent,onDeleteBonus}){
   const[range,setRange]=useState({preset:"all",from:"",to:""});
+  const[section,setSection]=useState("trips");
+  const[extraType,setExtraType]=useState("all");
   const filtered=trips.filter(t=>inDateRange(t,range)).sort((a,b)=>new Date(b.end_time||b.created_at||0)-new Date(a.end_time||a.created_at||0));
+  const extraRows=[
+    ...events.map(e=>({kind:"event",type:e.type,time:e.occurred_at||e.created_at,data:e})),
+    ...bonuses.map(b=>({kind:"bonus",type:"bonus",time:b.paid_at||b.starts_at||b.created_at,data:b})),
+  ].filter(row=>inDateRange(row.data,range)&&(extraType==="all"||row.type===extraType)).sort((a,b)=>new Date(b.time)-new Date(a.time));
+  const groupedExtras=extraRows.reduce((groups,row)=>{const key=dateKey(row.time);if(!groups[key])groups[key]=[];groups[key].push(row);return groups;},{});
+  const summary=extraRows.reduce((a,row)=>{
+    if(row.type==="tip")a.tips+=Number(row.data.amount)||0;
+    if(row.type==="refuel"){a.liters+=Number(row.data.liters)||0;a.fuel+=Number(row.data.amount)||0;}
+    if(row.type==="dead_km")a.dead+=Number(row.data.km)||0;
+    if(row.type==="bonus"&&["paid","earned"].includes(String(row.data.status||"")))a.bonuses+=Number(row.data.amount)||0;
+    return a;
+  },{tips:0,liters:0,fuel:0,dead:0,bonuses:0});
+  const filters=[{id:"all",label:"Todos"},{id:"dead_km",label:"Sin pasaje"},{id:"refuel",label:"Gasolina"},{id:"tank_checkpoint",label:"Tanque"},{id:"tip",label:"Propinas"},{id:"bonus",label:"Bonos"}];
 
   return(
     <div className="fu" style={{padding:"15px 14px 90px"}}>
       <div className="B" style={{fontSize:22,fontWeight:800,color:C.accent,marginBottom:13,letterSpacing:1}}>HISTORIAL</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,background:C.card2,borderRadius:8,padding:4,marginBottom:11}}>
+        {[{id:"trips",label:"Viajes"},{id:"extras",label:"Extras"}].map(item=><button key={item.id} onClick={()=>setSection(item.id)} style={{padding:"9px",borderRadius:6,background:section===item.id?C.card:"transparent",border:`1px solid ${section===item.id?C.bord2:"transparent"}`,color:section===item.id?C.text:C.muted,fontSize:10,fontWeight:800,textTransform:"uppercase"}}>{item.label}</button>)}
+      </div>
       <DateRangeControl value={range} onChange={setRange}/>
+      {section==="trips"?<>
       <Btn full onClick={onNew} s={{marginBottom:11}}><SVG d={IC.plus} size={13} color={C.accent}/>Agregar viaje</Btn>
       {filtered.length===0?(
         <div style={{textAlign:"center",padding:"48px 0",color:C.dim}}><div style={{fontSize:34,marginBottom:9}}>🚗</div><Lbl>Sin viajes registrados</Lbl></div>
@@ -1144,7 +1175,26 @@ function TripsTab({cfg,trips,saveTrip,updateTrip,deleteTrip,onSelect,onNew}){
             </div>
           </Card>
         );
-      })}
+      })}</>:<>
+        <Btn full onClick={onQuick} color={C.teal} s={{marginBottom:11}}><SVG d={IC.plus} size={13} color={C.teal}/>Agregar extra</Btn>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:11}}>{filters.map(item=><button key={item.id} onClick={()=>setExtraType(item.id)} style={{padding:"7px 3px",border:`1px solid ${extraType===item.id?C.accent:C.border}`,borderRadius:7,background:extraType===item.id?`${C.accent}12`:C.card2,color:extraType===item.id?C.accent:C.muted,fontSize:8,fontWeight:800}}>{item.label}</button>)}</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:7,marginBottom:13}}>
+          {[{label:"Propinas",value:fmtMXN(summary.tips),color:C.teal},{label:"Gasolina",value:`${fmt(summary.liters,1)} L`,sub:fmtMXN(summary.fuel),color:C.danger},{label:"Sin pasaje",value:`${fmt(summary.dead,1)} km`,color:C.accent},{label:"Bonos cobrados",value:fmtMXN(summary.bonuses),color:C.teal}].map(item=><Card key={item.label} s={{padding:10}}><Lbl s={{marginBottom:4}}>{item.label}</Lbl><Big size={18} color={item.color}>{item.value}</Big>{item.sub&&<div style={{fontSize:9,color:C.muted,marginTop:2}}>{item.sub}</div>}</Card>)}
+        </div>
+        {extraRows.length===0?<div style={{textAlign:"center",padding:"40px 0",color:C.dim}}><Lbl>Sin extras en este periodo</Lbl></div>:Object.entries(groupedExtras).map(([date,rows])=><section key={date} style={{marginBottom:15}}>
+          <Lbl s={{marginBottom:7}}>{fmtDate(date)}</Lbl>
+          {rows.map(row=>{
+            const item=row.data;
+            const isBonus=row.kind==="bonus";
+            const meta=isBonus?{label:"Bono",icon:IC.flag,color:C.accent}:eventMeta(item.type);
+            const description=isBonus?`${fmtMXN(item.amount)} · ${item.bonus_type||"bono"}`:eventDescription(item);
+            const detail=isBonus?`${platformInfo(cfg,item.platform).name} · ${item.status==="active"?`${item.completed_trips||0}/${item.required_trips||0} viajes`:"cobrado"}`:`${item.platform?platformInfo(cfg,item.platform).name+" · ":""}${item.note||meta.label}`;
+            return <Card key={`${row.kind}-${item.id}`} s={{marginBottom:6,padding:11}} onClick={()=>!isBonus&&onEditEvent(item)}>
+              <div style={{display:"flex",alignItems:"center",gap:9}}><SVG d={meta.icon} size={16} color={meta.color}/><div style={{flex:1,minWidth:0}}><div style={{fontSize:11,color:C.text,fontWeight:700}}>{description}</div><div style={{fontSize:9,color:C.muted,marginTop:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fmtHour(row.time)} · {detail}</div></div>{!isBonus&&<button onClick={e=>{e.stopPropagation();onEditEvent(item);}} title="Editar"><SVG d={IC.edit} size={13} color={C.accent}/></button>}<button onClick={e=>{e.stopPropagation();isBonus?onDeleteBonus(item.id):onDeleteEvent(item.id);}} title="Eliminar"><SVG d={IC.trash} size={13} color={C.danger}/></button></div>
+            </Card>;
+          })}
+        </section>)}
+      </>}
     </div>
   );
 }
@@ -1157,7 +1207,7 @@ function StatsTab({cfg,trips,events,bonuses}){
   const filteredBonuses=bonuses.filter(b=>inDateRange(b,range));
   const dates=[...new Set([...filtered.map(dateOf),...filteredEvents.map(dateOf),...filteredBonuses.map(dateOf)])].sort();
   const chart=dates.map(date=>{const d=operationalSummary(trips,events,cfg,date,0,bonuses);return{date,...d,trips:trips.filter(t=>dateOf(t)===date).length,nph:d.min>0?d.net/(d.min/60):0,label:new Date(`${date}T12:00:00`).toLocaleDateString("es-MX",{day:"numeric",month:"short"})};});
-  const tot=chart.reduce((a,d)=>({net:a.net+d.net,km:a.km+d.totalKm,gas:a.gas+d.consumedGas,gross:a.gross+d.gross,min:a.min+d.min,deadKm:a.deadKm+d.deadKm,fuelPurchased:a.fuelPurchased+d.fuelPurchased,cash:a.cash+d.cash,productiveKm:a.productiveKm+d.km}),{net:0,km:0,gas:0,gross:0,min:0,deadKm:0,fuelPurchased:0,cash:0,productiveKm:0});
+  const tot=chart.reduce((a,d)=>({net:a.net+d.net,km:a.km+d.totalKm,gas:a.gas+d.consumedGas,gross:a.gross+d.gross,min:a.min+d.min,deadKm:a.deadKm+d.deadKm,fuelPurchased:a.fuelPurchased+d.fuelPurchased,tips:a.tips+d.tipIncome,cash:a.cash+d.cash,productiveKm:a.productiveKm+d.km}),{net:0,km:0,gas:0,gross:0,min:0,deadKm:0,fuelPurchased:0,tips:0,cash:0,productiveKm:0});
   const byPlat={};filtered.forEach(t=>{const p=t.platform||"uber";if(!byPlat[p])byPlat[p]={name:p.toUpperCase(),net:0,count:0};byPlat[p].net+=calcTrip(t,cfg).net;byPlat[p].count++;});
   const platData=Object.values(byPlat);const PIE=[C.accent,C.teal,"#a855f7","#f43f5e"];
   const byHour={};filtered.forEach(t=>{const h=new Date(t.end_time||t.created_at||0).getHours();if(!byHour[h])byHour[h]={hour:h,net:0,count:0};byHour[h].net+=calcTrip(t,cfg).net;byHour[h].count++;});
@@ -1174,7 +1224,7 @@ function StatsTab({cfg,trips,events,bonuses}){
         <div style={{textAlign:"center",padding:"50px 0",color:C.dim}}><div style={{fontSize:34,marginBottom:9}}>📊</div><Lbl>Registra viajes para ver estadísticas</Lbl></div>
       ):<>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:13}}>
-          {[{l:"Utilidad operativa",v:fmtMXN(tot.net),c:tot.net>=0?C.teal:C.danger},{l:"Flujo de efectivo",v:fmtMXN(tot.cash),c:tot.cash>=0?C.text:C.danger},{l:"Viajes",v:filtered.length,c:C.text},{l:"Km totales",v:`${fmt(tot.km,0)} km`,c:C.accent},{l:"Km sin pasajero",v:`${fmt(tot.deadKm,0)} km`,c:tot.deadKm>tot.productiveKm?C.danger:C.accent},{l:"Km productivos",v:fmtPct(tot.km>0?tot.productiveKm/tot.km*100:0),c:C.teal},{l:"$/hora promedio",v:fmtMXN(tot.min>0?tot.net/(tot.min/60):0),c:C.accent},{l:"Gas consumida",v:fmtMXN(tot.gas),c:C.danger},{l:"Gas comprada",v:fmtMXN(tot.fuelPurchased),c:C.accent},{l:"Promedio/viaje",v:fmtMXN(filtered.length>0?tot.net/filtered.length:0),c:C.teal}].map(({l,v,c})=>(
+          {[{l:"Utilidad operativa",v:fmtMXN(tot.net),c:tot.net>=0?C.teal:C.danger},{l:"Flujo de efectivo",v:fmtMXN(tot.cash),c:tot.cash>=0?C.text:C.danger},{l:"Viajes",v:filtered.length,c:C.text},{l:"Propinas",v:fmtMXN(tot.tips),c:C.teal},{l:"Km totales",v:`${fmt(tot.km,0)} km`,c:C.accent},{l:"Km sin pasajero",v:`${fmt(tot.deadKm,0)} km`,c:tot.deadKm>tot.productiveKm?C.danger:C.accent},{l:"Km productivos",v:fmtPct(tot.km>0?tot.productiveKm/tot.km*100:0),c:C.teal},{l:"$/hora promedio",v:fmtMXN(tot.min>0?tot.net/(tot.min/60):0),c:C.accent},{l:"Gas consumida",v:fmtMXN(tot.gas),c:C.danger},{l:"Gas comprada",v:fmtMXN(tot.fuelPurchased),c:C.accent},{l:"Promedio/viaje",v:fmtMXN(filtered.length>0?tot.net/filtered.length:0),c:C.teal}].map(({l,v,c})=>(
             <Card key={l} s={{padding:"11px 13px"}}><Lbl s={{marginBottom:5}}>{l}</Lbl><Big size={21} color={c}>{v}</Big></Card>
           ))}
         </div>
@@ -1224,7 +1274,7 @@ function StatsTab({cfg,trips,events,bonuses}){
 }
 
 // ─── AI TAB ───────────────────────────────────────────────────────────────────
-function AITab({cfg,trips,bonuses,locations=[],isPro,monthlyTripsCount,onUpgrade,userId}){
+function AITab({cfg,trips,events=[],bonuses,closures=[],locations=[],isPro,monthlyTripsCount,onUpgrade,userId}){
   const WELCOME={role:"assistant",content:"## Asesor de rentabilidad\n\nTe digo qué tomar, qué evitar y cuándo un bono deja de convenir."};
   const[msgs,setMsgs]=useState([WELCOME]);
   const[conversations,setConversations]=useState([]);
@@ -1273,6 +1323,17 @@ function AITab({cfg,trips,bonuses,locations=[],isPro,monthlyTripsCount,onUpgrade
     const sAll=all.reduce((a,t)=>{const c=calcTrip(t,cfg);return{net:a.net+c.net,km:a.km+c.km,gas:a.gas+c.gas,min:a.min+c.min,n:a.n+1};},{net:0,km:0,gas:0,min:0,n:0});
     const activeBonuses=bonuses.filter(b=>String(b.status||"")==="active");
     const paidBonuses=bonuses.filter(b=>["paid","earned"].includes(String(b.status||"")));
+    const allEvents=[...events].sort((a,b)=>eventMs(b)-eventMs(a));
+    const events30=allEvents.filter(e=>eventMs(e)>=Date.now()-30*86400000);
+    const refuels=allEvents.filter(e=>e.type==="refuel");
+    const tanks=allEvents.filter(e=>e.type==="tank_checkpoint");
+    const tips=allEvents.filter(e=>e.type==="tip");
+    const dead30=events30.filter(e=>e.type==="dead_km").reduce((sum,e)=>sum+(Number(e.km)||0),0);
+    const loaded30=events30.filter(e=>e.type==="refuel").reduce((a,e)=>({liters:a.liters+(Number(e.liters)||0),amount:a.amount+(Number(e.amount)||0)}),{liters:0,amount:0});
+    const loadedAll=refuels.reduce((a,e)=>({liters:a.liters+(Number(e.liters)||0),amount:a.amount+(Number(e.amount)||0)}),{liters:0,amount:0});
+    const tips30=events30.filter(e=>e.type==="tip").reduce((sum,e)=>sum+(Number(e.amount)||0),0);
+    const consumedLiters30=((s30.km+dead30)/(cfg.kmPerLiter||12));
+    const describeEvent=e=>`${dateKey(e.occurred_at||e.created_at)} ${fmtHour(e.occurred_at||e.created_at)} ${eventMeta(e.type).label}: ${eventDescription(e)}${e.platform?` ${platformInfo(cfg,e.platform).name}`:""}${e.note?` (${e.note})`:""}`;
 
     // Mejor y peor hora (todos los viajes)
     const bh={};all.forEach(t=>{const h=new Date(t.end_time||t.created_at||0).getHours();if(!bh[h])bh[h]={net:0,n:0};bh[h].net+=calcTrip(t,cfg).net;bh[h].n++;});
@@ -1330,16 +1391,27 @@ function AITab({cfg,trips,bonuses,locations=[],isPro,monthlyTripsCount,onUpgrade
       .join(" | ");
     const locatedTrips=all.filter(t=>tripLocations[String(t.id)]?.start).length;
     const latestPoint=[...locations].sort((a,b)=>new Date(b.captured_at||0)-new Date(a.captured_at||0))[0];
+    const lastRefuel=refuels[0]?describeEvent(refuels[0]):"ninguna";
+    const lastTank=tanks[0]?describeEvent(tanks[0]):"ninguno";
+    const lastTip=tips[0]?describeEvent(tips[0]):"ninguna";
+    const recentOps=allEvents.slice(0,10).map(describeEvent).join(" | ");
+    const lastClosure=closures[0];
+    const closureCtx=lastClosure?`${dateKey(lastClosure.end_time||lastClosure.date)}: ${lastClosure.trip_count||0} viajes, ${fmtMXN(lastClosure.total_net)}, ${fmt(lastClosure.total_km,1)}km, ${fmt(lastClosure.dead_km,1)}km sin pasaje`:"ninguno";
 
     return`CTX RUTAFLOW
 FECHA LOCAL: ${today()} ${fmtHour(new Date())}
 META ${fmtMXN(cfg.targetHourlyRate)}/hr | GAS $${cfg.gasPricePerLiter}/L ${cfg.kmPerLiter}km/L
 TOTAL ${sAll.n} viajes: neto ${fmtMXN(sAll.net)}, ${fmt(sAll.km,0)}km, ${(sAll.min/60).toFixed(0)}h, prom ${fmtMXN(sAll.n>0?sAll.net/sAll.n:0)}/viaje
 30D ${s30.n} viajes: neto ${fmtMXN(s30.net)}, ${(s30.min/60).toFixed(1)}h, ${fmtMXN(s30.min>0?s30.net/(s30.min/60):0)}/hr, gas ${fmtMXN(s30.gas)}
+OPERACION 30D: gasolina cargada ${fmt(loaded30.liters,2)}L por ${fmtMXN(loaded30.amount)}; consumo estimado ${fmt(consumedLiters30,2)}L; sin pasaje ${fmt(dead30,1)}km; propinas ${fmtMXN(tips30)}
+GASOLINA TOTAL REGISTRADA: ${fmt(loadedAll.liters,2)}L por ${fmtMXN(loadedAll.amount)} | ULTIMA CARGA: ${lastRefuel}
+ULTIMO TANQUE: ${lastTank} | ULTIMA PROPINA: ${lastTip}
 BONOS cobrados ${paidBonuses.length}: ${fmtMXN(bonusNet)} | activos: ${bonusCtx||"ninguno"}
 SEÑALES tendencia ${tendencia}; mejores ${bestH||"s/d"}; peores ${worstH||"s/d"}; dias ${diaS||"s/d"}; plataformas ${platS||"s/d"}
 ZONAS ORIGEN (${locatedTrips}/${all.length} viajes con GPS): ${zoneCtx||"aun sin viajes geolocalizados"}
 UBICACION RECIENTE: ${locationName(latestPoint)||"sin dato"}
+ULTIMO CIERRE: ${closureCtx}
+MOVIMIENTOS RECIENTES: ${recentOps||"ninguno"}
 ULTIMOS ${last3||"s/d"}`;
   };
   useEffect(()=>{endRef.current?.scrollIntoView({behavior:"smooth"});},[msgs,loading]);
@@ -1351,9 +1423,9 @@ ULTIMOS ${last3||"s/d"}`;
     const pending=[...msgs,um];
     setMsgs(pending);setInput("");setLoading(true);
     try{
-      const recentMessages=pending.slice(-5);
+      const recentMessages=pending.slice(-3);
       const content=await callGroq("advisor",[
-        {role:"system",content:`Copiloto RutaFlow. Responde maximo 4 bullets, breve y con numeros. Da decision: tomar, esperar, evitar, perseguir bono o abandonar bono. Para zonas, usa rentabilidad real por zona de origen y aclara que es historial personal, no demanda en vivo de la plataforma. No inventes colonias ni zonas. Usa hechos del contexto; si faltan datos, dilo en 1 linea. ${ctx()}`},
+        {role:"system",content:`Copiloto RutaFlow. Contesta primero la pregunta exacta con el dato registrado; no sustituyas una carga, propina o lectura de tanque por un calculo si existe el movimiento real. Responde maximo 4 bullets, breve y con numeros. Para recomendaciones da una decision clara. Para zonas usa rentabilidad historica personal, no demanda en vivo. No inventes datos. Si falta justo el dato solicitado, dilo en 1 linea. ${ctx()}`},
         ...recentMessages
       ].map(m=>({role:m.role,content:m.content})),900);
       const next=[...pending,{role:"assistant",content}];setMsgs(next);
@@ -1639,7 +1711,7 @@ export default function RutaFlow(){
       const{data:saved,error}=await supabase.from("operational_events").insert([{
         user_id:session.user.id,type:data.type,km:Number(data.km)||0,amount:Number(data.amount)||0,
         liters:Number(data.liters)||0,tank_liters:Number(data.tank_liters)||0,odometer:Number(data.odometer)||0,
-        note:data.note||"",date:data.date||today(),occurred_at:data.occurred_at||new Date().toISOString(),
+        platform:data.platform||"",note:data.note||"",date:data.date||today(),occurred_at:data.occurred_at||new Date().toISOString(),
       }]).select().single();
       if(error){
         const msg=error.code==="42P01"?"Falta instalar la tabla de Jornada Inteligente en Supabase.":error.message;
@@ -1672,6 +1744,12 @@ export default function RutaFlow(){
       if(error){showToast("No se pudo actualizar el bono","err");return false;}
       setBonuses(p=>p.map(b=>b.id===id?updated:b));return true;
     }catch(e){showToast("Error de conexion","err");return false;}
+  };
+
+  const deleteBonus=async id=>{
+    if(!window.confirm("Eliminar este bono del historial?"))return;
+    const{error}=await supabase.from("bonuses").delete().eq("id",id);
+    if(!error){setBonuses(p=>p.filter(b=>b.id!==id));showToast("Bono eliminado");}
   };
 
   const updateOperation=async(id,data)=>{
@@ -1769,9 +1847,9 @@ export default function RutaFlow(){
         </div>
 
         {tab==="home"   &&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setShowOperation(true);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade}/>}
-        {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} saveTrip={saveTrip} updateTrip={updateTrip} deleteTrip={deleteTrip} onSelect={setSelTrip} onNew={()=>setShowNew(true)}/>}
+        {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} onSelect={setSelTrip} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setShowOperation(true);}} onEditEvent={e=>{setEditingEvent(e);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses}/>}
-        {tab==="ai"     &&<AITab cfg={cfg} trips={trips} bonuses={bonuses} locations={locations} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} userId={session.user.id}/>}
+        {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} userId={session.user.id}/>}
         {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp}/>}
 
         {/* NAVEGACIÓN FIJA */}
