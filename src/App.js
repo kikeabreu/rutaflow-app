@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import { supabase } from "./supabaseClient";
 import { callGroq, imageToDataUrl, parseJsonContent } from "./groqClient";
 import { locateDriver } from "./locationClient";
+import dateUtils from "./dateUtils";
 
 // ─── PALETA ──────────────────────────────────────────────────────────────────
 const C={bg:"#07080d",card:"#0d0f1a",card2:"#111320",border:"#1a1d2e",bord2:"#242740",accent:"#f0a500",teal:"#00c9a7",danger:"#ff4055",dim:"#3a3d55",muted:"#6b6e8a",text:"#dde0f5"};
@@ -35,19 +36,10 @@ const openUpgrade=()=>{
 const fmt=(n,d=2)=>(parseFloat(n)||0).toFixed(d);
 const fmtMXN=n=>`$${fmt(n)}`;
 const fmtPct=n=>`${fmt(n,1)}%`;
-const dateKey=value=>{
-  if(typeof value==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(value))return value;
-  const d=new Date(value),pad=n=>String(n).padStart(2,"0");
-  return`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-};
-const today=()=>dateKey(Date.now());
-const fmtDate=d=>new Date(typeof d==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(d)?`${d}T12:00:00`:d).toLocaleDateString("es-MX",{weekday:"short",day:"numeric",month:"short"});
-const fmtHour=d=>new Date(d).toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"});
+const{dateKey,today,fmtDate,fmtHour,shiftDate,localDateTime,toStorageInstant,deviceTimeZone}=dateUtils;
 const fmtClock=ms=>{const s=Math.floor(Math.abs(ms)/1000);return`${String(Math.floor(s/3600)).padStart(2,"0")}:${String(Math.floor((s%3600)/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;};
 const haversine=(a,b)=>{const R=6371,r=x=>x*Math.PI/180;const dLat=r(b.lat-a.lat),dLon=r(b.lon-a.lon);const x=Math.sin(dLat/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLon/2)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));};
 const dateOf=x=>dateKey(x?.end_time||x?.occurred_at||x?.paid_at||x?.created_at||x?.date||Date.now());
-const shiftDate=(days=0)=>{const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()+days);return dateKey(d);};
-const localDateTime=value=>{const d=new Date(value||Date.now());const pad=n=>String(n).padStart(2,"0");return`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;};
 const inDateRange=(item,range)=>{const d=dateOf(item);return(!range.from||d>=range.from)&&(!range.to||d<=range.to);};
 const locationName=point=>point?.zone||point?.city||(Number.isFinite(Number(point?.latitude??point?.lat))?`${Number(point.latitude??point.lat).toFixed(3)}, ${Number(point.longitude??point.lon).toFixed(3)}`:"");
 
@@ -413,7 +405,7 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
       pickup_km:parseFloat(form.pickup_km)||0,pickup_min:parseFloat(form.pickup_min)||0,
       dest_km:parseFloat(form.dest_km)||0,dest_min:parseFloat(form.dest_min)||0,
       gps_km:parseFloat(form.gps_km)||0,gps_min:parseFloat(form.gps_min)||0,
-      date:form.occurred_at.split("T")[0],end_time:new Date(form.occurred_at).toISOString(),
+      date:dateKey(form.occurred_at),end_time:toStorageInstant(form.occurred_at),
     });
     setSaving(false);
     setEditing(false);
@@ -641,12 +633,13 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
     catch{
       if(lastRef.current)endLocation={...lastRef.current,accuracy_m:null,captured_at:new Date().toISOString()};
     }
+    const endedAt=toStorageInstant();
     const ok=await saveTrip({
       fare:parseFloat(trip.fare)||0,platform:trip.platform,
       pickup_km:parseFloat(trip.pickup_km)||0,pickup_min:parseFloat(trip.pickup_min)||0,
       dest_km:parseFloat(trip.dest_km)||0,dest_min:parseFloat(trip.dest_min)||0,
       gps_km:parseFloat(trip.gps_km)||0,gps_min:parseFloat(trip.gps_min)||0,
-      date:today(),end_time:new Date().toISOString(),day_id:activeDay?.id||null,
+      date:dateKey(endedAt),end_time:endedAt,day_id:activeDay?.id||null,
       start_location:startLocationRef.current||startLocation||trip.start_location||null,end_location:endLocation,
     });
     setSaving(false);
@@ -830,20 +823,20 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
   const save=async()=>{
     if(!valid||saving)return;setSaving(true);
     let ok=false;
-    const occurredAt=new Date(form.occurred_at||Date.now()).toISOString();
-    if(form.type==="trip")ok=await onSaveTrip({fare:Number(form.fare)||0,dest_km:Number(form.trip_km)||0,platform:form.platform,date:form.occurred_at.split("T")[0],end_time:occurredAt});
+    const occurredAt=toStorageInstant(form.occurred_at);
+    if(form.type==="trip")ok=await onSaveTrip({fare:Number(form.fare)||0,dest_km:Number(form.trip_km)||0,platform:form.platform,date:dateKey(form.occurred_at),end_time:occurredAt});
     else if(form.type==="bonus")ok=await onSaveBonus({
       platform:form.platform,bonus_type:form.bonus_type,amount:Number(form.amount)||0,
       status:form.bonus_mode==="active"?"active":"paid",
       required_trips:form.bonus_mode==="active"?Number(form.required_trips)||0:null,
       completed_trips:form.bonus_mode==="active"?Number(form.completed_trips)||0:null,
       extra_km:Number(form.extra_km)||0,extra_min:Number(form.extra_min)||0,
-      notes:form.note||"",starts_at:form.occurred_at?new Date(form.occurred_at).toISOString():null,
-      expires_at:form.bonus_mode==="active"&&form.expires_at?new Date(form.expires_at).toISOString():null,
+      notes:form.note||"",starts_at:form.occurred_at?toStorageInstant(form.occurred_at):null,
+      expires_at:form.bonus_mode==="active"&&form.expires_at?toStorageInstant(form.expires_at):null,
       paid_at:form.bonus_mode==="active"?null:occurredAt,
     });
     else{
-      const payload={type:form.type,km:Number(form.km)||0,amount:Number(form.amount)||0,liters:Number(form.liters)||0,tank_liters:Number(form.tank_liters)||0,odometer:Number(form.odometer)||0,platform:form.platform||"",note:form.note||"",occurred_at:occurredAt,date:form.occurred_at.split("T")[0]};
+      const payload={type:form.type,km:Number(form.km)||0,amount:Number(form.amount)||0,liters:Number(form.liters)||0,tank_liters:Number(form.tank_liters)||0,odometer:Number(form.odometer)||0,platform:form.platform||"",note:form.note||"",occurred_at:occurredAt,date:dateKey(form.occurred_at)};
       ok=initial?await onUpdateOperation(initial.id,payload):await onSaveOperation(payload);
     }
     setSaving(false);if(ok)onClose();
@@ -1429,10 +1422,11 @@ function AITab({cfg,trips,events=[],bonuses,closures=[],locations=[],isPro,month
     const lastTip=tips[0]?describeEvent(tips[0]):"ninguna";
     const recentOps=allEvents.slice(0,10).map(describeEvent).join(" | ");
     const lastClosure=closures[0];
-    const closureCtx=lastClosure?`${dateKey(lastClosure.end_time||lastClosure.date)}: ${lastClosure.trip_count||0} viajes, ${fmtMXN(lastClosure.total_net)}, ${fmt(lastClosure.total_km,1)}km, ${fmt(lastClosure.dead_km,1)}km sin pasaje`:"ninguno";
+    const closureCtx=lastClosure?`${dateKey(lastClosure.date||lastClosure.end_time)}: ${lastClosure.trip_count||0} viajes, ${fmtMXN(lastClosure.total_net)}, ${fmt(lastClosure.total_km,1)}km, ${fmt(lastClosure.dead_km,1)}km sin pasaje`:"ninguno";
 
     return`CTX RUTAFLOW
 FECHA LOCAL: ${today()} ${fmtHour(new Date())}
+ZONA HORARIA DEL DISPOSITIVO: ${deviceTimeZone()}
 META ${fmtMXN(cfg.targetHourlyRate)}/hr | GAS $${cfg.gasPricePerLiter}/L ${cfg.kmPerLiter}km/L
 TOTAL ${sAll.n} viajes: neto ${fmtMXN(sAll.net)}, ${fmt(sAll.km,0)}km, ${(sAll.min/60).toFixed(0)}h, prom ${fmtMXN(sAll.n>0?sAll.net/sAll.n:0)}/viaje
 30D ${s30.n} viajes: neto ${fmtMXN(s30.net)}, ${(s30.min/60).toFixed(1)}h, ${fmtMXN(s30.min>0?s30.net/(s30.min/60):0)}/hr, gas ${fmtMXN(s30.gas)}
@@ -1701,12 +1695,13 @@ export default function RutaFlow(){
       return false;
     }
     try{
+      const endTime=data.end_time||toStorageInstant();
       const{data:saved,error}=await supabase.from("trips").insert([{
         user_id:session.user.id,fare:Number(data.fare)||0,platform:data.platform||"uber",
         pickup_km:Number(data.pickup_km)||0,pickup_min:Number(data.pickup_min)||0,
         dest_km:Number(data.dest_km)||0,dest_min:Number(data.dest_min)||0,
         gps_km:Number(data.gps_km)||0,gps_min:Number(data.gps_min)||0,
-        date:data.date||today(),end_time:data.end_time||new Date().toISOString(),day_id:data.day_id||null,
+        date:dateKey(endTime)||data.date||today(),end_time:endTime,day_id:data.day_id||null,
       }]).select().single();
       if(error){showToast("Error: "+error.message,"err");return false;}
       if(saved){
@@ -1741,10 +1736,11 @@ export default function RutaFlow(){
   const saveOperation=async data=>{
     if(!session)return false;
     try{
+      const occurredAt=data.occurred_at||toStorageInstant();
       const{data:saved,error}=await supabase.from("operational_events").insert([{
         user_id:session.user.id,type:data.type,km:Number(data.km)||0,amount:Number(data.amount)||0,
         liters:Number(data.liters)||0,tank_liters:Number(data.tank_liters)||0,odometer:Number(data.odometer)||0,
-        platform:data.platform||"",note:data.note||"",date:data.date||today(),occurred_at:data.occurred_at||new Date().toISOString(),
+        platform:data.platform||"",note:data.note||"",date:dateKey(occurredAt)||data.date||today(),occurred_at:occurredAt,
       }]).select().single();
       if(error){
         const msg=error.code==="42P01"?"Falta instalar la tabla de Jornada Inteligente en Supabase.":error.message;
@@ -1802,7 +1798,8 @@ export default function RutaFlow(){
   const startDay=async()=>{
     if(!session)return;
     const locationPromise=locateDriver({timeout:8000}).catch(()=>null);
-    const{data,error}=await supabase.from("active_days").upsert({user_id:session.user.id,date:today(),start_time:new Date().toISOString()},{onConflict:"user_id"}).select().single();
+    const startedAt=toStorageInstant();
+    const{data,error}=await supabase.from("active_days").upsert({user_id:session.user.id,date:dateKey(startedAt),start_time:startedAt},{onConflict:"user_id"}).select().single();
     if(!error&&data){
       const obj={id:data.id,date:data.date,startTime:new Date(data.start_time).getTime(),running:true};setActiveDay(obj);LS.set(K.DAY,obj);
       const point=await locationPromise;
