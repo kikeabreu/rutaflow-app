@@ -120,9 +120,9 @@ const closureIncludes=(closure,time,fallbackDate)=>{
   return dateKey(fallbackDate||time)===dateKey(closure?.date);
 };
 const closureMovements=(closure,trips,events,bonuses,cfg)=>[
-  ...trips.filter(t=>closureIncludes(closure,t.end_time||t.created_at,dateOf(t))).map(t=>{const c=calcTrip(t,cfg);return{kind:"trip",id:t.id,time:t.end_time||t.created_at,title:`Viaje · ${platformInfo(cfg,t.platform).name}`,detail:`${fmtMXN(t.fare)} · ${fmt(c.km,1)} km · ${fmt(c.min,0)} min`,value:c.net,color:c.net>=0?C.teal:C.danger,icon:IC.trips};}),
-  ...events.filter(e=>closureIncludes(closure,e.occurred_at||e.created_at,dateOf(e))).map(e=>{const meta=eventMeta(e.type);const value=e.type==="tip"?Number(e.amount)||0:e.type==="refuel"?-(Number(e.amount)||0):null;return{kind:"event",id:e.id,time:e.occurred_at||e.created_at,title:meta.label,detail:`${eventDescription(e)}${e.platform?` · ${platformInfo(cfg,e.platform).name}`:""}${e.note?` · ${e.note}`:""}`,value,color:meta.color,icon:meta.icon};}),
-  ...bonuses.filter(b=>["paid","earned"].includes(String(b.status||""))&&closureIncludes(closure,b.paid_at||b.created_at,dateOf(b))).map(b=>{const c=calcBonus(b,cfg);return{kind:"bonus",id:b.id,time:b.paid_at||b.created_at,title:`Bono · ${platformInfo(cfg,b.platform).name}`,detail:b.bonus_type||"Bono cobrado",value:c.net,color:c.net>=0?C.teal:C.danger,icon:IC.flag};}),
+  ...trips.filter(t=>closureIncludes(closure,t.end_time||t.created_at,dateOf(t))).map(t=>{const c=calcTrip(t,cfg);return{kind:"trip",id:t.id,record:t,time:t.end_time||t.created_at,title:`Viaje · ${platformInfo(cfg,t.platform).name}`,detail:`${fmtMXN(t.fare)} · ${fmt(c.km,1)} km · ${fmt(c.min,0)} min`,value:c.net,color:c.net>=0?C.teal:C.danger,icon:IC.trips};}),
+  ...events.filter(e=>closureIncludes(closure,e.occurred_at||e.created_at,dateOf(e))).map(e=>{const meta=eventMeta(e.type);const value=e.type==="tip"?Number(e.amount)||0:e.type==="refuel"?-(Number(e.amount)||0):null;return{kind:"event",id:e.id,record:e,time:e.occurred_at||e.created_at,title:meta.label,detail:`${eventDescription(e)}${e.platform?` · ${platformInfo(cfg,e.platform).name}`:""}${e.note?` · ${e.note}`:""}`,value,color:meta.color,icon:meta.icon};}),
+  ...bonuses.filter(b=>["paid","earned"].includes(String(b.status||""))&&closureIncludes(closure,b.paid_at||b.created_at,dateOf(b))).map(b=>{const c=calcBonus(b,cfg);return{kind:"bonus",id:b.id,record:b,time:b.paid_at||b.created_at,title:`Bono · ${platformInfo(cfg,b.platform).name}`,detail:b.bonus_type||"Bono cobrado",value:c.net,color:c.net>=0?C.teal:C.danger,icon:IC.flag};}),
 ].sort((a,b)=>new Date(a.time)-new Date(b.time));
 const distanceCost=(km,cfg)=>{
   const n=Number(km)||0;
@@ -763,12 +763,15 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
 
 // ─── REGISTRO OPERATIVO ───────────────────────────────────────────────────────
 const OP0={type:"dead_km",km:"",amount:"",liters:"",tank_liters:"",odometer:"",fare:"",trip_km:"",platform:"didi",note:"",occurred_at:"",bonus_mode:"paid",bonus_type:"racha",required_trips:"",completed_trips:"",extra_km:"",extra_min:"",expires_at:""};
-function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,onSaveBonus,initial,cfg}){
+function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,onSaveBonus,onUpdateBonus,initial,initialKind="event",cfg}){
   const platforms=enabledPlatforms(cfg);
   const defaultPlatform=platforms.find(p=>p.id===OP0.platform)?.id||platforms[0]?.id||"";
   const[form,setForm]=useState(()=>{
     const base=initial?{
-      ...OP0,...initial,km:String(initial.km||""),amount:String(initial.amount||""),liters:String(initial.liters||""),tank_liters:String(initial.tank_liters||""),odometer:String(initial.odometer||""),occurred_at:localDateTime(initial.occurred_at||initial.created_at),
+      ...OP0,...initial,type:initialKind==="bonus"?"bonus":initial.type,
+      km:String(initial.km||""),amount:String(initial.amount||""),liters:String(initial.liters||""),tank_liters:String(initial.tank_liters||""),odometer:String(initial.odometer||""),
+      note:initial.note||initial.notes||"",bonus_mode:initialKind==="bonus"?(initial.status||"paid"):OP0.bonus_mode,
+      occurred_at:localDateTime(initial.occurred_at||initial.paid_at||initial.starts_at||initial.created_at),expires_at:initial.expires_at?localDateTime(initial.expires_at):localDateTime(),
     }:{...OP0,occurred_at:localDateTime(),expires_at:localDateTime()};
     return{...base,platform:platforms.some(p=>p.id===base.platform)?base.platform:defaultPlatform};
   });
@@ -825,16 +828,19 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
     let ok=false;
     const occurredAt=toStorageInstant(form.occurred_at);
     if(form.type==="trip")ok=await onSaveTrip({fare:Number(form.fare)||0,dest_km:Number(form.trip_km)||0,platform:form.platform,date:dateKey(form.occurred_at),end_time:occurredAt});
-    else if(form.type==="bonus")ok=await onSaveBonus({
+    else if(form.type==="bonus"){
+      const payload={
       platform:form.platform,bonus_type:form.bonus_type,amount:Number(form.amount)||0,
-      status:form.bonus_mode==="active"?"active":"paid",
-      required_trips:form.bonus_mode==="active"?Number(form.required_trips)||0:null,
-      completed_trips:form.bonus_mode==="active"?Number(form.completed_trips)||0:null,
+      status:form.bonus_mode,
+      required_trips:["active","earned","lost"].includes(form.bonus_mode)?Number(form.required_trips)||0:null,
+      completed_trips:["active","earned","lost"].includes(form.bonus_mode)?Number(form.completed_trips)||0:null,
       extra_km:Number(form.extra_km)||0,extra_min:Number(form.extra_min)||0,
       notes:form.note||"",starts_at:form.occurred_at?toStorageInstant(form.occurred_at):null,
-      expires_at:form.bonus_mode==="active"&&form.expires_at?toStorageInstant(form.expires_at):null,
-      paid_at:form.bonus_mode==="active"?null:occurredAt,
-    });
+      expires_at:["active","earned","lost"].includes(form.bonus_mode)&&form.expires_at?toStorageInstant(form.expires_at):null,
+      paid_at:["paid","earned"].includes(form.bonus_mode)?occurredAt:null,
+      };
+      ok=initial&&initialKind==="bonus"?await onUpdateBonus(initial.id,payload):await onSaveBonus(payload);
+    }
     else{
       const payload={type:form.type,km:Number(form.km)||0,amount:Number(form.amount)||0,liters:Number(form.liters)||0,tank_liters:Number(form.tank_liters)||0,odometer:Number(form.odometer)||0,platform:form.platform||"",note:form.note||"",occurred_at:occurredAt,date:dateKey(form.occurred_at)};
       ok=initial?await onUpdateOperation(initial.id,payload):await onSaveOperation(payload);
@@ -844,7 +850,7 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
   return(
     <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.76)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
       <div className="su" style={{width:"100%",maxWidth:480,maxHeight:"92dvh",overflowY:"auto",background:C.card,border:`1px solid ${C.bord2}`,borderRadius:"14px 14px 0 0",padding:"15px 14px calc(18px + env(safe-area-inset-bottom))"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div><Big size={23} color={C.accent}>{initial?"EDITAR MOVIMIENTO":"REGISTRO RAPIDO"}</Big><div style={{fontSize:10,color:C.muted,marginTop:3}}>Escribe, dicta o elige un movimiento</div></div><button onClick={onClose} aria-label="Cerrar"><SVG d={IC.close} color={C.muted}/></button></div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div><Big size={23} color={C.accent}>{initial?"EDITAR REGISTRO":"REGISTRO RAPIDO"}</Big><div style={{fontSize:10,color:C.muted,marginTop:3}}>Escribe, dicta o elige un movimiento</div></div><button onClick={onClose} aria-label="Cerrar"><SVG d={IC.close} color={C.muted}/></button></div>
         <div style={{display:"flex",gap:6,marginBottom:8}}>
           <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&parse()} placeholder='Ej. "Cargue 10 litros por $243.90"' style={{flex:1,minWidth:0,background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"11px",color:C.text,fontSize:12,outline:"none"}}/>
           <button onClick={listen} title={listening?"Detener dictado":"Dictar movimiento"} style={{width:42,height:42,border:`1px solid ${listening?C.danger:C.border}`,borderRadius:8,display:"grid",placeItems:"center",background:listening?`${C.danger}18`:C.card2}}><SVG d={listening?IC.stop:IC.mic} color={listening?C.danger:C.muted}/></button>
@@ -852,7 +858,7 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
         </div>
         <div style={{fontSize:9,color:listening?C.teal:C.dim,lineHeight:1.45,marginBottom:voiceError?6:14}}>{listening?"Escuchando... puedes corregir el texto antes de enviarlo a IA.":"La IA prepara el registro. Tu confirmas antes de guardarlo."}</div>
         {voiceError&&<div style={{fontSize:10,color:C.danger,background:`${C.danger}10`,border:`1px solid ${C.danger}33`,borderRadius:7,padding:"8px 9px",marginBottom:12}}>{voiceError}</div>}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:15}}>{TYPES.map(t=><button key={t.id} onClick={()=>set("type",t.id)} style={{minHeight:58,padding:"7px 3px",border:`1px solid ${form.type===t.id?C.accent:C.border}`,borderRadius:8,background:form.type===t.id?`${C.accent}12`:C.card2,color:form.type===t.id?C.accent:C.muted,fontSize:8,fontWeight:700,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:5}}><SVG d={t.d} size={16} color={form.type===t.id?C.accent:C.muted}/>{t.label}</button>)}</div>
+        <div style={{display:"grid",gridTemplateColumns:initial?"1fr":"repeat(3,1fr)",gap:5,marginBottom:15}}>{TYPES.filter(t=>!initial||t.id===form.type).map(t=><button key={t.id} onClick={()=>set("type",t.id)} style={{minHeight:initial?44:58,padding:"7px 3px",border:`1px solid ${form.type===t.id?C.accent:C.border}`,borderRadius:8,background:form.type===t.id?`${C.accent}12`:C.card2,color:form.type===t.id?C.accent:C.muted,fontSize:8,fontWeight:700,display:"flex",flexDirection:initial?"row":"column",alignItems:"center",justifyContent:"center",gap:5}}><SVG d={t.d} size={16} color={form.type===t.id?C.accent:C.muted}/>{t.label}</button>)}</div>
         {form.type==="trip"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Tarifa" type="number" value={form.fare} onChange={v=>set("fare",v)} unit="$"/><Inp label="Distancia" type="number" value={form.trip_km} onChange={v=>set("trip_km",v)} unit="km"/><div style={{gridColumn:"1 / -1"}}><Lbl s={{marginBottom:5}}>Plataforma</Lbl><select value={form.platform} onChange={e=>set("platform",e.target.value)} disabled={!platforms.length} style={{width:"100%",background:C.card2,border:`1px solid ${platforms.length?C.border:C.danger}`,borderRadius:8,padding:"10px",color:platforms.length?C.text:C.danger}}>{!platforms.length&&<option value="">Activa una plataforma en Config</option>}{platforms.map(p=><option key={p.id} value={p.id}>{p.name} · {p.commission}%</option>)}</select></div></div>}
         {form.type==="dead_km"&&<Inp label="Kilometros sin pasajero" type="number" value={form.km} onChange={v=>set("km",v)} unit="km"/>}
         {form.type==="refuel"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Litros cargados" type="number" value={form.liters} onChange={v=>set("liters",v)} unit="L"/><Inp label="Importe pagado" type="number" value={form.amount} onChange={v=>set("amount",v)} unit="$"/></div>}
@@ -860,12 +866,12 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
         {form.type==="tip"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Monto de propina" type="number" value={form.amount} onChange={v=>set("amount",v)} unit="$"/><div><Lbl s={{marginBottom:5}}>Plataforma</Lbl><select value={form.platform} onChange={e=>set("platform",e.target.value)} style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px",color:C.text}}><option value="">Sin plataforma</option>{platforms.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></div></div>}
         {form.type==="bonus"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
           <div style={{gridColumn:"1 / -1",display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
-            {[{id:"paid",l:"Recibido"},{id:"active",l:"Activo"}].map(m=><button key={m.id} onClick={()=>set("bonus_mode",m.id)} style={{padding:"9px",background:form.bonus_mode===m.id?`${C.accent}1a`:"transparent",border:`1px solid ${form.bonus_mode===m.id?C.accent:C.border}`,borderRadius:8,color:form.bonus_mode===m.id?C.accent:C.muted,fontSize:10,fontWeight:700}}>{m.l}</button>)}
+            {[{id:"active",l:"Activo"},{id:"earned",l:"Ganado"},{id:"paid",l:"Recibido"},{id:"lost",l:"Perdido"}].map(m=><button key={m.id} onClick={()=>set("bonus_mode",m.id)} style={{padding:"9px 4px",background:form.bonus_mode===m.id?`${C.accent}1a`:"transparent",border:`1px solid ${form.bonus_mode===m.id?C.accent:C.border}`,borderRadius:8,color:form.bonus_mode===m.id?C.accent:C.muted,fontSize:9,fontWeight:700}}>{m.l}</button>)}
           </div>
           <Inp label="Monto del bono" type="number" value={form.amount} onChange={v=>set("amount",v)} unit="$"/>
           <div><Lbl s={{marginBottom:5}}>Tipo</Lbl><select value={form.bonus_type} onChange={e=>set("bonus_type",e.target.value)} style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px",color:C.text}}>{["racha","desafio","garantia","referido","promocion","ajuste"].map(x=><option key={x} value={x}>{x}</option>)}</select></div>
           <div style={{gridColumn:"1 / -1"}}><Lbl s={{marginBottom:5}}>Plataforma</Lbl><select value={form.platform} onChange={e=>set("platform",e.target.value)} disabled={!platforms.length} style={{width:"100%",background:C.card2,border:`1px solid ${platforms.length?C.border:C.danger}`,borderRadius:8,padding:"10px",color:platforms.length?C.text:C.danger}}>{!platforms.length&&<option value="">Activa una plataforma en Config</option>}{platforms.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-          {form.bonus_mode==="active"&&<>
+          {["active","earned","lost"].includes(form.bonus_mode)&&<>
             <Inp label="Viajes hechos" type="number" value={form.completed_trips} onChange={v=>set("completed_trips",v)} />
             <Inp label="Viajes meta" type="number" value={form.required_trips} onChange={v=>set("required_trips",v)} />
             <div style={{gridColumn:"1 / -1"}}><Lbl s={{marginBottom:5}}>Vence</Lbl><input type="datetime-local" value={form.expires_at||localDateTime()} onChange={e=>set("expires_at",e.target.value)} style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 11px",color:C.text,fontSize:12}}/></div>
@@ -881,7 +887,38 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
   );
 }
 
-function ClosureModal({closure,cfg,trips=[],events=[],bonuses=[],onClose}){
+function RecordDetail({kind,record,cfg,onClose,onEdit,onDelete}){
+  const isBonus=kind==="bonus";
+  const meta=isBonus?{label:"Bono",icon:IC.flag,color:C.accent}:eventMeta(record.type);
+  const time=isBonus?(record.paid_at||record.starts_at||record.created_at):(record.occurred_at||record.created_at);
+  const platform=record.platform?platformInfo(cfg,record.platform).name:"Sin plataforma";
+  const rows=isBonus?[
+    ["Monto",fmtMXN(record.amount)],["Plataforma",platform],["Estado",({active:"Activo",earned:"Ganado",paid:"Recibido",lost:"Perdido"})[record.status]||record.status],["Tipo",record.bonus_type||"Bono"],
+    ...(Number(record.required_trips)>0?[["Progreso",`${record.completed_trips||0} de ${record.required_trips} viajes`]]:[]),
+    ...(record.expires_at?[["Vencimiento",`${fmtDate(record.expires_at)} · ${fmtHour(record.expires_at)}`]]:[]),
+    ...(Number(record.extra_km)>0?[["Km adicionales",`${fmt(record.extra_km,1)} km`]]:[]),
+    ...(Number(record.extra_min)>0?[["Tiempo adicional",`${fmt(record.extra_min,0)} min`]]:[]),
+  ]:record.type==="refuel"?[
+    ["Litros cargados",`${fmt(record.liters,2)} L`],["Importe pagado",fmtMXN(record.amount)],["Precio por litro",Number(record.liters)>0?fmtMXN(Number(record.amount)/Number(record.liters)):"--"],
+  ]:record.type==="tank_checkpoint"?[
+    ["Nivel registrado",`${fmt(record.tank_liters,2)} L`],...(Number(record.odometer)>0?[["Odómetro",`${fmt(record.odometer,1)} km`]]:[]),
+  ]:record.type==="tip"?[
+    ["Monto",fmtMXN(record.amount)],["Plataforma",platform],
+  ]:[
+    ["Distancia sin pasaje",`${fmt(record.km,2)} km`],
+  ];
+  const note=isBonus?record.notes:record.note;
+  return <div style={{position:"fixed",inset:0,zIndex:10001,background:"rgba(0,0,0,.84)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={onClose}>
+    <div className="su" onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,background:C.card,border:`1px solid ${C.bord2}`,borderRadius:"16px 16px 0 0",padding:"18px 16px calc(22px + env(safe-area-inset-bottom))"}}>
+      <div style={{display:"flex",alignItems:"flex-start",gap:11,marginBottom:16}}><div style={{width:38,height:38,borderRadius:8,background:`${meta.color}16`,display:"grid",placeItems:"center"}}><SVG d={meta.icon} size={19} color={meta.color}/></div><div style={{flex:1}}><Lbl s={{marginBottom:5}}>Registro</Lbl><Big size={23} color={meta.color}>{meta.label}</Big><div style={{fontSize:10,color:C.muted,marginTop:5}}>{fmtDate(time)} · {fmtHour(time)}</div></div><button onClick={onClose} aria-label="Cerrar"><SVG d={IC.close} color={C.muted}/></button></div>
+      <Card s={{padding:"3px 12px",marginBottom:12}}>{rows.map(([label,value],i)=><div key={label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:"11px 0",borderBottom:i<rows.length-1?`1px solid ${C.border}`:"none"}}><span style={{fontSize:10,color:C.muted}}>{label}</span><strong style={{fontSize:11,color:C.text,textAlign:"right"}}>{value}</strong></div>)}</Card>
+      {note&&<div style={{fontSize:10,color:C.muted,lineHeight:1.55,background:C.card2,borderRadius:8,padding:"10px 12px",marginBottom:12}}>{note}</div>}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}><Btn full onClick={onEdit} color={C.accent}><SVG d={IC.edit} size={14} color={C.accent}/>Editar</Btn><Btn full onClick={onDelete} color={C.danger} outline><SVG d={IC.trash} size={14} color={C.danger}/>Eliminar</Btn></div>
+    </div>
+  </div>;
+}
+
+function ClosureModal({closure,cfg,trips=[],events=[],bonuses=[],onClose,onSelectTrip,onSelectRecord}){
   const s=closure?.snapshot||closure||{};
   const movements=closureMovements(closure,trips,events,bonuses,cfg);
   const rows=[
@@ -901,7 +938,7 @@ function ClosureModal({closure,cfg,trips=[],events=[],bonuses=[],onClose}){
       </div>
       <Lbl s={{marginBottom:8}}>Cronología de la jornada</Lbl>
       <Card s={{padding:"4px 12px",marginBottom:14}}>
-        {movements.length===0?<div style={{padding:"14px 0",fontSize:10,color:C.dim,textAlign:"center"}}>No hay movimientos vinculados a este horario.</div>:movements.map((item,i)=><div key={`${item.kind}-${item.id}`} style={{display:"flex",alignItems:"center",gap:9,padding:"10px 0",borderBottom:i<movements.length-1?`1px solid ${C.border}`:"none"}}><div style={{width:27,height:27,borderRadius:7,background:`${item.color}16`,display:"grid",placeItems:"center"}}><SVG d={item.icon} size={14} color={item.color}/></div><div style={{flex:1,minWidth:0}}><div style={{fontSize:10,color:C.text,fontWeight:700}}>{item.title}</div><div style={{fontSize:9,color:C.muted,marginTop:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.detail}</div></div><div style={{textAlign:"right",flexShrink:0}}>{item.value!==null&&item.value!==undefined&&<div style={{fontSize:11,fontWeight:800,color:item.value>=0?C.teal:C.danger}}>{fmtMXN(item.value)}</div>}<div style={{fontSize:8,color:C.dim,marginTop:3}}>{fmtHour(item.time)}</div></div></div>)}
+        {movements.length===0?<div style={{padding:"14px 0",fontSize:10,color:C.dim,textAlign:"center"}}>No hay movimientos vinculados a este horario.</div>:movements.map((item,i)=><div key={`${item.kind}-${item.id}`} onClick={()=>item.kind==="trip"?onSelectTrip(item.record):onSelectRecord(item.kind,item.record)} style={{display:"flex",alignItems:"center",gap:9,padding:"10px 0",borderBottom:i<movements.length-1?`1px solid ${C.border}`:"none",cursor:"pointer"}}><div style={{width:27,height:27,borderRadius:7,background:`${item.color}16`,display:"grid",placeItems:"center"}}><SVG d={item.icon} size={14} color={item.color}/></div><div style={{flex:1,minWidth:0}}><div style={{fontSize:10,color:C.text,fontWeight:700}}>{item.title}</div><div style={{fontSize:9,color:C.muted,marginTop:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.detail}</div></div><div style={{textAlign:"right",flexShrink:0}}>{item.value!==null&&item.value!==undefined&&<div style={{fontSize:11,fontWeight:800,color:item.value>=0?C.teal:C.danger}}>{fmtMXN(item.value)}</div>}<div style={{fontSize:8,color:C.dim,marginTop:3}}>{fmtHour(item.time)}</div></div></div>)}
       </Card>
       <div style={{fontSize:11,color:C.muted,lineHeight:1.55,background:`${C.accent}0b`,border:`1px solid ${C.accent}28`,borderRadius:9,padding:"10px 12px"}}>{(s.productivePct||0)<45?"Tu mayor oportunidad esta en reducir kilometros sin pasajero antes de buscar mas viajes.":(s.net||0)<0?"La jornada cerro en negativo: revisa comisiones, combustible y viajes de baja rentabilidad.":"Jornada positiva. Compara este cierre con tus mejores dias para repetir horarios y plataformas."}</div>
     </div>
@@ -1127,7 +1164,7 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
 }
 
 // ─── TRIPS TAB ────────────────────────────────────────────────────────────────
-function TripsTab({cfg,trips,events,bonuses,closures,onSelect,onNew,onQuick,onEditEvent,onDeleteEvent,onDeleteBonus,onSelectClosure}){
+function TripsTab({cfg,trips,events,bonuses,closures,onSelect,onNew,onQuick,onSelectRecord,onEditRecord,onDeleteEvent,onDeleteBonus,onSelectClosure}){
   const[range,setRange]=useState({preset:"all",from:"",to:""});
   const[section,setSection]=useState("trips");
   const[extraType,setExtraType]=useState("all");
@@ -1135,7 +1172,7 @@ function TripsTab({cfg,trips,events,bonuses,closures,onSelect,onNew,onQuick,onEd
   const extraRows=[
     ...events.map(e=>({kind:"event",type:e.type,time:e.occurred_at||e.created_at,data:e})),
     ...bonuses.map(b=>({kind:"bonus",type:"bonus",time:b.paid_at||b.starts_at||b.created_at,data:b})),
-  ].filter(row=>inDateRange(row.data,range)&&(extraType==="all"||row.type===extraType)).sort((a,b)=>new Date(b.time)-new Date(a.time));
+  ].filter(row=>{const d=dateKey(row.time);return(!range.from||d>=range.from)&&(!range.to||d<=range.to)&&(extraType==="all"||row.type===extraType);}).sort((a,b)=>new Date(b.time)-new Date(a.time));
   const groupedExtras=extraRows.reduce((groups,row)=>{const key=dateKey(row.time);if(!groups[key])groups[key]=[];groups[key].push(row);return groups;},{});
   const summary=extraRows.reduce((a,row)=>{
     if(row.type==="tip")a.tips+=Number(row.data.amount)||0;
@@ -1152,7 +1189,7 @@ function TripsTab({cfg,trips,events,bonuses,closures,onSelect,onNew,onQuick,onEd
     <div className="fu" style={{padding:"15px 14px 90px"}}>
       <div className="B" style={{fontSize:22,fontWeight:800,color:C.accent,marginBottom:13,letterSpacing:1}}>HISTORIAL</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,background:C.card2,borderRadius:8,padding:4,marginBottom:11}}>
-        {[{id:"trips",label:"Viajes"},{id:"extras",label:"Extras"},{id:"shifts",label:"Jornadas"}].map(item=><button key={item.id} onClick={()=>setSection(item.id)} style={{padding:"9px 4px",borderRadius:6,background:section===item.id?C.card:"transparent",border:`1px solid ${section===item.id?C.bord2:"transparent"}`,color:section===item.id?C.text:C.muted,fontSize:9,fontWeight:800,textTransform:"uppercase"}}>{item.label}</button>)}
+        {[{id:"trips",label:"Viajes"},{id:"extras",label:"Registros"},{id:"shifts",label:"Jornadas"}].map(item=><button key={item.id} onClick={()=>setSection(item.id)} style={{padding:"9px 4px",borderRadius:6,background:section===item.id?C.card:"transparent",border:`1px solid ${section===item.id?C.bord2:"transparent"}`,color:section===item.id?C.text:C.muted,fontSize:9,fontWeight:800,textTransform:"uppercase"}}>{item.label}</button>)}
       </div>
       <DateRangeControl value={range} onChange={setRange}/>
       {section==="trips"?<>
@@ -1189,21 +1226,22 @@ function TripsTab({cfg,trips,events,bonuses,closures,onSelect,onNew,onQuick,onEd
           </Card>
         );
       })}</>:section==="extras"?<>
-        <Btn full onClick={onQuick} color={C.teal} s={{marginBottom:11}}><SVG d={IC.plus} size={13} color={C.teal}/>Agregar extra</Btn>
+        <Btn full onClick={onQuick} color={C.teal} s={{marginBottom:11}}><SVG d={IC.plus} size={13} color={C.teal}/>Agregar registro</Btn>
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:11}}>{filters.map(item=><button key={item.id} onClick={()=>setExtraType(item.id)} style={{padding:"7px 3px",border:`1px solid ${extraType===item.id?C.accent:C.border}`,borderRadius:7,background:extraType===item.id?`${C.accent}12`:C.card2,color:extraType===item.id?C.accent:C.muted,fontSize:8,fontWeight:800}}>{item.label}</button>)}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:7,marginBottom:13}}>
           {[{label:"Propinas",value:fmtMXN(summary.tips),color:C.teal},{label:"Gasolina",value:`${fmt(summary.liters,1)} L`,sub:fmtMXN(summary.fuel),color:C.danger},{label:"Sin pasaje",value:`${fmt(summary.dead,1)} km`,color:C.accent},{label:"Bonos cobrados",value:fmtMXN(summary.bonuses),color:C.teal}].map(item=><Card key={item.label} s={{padding:10}}><Lbl s={{marginBottom:4}}>{item.label}</Lbl><Big size={18} color={item.color}>{item.value}</Big>{item.sub&&<div style={{fontSize:9,color:C.muted,marginTop:2}}>{item.sub}</div>}</Card>)}
         </div>
-        {extraRows.length===0?<div style={{textAlign:"center",padding:"40px 0",color:C.dim}}><Lbl>Sin extras en este periodo</Lbl></div>:Object.entries(groupedExtras).map(([date,rows])=><section key={date} style={{marginBottom:15}}>
+        {extraRows.length===0?<div style={{textAlign:"center",padding:"40px 0",color:C.dim}}><Lbl>Sin registros en este periodo</Lbl></div>:Object.entries(groupedExtras).map(([date,rows])=><section key={date} style={{marginBottom:15}}>
           <Lbl s={{marginBottom:7}}>{fmtDate(date)}</Lbl>
           {rows.map(row=>{
             const item=row.data;
             const isBonus=row.kind==="bonus";
             const meta=isBonus?{label:"Bono",icon:IC.flag,color:C.accent}:eventMeta(item.type);
             const description=isBonus?`${fmtMXN(item.amount)} · ${item.bonus_type||"bono"}`:eventDescription(item);
-            const detail=isBonus?`${platformInfo(cfg,item.platform).name} · ${item.status==="active"?`${item.completed_trips||0}/${item.required_trips||0} viajes`:"cobrado"}`:`${item.platform?platformInfo(cfg,item.platform).name+" · ":""}${item.note||meta.label}`;
-            return <Card key={`${row.kind}-${item.id}`} s={{marginBottom:6,padding:11}} onClick={()=>!isBonus&&onEditEvent(item)}>
-              <div style={{display:"flex",alignItems:"center",gap:9}}><SVG d={meta.icon} size={16} color={meta.color}/><div style={{flex:1,minWidth:0}}><div style={{fontSize:11,color:C.text,fontWeight:700}}>{description}</div><div style={{fontSize:9,color:C.muted,marginTop:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fmtHour(row.time)} · {detail}</div></div>{!isBonus&&<button onClick={e=>{e.stopPropagation();onEditEvent(item);}} title="Editar"><SVG d={IC.edit} size={13} color={C.accent}/></button>}<button onClick={e=>{e.stopPropagation();isBonus?onDeleteBonus(item.id):onDeleteEvent(item.id);}} title="Eliminar"><SVG d={IC.trash} size={13} color={C.danger}/></button></div>
+            const bonusStatus={active:"activo",earned:"ganado",paid:"recibido",lost:"perdido"};
+            const detail=isBonus?`${platformInfo(cfg,item.platform).name} · ${item.status==="active"?`${item.completed_trips||0}/${item.required_trips||0} viajes`:bonusStatus[item.status]||item.status}`:`${item.platform?platformInfo(cfg,item.platform).name+" · ":""}${item.note||meta.label}`;
+            return <Card key={`${row.kind}-${item.id}`} s={{marginBottom:6,padding:11,cursor:"pointer"}} onClick={()=>onSelectRecord(row.kind,item)}>
+              <div style={{display:"flex",alignItems:"center",gap:9}}><SVG d={meta.icon} size={16} color={meta.color}/><div style={{flex:1,minWidth:0}}><div style={{fontSize:11,color:C.text,fontWeight:700}}>{description}</div><div style={{fontSize:9,color:C.muted,marginTop:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fmtHour(row.time)} · {detail}</div></div><button onClick={e=>{e.stopPropagation();onEditRecord(row.kind,item);}} title="Editar"><SVG d={IC.edit} size={13} color={C.accent}/></button><button onClick={e=>{e.stopPropagation();isBonus?onDeleteBonus(item.id):onDeleteEvent(item.id);}} title="Eliminar"><SVG d={IC.trash} size={13} color={C.danger}/></button></div>
             </Card>;
           })}
         </section>)}
@@ -1616,6 +1654,8 @@ export default function RutaFlow(){
   const[showNew,setShowNew]=useState(false);
   const[showOperation,setShowOperation]=useState(false);
   const[editingEvent,setEditingEvent]=useState(null);
+  const[editingKind,setEditingKind]=useState("event");
+  const[selectedRecord,setSelectedRecord]=useState(null);
   const[selectedClosure,setSelectedClosure]=useState(null);
   const installApp=useInstallApp();
 
@@ -1771,14 +1811,15 @@ export default function RutaFlow(){
     try{
       const{data:updated,error}=await supabase.from("bonuses").update({...data,updated_at:new Date().toISOString()}).eq("id",id).select().single();
       if(error){showToast("No se pudo actualizar el bono","err");return false;}
-      setBonuses(p=>p.map(b=>b.id===id?updated:b));return true;
+      setBonuses(p=>p.map(b=>b.id===id?updated:b));showToast("Bono actualizado");return true;
     }catch(e){showToast("Error de conexion","err");return false;}
   };
 
   const deleteBonus=async id=>{
-    if(!window.confirm("Eliminar este bono del historial?"))return;
+    if(!window.confirm("Eliminar este bono del historial?"))return false;
     const{error}=await supabase.from("bonuses").delete().eq("id",id);
-    if(!error){setBonuses(p=>p.filter(b=>b.id!==id));showToast("Bono eliminado");}
+    if(!error){setBonuses(p=>p.filter(b=>b.id!==id));showToast("Bono eliminado");return true;}
+    showToast("No se pudo eliminar el bono","err");return false;
   };
 
   const updateOperation=async(id,data)=>{
@@ -1790,9 +1831,10 @@ export default function RutaFlow(){
   };
 
   const deleteOperation=async id=>{
-    if(!window.confirm("Eliminar este movimiento de la jornada?"))return;
+    if(!window.confirm("Eliminar este movimiento de la jornada?"))return false;
     const{error}=await supabase.from("operational_events").delete().eq("id",id);
-    if(!error){setEvents(p=>p.filter(e=>e.id!==id));showToast("Movimiento eliminado");}
+    if(!error){setEvents(p=>p.filter(e=>e.id!==id));showToast("Movimiento eliminado");return true;}
+    showToast("No se pudo eliminar el registro","err");return false;
   };
 
   const startDay=async()=>{
@@ -1876,8 +1918,8 @@ export default function RutaFlow(){
           </div>
         </div>
 
-        {tab==="home"   &&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setShowOperation(true);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade}/>}
-        {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setShowOperation(true);}} onEditEvent={e=>{setEditingEvent(e);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure}/>}
+        {tab==="home"   &&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade}/>}
+        {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses}/>}
         {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} userId={session.user.id}/>}
         {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp}/>}
@@ -1896,8 +1938,9 @@ export default function RutaFlow(){
 
       {/* MODALES FUERA DEL DIV — flotan sobre todo incluyendo la NAV */}
       {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} activeBonuses={bonuses.filter(b=>String(b.status||"")==="active")} onClose={()=>setShowNew(false)} isPro={isPro} onUpgrade={openUpgrade}/>}
-      {showOperation&&<OperationModal cfg={cfg} initial={editingEvent} onClose={()=>{setShowOperation(false);setEditingEvent(null);}} onSaveOperation={saveOperation} onUpdateOperation={updateOperation} onSaveTrip={saveTrip} onSaveBonus={saveBonus}/>}
-      {selectedClosure&&<ClosureModal closure={selectedClosure} cfg={cfg} trips={trips} events={events} bonuses={bonuses} onClose={()=>setSelectedClosure(null)}/>}
+      {showOperation&&<OperationModal cfg={cfg} initial={editingEvent} initialKind={editingKind} onClose={()=>{setShowOperation(false);setEditingEvent(null);setEditingKind("event");}} onSaveOperation={saveOperation} onUpdateOperation={updateOperation} onSaveTrip={saveTrip} onSaveBonus={saveBonus} onUpdateBonus={updateBonus}/>}
+      {selectedRecord&&<RecordDetail kind={selectedRecord.kind} record={selectedRecord.record} cfg={cfg} onClose={()=>setSelectedRecord(null)} onEdit={()=>{setEditingEvent(selectedRecord.record);setEditingKind(selectedRecord.kind);setSelectedRecord(null);setShowOperation(true);}} onDelete={async()=>{const deleted=selectedRecord.kind==="bonus"?await deleteBonus(selectedRecord.record.id):await deleteOperation(selectedRecord.record.id);if(deleted)setSelectedRecord(null);}}/>}
+      {selectedClosure&&<ClosureModal closure={selectedClosure} cfg={cfg} trips={trips} events={events} bonuses={bonuses} onClose={()=>setSelectedClosure(null)} onSelectTrip={trip=>{setSelectedClosure(null);setSelTrip(trip);}} onSelectRecord={(kind,record)=>{setSelectedClosure(null);setSelectedRecord({kind,record});}}/>}
       {selTrip&&<TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)}
         onSave={async(id,d)=>{await updateTrip(id,d);setSelTrip(null);}}
         onDelete={async id=>{await deleteTrip(id);setSelTrip(null);}}/>}
