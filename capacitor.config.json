@@ -1,0 +1,9 @@
+{
+  "appId": "mx.rutaflow.app",
+  "appName": "RutaFlow",
+  "webDir": "build",
+  "backgroundColor": "#07080d",
+  "android": {
+    "allowMixedContent": false
+  }
+}

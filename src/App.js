@@ -5,7 +5,9 @@ import remarkGfm from "remark-gfm";
 import { supabase } from "./supabaseClient";
 import { callGroq, imageToDataUrl, parseJsonContent } from "./groqClient";
 import { locateDriver } from "./locationClient";
+import { copilot } from "./copilotClient";
 import dateUtils from "./dateUtils";
+import { useSpanishSpeech } from "./voiceClient";
 
 // ─── PALETA ──────────────────────────────────────────────────────────────────
 const C={bg:"#07080d",card:"#0d0f1a",card2:"#111320",border:"#1a1d2e",bord2:"#242740",accent:"#f0a500",teal:"#00c9a7",danger:"#ff4055",dim:"#3a3d55",muted:"#6b6e8a",text:"#dde0f5"};
@@ -16,8 +18,9 @@ const LS={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}},
   del:(k)=>{try{localStorage.removeItem(k);}catch{}},
 };
-const K={DRAFT:"rf_draft",DAY:"rf_day",DAYGPS:"rf_daygps",CHATS:"rf_ai_conversations",LOCATIONS:"rf_location_checkpoints"};
+const K={DRAFT:"rf_draft",DAY:"rf_day",DAYGPS:"rf_daygps",CHATS:"rf_ai_conversations",LOCATIONS:"rf_location_checkpoints",AIVOICE:"rf_ai_voice_auto"};
 const FREE_MONTHLY_TRIP_LIMIT=30;
+const isStandaloneApp=()=>typeof window!=="undefined"&&(window.matchMedia?.("(display-mode: standalone)").matches||window.navigator.standalone===true);
 const paymentUrl=()=>process.env.REACT_APP_STRIPE_PAYMENT_LINK||process.env.REACT_APP_MERCADOPAGO_PAYMENT_LINK||"";
 const isProProfile=profile=>{
   if(!profile)return false;
@@ -224,6 +227,7 @@ const IC={
   gauge:["M4.93 19a10 10 0 1114.14 0","M12 15l4-4","M8 19h8"],
   tip:["M12 2v20","M17 5H9.5a3.5 3.5 0 000 7H14a3.5 3.5 0 010 7H6"],
   mic:["M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z","M19 10v2a7 7 0 01-14 0v-2","M12 19v3","M8 22h8"],
+  speaker:["M11 5L6 9H2v6h4l5 4V5z","M15.54 8.46a5 5 0 010 7.07","M19.07 4.93a10 10 0 010 14.14"],
   close:"M18 6L6 18 M6 6l12 12",
 };
 
@@ -239,8 +243,11 @@ const CSS=`
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Barlow+Condensed:wght@700;800;900&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 ::-webkit-scrollbar{width:0;height:0;}
-body{background:#07080d;color:#dde0f5;font-family:'IBM Plex Mono',monospace;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
+html,body,#root{width:100%;min-height:100%;overflow-x:hidden;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+body{background:#07080d;color:#dde0f5;font-family:'IBM Plex Mono',monospace;-webkit-font-smoothing:antialiased;overscroll-behavior-x:none;touch-action:pan-x pan-y;}
+button,input,select,textarea{touch-action:manipulation;}
 input,select,textarea{font-family:'IBM Plex Mono',monospace;}
+@media (hover:none) and (pointer:coarse){input,select,textarea{font-size:16px!important;}}
 input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;}
 input[type=date]::-webkit-calendar-picker-indicator,input[type=datetime-local]::-webkit-calendar-picker-indicator{filter:invert(1);opacity:1;cursor:pointer;}
 button{cursor:pointer;font-family:'IBM Plex Mono',monospace;border:none;background:none;}
@@ -308,7 +315,7 @@ function useDayGPS(isActive){
 
 function useInstallApp(){
   const[prompt,setPrompt]=useState(null);
-  const[installed,setInstalled]=useState(()=>window.matchMedia?.("(display-mode: standalone)").matches||window.navigator.standalone===true);
+  const[installed,setInstalled]=useState(isStandaloneApp);
   const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
   useEffect(()=>{
     const ready=e=>{e.preventDefault();setPrompt(e);};
@@ -996,10 +1003,11 @@ function BonusTripAdvice({bonus,insight}){
 }
 
 // ─── HOME TAB ─────────────────────────────────────────────────────────────────
-function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,onNew,onQuick,dayKm:propDayKm,onSelect,onDeleteEvent,onEditEvent,onSelectClosure,onUpdateBonus,isPro,monthlyTripsCount,onUpgrade}){
+function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,onNew,onQuick,dayKm:propDayKm,onSelect,onDeleteEvent,onEditEvent,onSelectClosure,onUpdateBonus,isPro,monthlyTripsCount,onUpgrade,copilotState,onToggleCopilot,copilotPlatform,onCopilotPlatform}){
   const[elapsed,setElapsed]=useState(0);
   const[showAll,setShowAll]=useState(false);
   const timerRef=useRef(null);
+  const{supported:voiceSupported,speakingId,speechError,speak}=useSpanishSpeech();
 
   useEffect(()=>{
     if(activeDay?.running&&activeDay?.startTime){
@@ -1030,16 +1038,48 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
   const dayNph=elapsed>0?stats.net/(elapsed/3600000):0;
   const deadKm=stats.deadKm;
   const visibleTrips=showAll?todayTrips:todayTrips.slice(0,4);
+  const spokenSummary=`Resumen de hoy. Ganancia neta ${fmtMXN(stats.net)}. ${todayTrips.length} viajes. ${fmt(stats.productivePct,0)} por ciento de kilómetros productivos. ${activeDay?`La jornada lleva ${fmt(elapsed/3600000,1)} horas y genera ${fmtMXN(dayNph)} por hora.`:"La jornada no está iniciada."} Tanque: ${tank.status}${tank.rangeKm===null?".":`, con aproximadamente ${fmt(tank.rangeKm,0)} kilómetros de autonomía.`} ${activeBonuses.length?`${activeBonuses.length} bonos activos.`:"No hay bonos activos."}`;
 
   return(
     <div className="fu" style={{padding:"15px 14px 90px"}}>
       {!isPro&&<UpgradeCard monthlyTripsCount={monthlyTripsCount} onUpgrade={onUpgrade} s={{marginBottom:13}}/>}
+      <Card s={{marginBottom:13,borderColor:copilotState.running?`${C.teal}66`:C.border}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+            <div className={copilotState.running?"pu":""} style={{width:34,height:34,borderRadius:10,display:"grid",placeItems:"center",background:copilotState.running?`${C.teal}18`:`${C.accent}12`,flexShrink:0}}>
+              <SVG d={IC.mic} size={17} color={copilotState.running?C.teal:C.accent}/>
+            </div>
+            <div style={{minWidth:0}}>
+              <div className="B" style={{fontSize:14,color:copilotState.running?C.teal:C.text}}>COPILOTO DE OFERTAS</div>
+              <div style={{fontSize:9,color:C.muted,lineHeight:1.45,marginTop:2}}>{copilotState.supported?(copilotState.message||"Lee la pantalla y explica cada oferta por voz"):"Disponible al instalar la app para Android"}</div>
+            </div>
+          </div>
+          <button disabled={!copilotState.supported||copilotState.busy} onClick={onToggleCopilot} style={{padding:"9px 11px",borderRadius:8,border:`1px solid ${copilotState.running?C.danger:copilotState.supported?C.teal:C.dim}`,color:copilotState.running?C.danger:copilotState.supported?C.teal:C.dim,fontSize:9,fontWeight:800,letterSpacing:".06em",flexShrink:0,opacity:copilotState.busy?.55:1}}>
+            {copilotState.busy?"ESPERA":copilotState.running?"APAGAR":"ACTIVAR"}
+          </button>
+        </div>
+        {copilotState.supported&&<div style={{display:"flex",gap:5,marginTop:10}}>
+          {enabledPlatforms(cfg).filter(p=>p.id!=="particular").map(p=><button key={p.id} onClick={()=>onCopilotPlatform(p.id)} style={{flex:1,padding:"6px 3px",borderRadius:7,border:`1px solid ${copilotPlatform===p.id?C.accent:C.border}`,background:copilotPlatform===p.id?`${C.accent}13`:"transparent",color:copilotPlatform===p.id?C.accent:C.muted,fontSize:8,fontWeight:700,textTransform:"uppercase"}}>{p.name}</button>)}
+        </div>}
+        {copilotState.lastOffer&&<div style={{marginTop:11,paddingTop:10,borderTop:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"1fr auto",gap:10,alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:11,color:copilotState.lastOffer.verdict==="good"?C.teal:copilotState.lastOffer.verdict==="maybe"?C.accent:C.danger,fontWeight:800}}>{copilotState.lastOffer.verdict==="good"?"BUEN VIAJE":copilotState.lastOffer.verdict==="maybe"?"ACEPTABLE":"NO CONVIENE"} · {String(copilotState.lastOffer.platform||"otra").toUpperCase()}</div>
+            <div style={{fontSize:9,color:C.muted,marginTop:3,lineHeight:1.45}}>{copilotState.lastOffer.explanation}</div>
+          </div>
+          <div style={{textAlign:"right"}}><Big size={19} color={copilotState.lastOffer.verdict==="good"?C.teal:C.accent}>{fmtMXN(copilotState.lastOffer.hourly)}/h</Big><div style={{fontSize:8,color:C.muted,marginTop:2}}>{fmtMXN(copilotState.lastOffer.net)} netos</div></div>
+        </div>}
+        {copilotState.supported&&!copilotState.running&&<div style={{fontSize:8,color:C.dim,lineHeight:1.45,marginTop:9}}>Android mostrará el permiso de captura. RutaFlow procesa el texto en el teléfono y no guarda imágenes.</div>}
+      </Card>
       <div style={{marginBottom:14}}>
         <Lbl s={{marginBottom:3}}>Ganancia neta hoy</Lbl>
         <div className="B" style={{fontSize:54,fontWeight:900,color:stats.net>=0?C.teal:C.danger,lineHeight:1}}>{fmtMXN(stats.net)}</div>
         <div style={{fontSize:11,color:C.muted,marginTop:5}}>
           {todayTrips.length} viajes · {fmt(stats.productivePct,0)}% de km productivos · {stats.min.toFixed(0)} min{stats.tipIncome>0?` · ${fmtMXN(stats.tipIncome)} propinas`:""}
         </div>
+        <button onClick={()=>speak(spokenSummary,"home-summary")} disabled={!voiceSupported} aria-label={speakingId==="home-summary"?"Detener resumen hablado":"Escuchar resumen del día"} style={{marginTop:10,minHeight:42,padding:"9px 12px",border:`1px solid ${voiceSupported?C.teal:C.dim}`,borderRadius:9,color:voiceSupported?C.teal:C.dim,display:"inline-flex",alignItems:"center",gap:8,fontSize:10,fontWeight:800,letterSpacing:".06em"}}>
+          <SVG d={speakingId==="home-summary"?IC.stop:IC.speaker} size={16} color={voiceSupported?C.teal:C.dim}/>{voiceSupported?(speakingId==="home-summary"?"DETENER RESUMEN":"ESCUCHAR RESUMEN"):"VOZ NO DISPONIBLE"}
+        </button>
+        {speechError&&<div style={{fontSize:9,color:C.danger,marginTop:6}}>{speechError}</div>}
       </div>
 
       <Card s={{marginBottom:13}}>
@@ -1346,7 +1386,13 @@ function AITab({cfg,trips,events=[],bonuses,closures=[],locations=[],isPro,month
   const[showHistory,setShowHistory]=useState(false);
   const[input,setInput]=useState("");
   const[loading,setLoading]=useState(false);
+  const[listening,setListening]=useState(false);
+  const[voiceError,setVoiceError]=useState("");
+  const[voiceAuto,setVoiceAuto]=useState(()=>LS.get(K.AIVOICE,true)!==false);
+  const{supported:voiceSupported,speakingId,speechError,speak,stop:stopSpeaking}=useSpanishSpeech();
+  const recRef=useRef(null);
   const endRef=useRef();
+  const inputRef=useRef();
   useEffect(()=>{
     if(!userId)return;
     let live=true;
@@ -1372,13 +1418,53 @@ function AITab({cfg,trips,events=[],bonuses,closures=[],locations=[],isPro,month
     const row=error?{id:`local-${Date.now()}`,user_id:userId,messages:next,title,updated_at:updatedAt}:data;
     setActiveId(row.id);rememberLocal([row,...conversations]);return row.id;
   };
-  const newConversation=()=>{setActiveId(null);setMsgs([WELCOME]);setInput("");setShowHistory(false);};
-  const openConversation=c=>{setActiveId(c.id);setMsgs(Array.isArray(c.messages)?c.messages:[WELCOME]);setShowHistory(false);};
+  const stopListening=useCallback(()=>{
+    if(recRef.current){try{recRef.current.abort();}catch{}recRef.current=null;}
+    setListening(false);
+  },[]);
+  const resetVoice=()=>{stopListening();stopSpeaking();setVoiceError("");};
+  const newConversation=()=>{resetVoice();setActiveId(null);setMsgs([WELCOME]);setInput("");setShowHistory(false);};
+  const openConversation=c=>{resetVoice();setActiveId(c.id);setMsgs(Array.isArray(c.messages)?c.messages:[WELCOME]);setShowHistory(false);};
   const deleteConversation=async()=>{
     if(!activeId||!window.confirm("Eliminar esta conversacion?"))return;
     if(!String(activeId).startsWith("local-"))await supabase.from("ai_conversations").delete().eq("id",activeId);
     const rest=conversations.filter(c=>c.id!==activeId);rememberLocal(rest);
     if(rest[0])openConversation(rest[0]);else newConversation();
+  };
+  useEffect(()=>()=>stopListening(),[stopListening]);
+  const toggleVoiceAuto=()=>{
+    const next=!voiceAuto;
+    setVoiceAuto(next);LS.set(K.AIVOICE,next);
+    if(next)speak("Lectura automática activada en español.","voice-setting");
+    else stopSpeaking();
+  };
+  const listen=()=>{
+    if(listening){recRef.current?.stop();return;}
+    const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!Recognition){setVoiceError("El dictado por voz no está disponible en este dispositivo. Puedes escribir tu pregunta.");return;}
+    stopSpeaking();setVoiceError("");
+    const base=input.trim();
+    const rec=new Recognition();
+    rec.lang="es-MX";rec.interimResults=true;rec.continuous=false;rec.maxAlternatives=3;recRef.current=rec;
+    rec.onstart=()=>setListening(true);
+    rec.onend=()=>{setListening(false);recRef.current=null;};
+    rec.onerror=event=>{
+      setListening(false);recRef.current=null;
+      const errors={
+        "not-allowed":"Activa el permiso del micrófono para hablar con RutaFlow.",
+        "service-not-allowed":"El servicio de dictado está bloqueado en este dispositivo.",
+        "audio-capture":"No encontré un micrófono disponible.",
+        "no-speech":"No alcancé a escuchar. Toca el micrófono e inténtalo de nuevo.",
+        network:"El dictado necesita conexión en este dispositivo. Revisa tu señal.",
+      };
+      setVoiceError(errors[event.error]||"No se escuchó con claridad. Inténtalo de nuevo o corrige el texto.");
+    };
+    rec.onresult=event=>{
+      let heard="";
+      for(let i=0;i<event.results.length;i++)heard+=`${event.results[i][0].transcript} `;
+      setInput(`${base}${base?" ":""}${heard.trim()}`);
+    };
+    try{rec.start();}catch{recRef.current=null;setListening(false);setVoiceError("No pude iniciar el micrófono. Inténtalo de nuevo.");}
   };
   const recent=trips.filter(t=>new Date(t.end_time||t.created_at||0).getTime()>=Date.now()-30*86400000);
   const ctx=()=>{
@@ -1483,6 +1569,7 @@ ULTIMOS ${last3||"s/d"}`;
   const send=async()=>{
     if(!isPro){onUpgrade();return;}
     if(!input.trim()||loading)return;
+    if(recRef.current){try{recRef.current.stop();}catch{}}
     const question=input.trim();
     const um={role:"user",content:question};
     const pending=[...msgs,um];
@@ -1490,34 +1577,46 @@ ULTIMOS ${last3||"s/d"}`;
     try{
       const recentMessages=pending.slice(-3);
       const content=await callGroq("advisor",[
-        {role:"system",content:`Copiloto RutaFlow. Contesta primero la pregunta exacta con el dato registrado; no sustituyas una carga, propina o lectura de tanque por un calculo si existe el movimiento real. Responde maximo 4 bullets, breve y con numeros. Para recomendaciones da una decision clara. Para zonas usa rentabilidad historica personal, no demanda en vivo. No inventes datos. Si falta justo el dato solicitado, dilo en 1 linea. ${ctx()}`},
+        {role:"system",content:`Copiloto RutaFlow. Responde siempre en español mexicano claro y natural para escucharse en voz alta. Contesta primero la pregunta exacta con el dato registrado; no sustituyas una carga, propina o lectura de tanque por un calculo si existe el movimiento real. Responde maximo 4 bullets, breve y con numeros. Evita tablas y abreviaturas dificiles de escuchar. Para recomendaciones da una decision clara. Para zonas usa rentabilidad historica personal, no demanda en vivo. No inventes datos. Si falta justo el dato solicitado, dilo en 1 linea. ${ctx()}`},
         ...recentMessages
       ].map(m=>({role:m.role,content:m.content})),900);
       const next=[...pending,{role:"assistant",content}];setMsgs(next);
+      if(voiceAuto&&voiceSupported)speak(content,`ai-${next.length-1}`);
       await persistConversation(next,conversations.find(c=>c.id===activeId)?.title||question.slice(0,52));
-    }catch(err){const next=[...pending,{role:"assistant",content:`No pude consultar la IA: ${err.message}`}];setMsgs(next);await persistConversation(next,conversations.find(c=>c.id===activeId)?.title||question.slice(0,52));}
+    }catch(err){const message=`No pude consultar la IA: ${err.message}`;const next=[...pending,{role:"assistant",content:message}];setMsgs(next);if(voiceAuto&&voiceSupported)speak(message,`ai-${next.length-1}`);await persistConversation(next,conversations.find(c=>c.id===activeId)?.title||question.slice(0,52));}
     setLoading(false);
   };
   const SUGG=["¿Qué debo tomar para el bono?","¿Este bono sí conviene?","¿Qué viajes debo evitar?","Dame un diagnóstico rápido"];
   return(
-    <div className="fu" style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)",paddingBottom:"calc(60px + env(safe-area-inset-bottom))"}}>
+    <div className="fu" style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)",minHeight:0,paddingBottom:"calc(60px + env(safe-area-inset-bottom))"}}>
       <div style={{padding:"9px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:7,position:"relative"}}>
         <button onClick={()=>setShowHistory(!showHistory)} style={{flex:1,minWidth:0,textAlign:"left",color:C.text}}><Lbl s={{marginBottom:3}}>Conversación</Lbl><div style={{fontSize:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{conversations.find(c=>c.id===activeId)?.title||"Nueva conversación"}</div></button>
         {activeId&&<button onClick={deleteConversation} title="Eliminar conversación" style={{width:34,height:34,border:`1px solid ${C.border}`,borderRadius:7,display:"grid",placeItems:"center"}}><SVG d={IC.trash} size={14} color={C.danger}/></button>}
         <button onClick={newConversation} title="Nueva conversación" style={{width:34,height:34,border:`1px solid ${C.accent}`,borderRadius:7,display:"grid",placeItems:"center"}}><SVG d={IC.plus} size={15} color={C.accent}/></button>
         {showHistory&&<div style={{position:"absolute",top:"calc(100% + 5px)",left:14,right:14,zIndex:20,background:C.card,border:`1px solid ${C.bord2}`,borderRadius:8,maxHeight:260,overflowY:"auto",boxShadow:"0 12px 30px rgba(0,0,0,.55)"}}>{conversations.length===0?<div style={{padding:13,fontSize:11,color:C.muted}}>Aun no hay conversaciones guardadas.</div>:conversations.map(c=><button key={c.id} onClick={()=>openConversation(c)} style={{width:"100%",padding:"10px 12px",textAlign:"left",borderBottom:`1px solid ${C.border}`,color:c.id===activeId?C.accent:C.text}}><div style={{fontSize:11,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.title||"Conversación"}</div><div style={{fontSize:8,color:C.dim,marginTop:3}}>{fmtDate(c.updated_at||c.created_at)}</div></button>)}</div>}
       </div>
+      <div style={{padding:"7px 14px 0"}}>
+        <button onClick={toggleVoiceAuto} disabled={!voiceSupported} aria-pressed={voiceAuto} style={{width:"100%",minHeight:42,padding:"8px 11px",background:voiceAuto?`${C.teal}12`:C.card,border:`1px solid ${voiceSupported?(voiceAuto?C.teal+"55":C.border):C.dim}`,borderRadius:9,color:voiceSupported?(voiceAuto?C.teal:C.muted):C.dim,display:"flex",alignItems:"center",gap:9,textAlign:"left"}}>
+          <SVG d={IC.speaker} size={17} color={voiceSupported?(voiceAuto?C.teal:C.muted):C.dim}/>
+          <div style={{flex:1}}><div style={{fontSize:10,fontWeight:800}}>RESPUESTAS POR VOZ</div><div style={{fontSize:8,marginTop:2,color:C.muted}}>{voiceSupported?"Español (México) · puedes escuchar sin mirar la pantalla":"Audio no disponible en este dispositivo"}</div></div>
+          <div style={{fontSize:9,fontWeight:900}}>{voiceSupported?(voiceAuto?"AUTO":"MANUAL"):"NO"}</div>
+        </button>
+      </div>
       {recent.length<5&&<div style={{margin:"11px 14px 0",background:`${C.accent}12`,border:`1px solid ${C.accent}33`,borderRadius:9,padding:"9px 13px",fontSize:11,color:C.accent}}>⚠️ Con más viajes el análisis mejora ({recent.length} actuales)</div>}
       {!isPro&&<UpgradeCard monthlyTripsCount={monthlyTripsCount} onUpgrade={onUpgrade} s={{margin:"11px 14px 0"}}/>}
       {msgs.length<=1&&<div style={{padding:"11px 14px 0"}}><Lbl s={{marginBottom:7}}>Preguntas frecuentes</Lbl><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{SUGG.map(s=><button key={s} onClick={()=>setInput(s)} style={{padding:"6px 11px",background:`${C.teal}12`,border:`1px solid ${C.teal}33`,borderRadius:18,color:C.teal,fontSize:11,fontWeight:600}}>{s}</button>)}</div></div>}
       <div style={{flex:1,overflowY:"auto",padding:"11px 14px",display:"flex",flexDirection:"column",gap:9}}>
-        {msgs.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}><div style={{maxWidth:m.role==="user"?"88%":"96%",padding:"10px 13px",borderRadius:m.role==="user"?"13px 13px 3px 13px":"13px 13px 13px 3px",background:m.role==="user"?`${C.accent}1e`:C.card,border:`1px solid ${m.role==="user"?C.accent+"44":C.border}`,fontSize:13,lineHeight:1.6,whiteSpace:m.role==="user"?"pre-wrap":"normal",color:C.text}}>{m.role==="assistant"?<MarkdownMessage>{m.content}</MarkdownMessage>:m.content}</div></div>)}
+        {msgs.map((m,i)=>{const speechId=`ai-${i}`,isAssistant=m.role==="assistant",isSpeaking=speakingId===speechId;return <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}><div style={{maxWidth:m.role==="user"?"88%":"96%",padding:"10px 13px",borderRadius:m.role==="user"?"13px 13px 3px 13px":"13px 13px 13px 3px",background:m.role==="user"?`${C.accent}1e`:C.card,border:`1px solid ${m.role==="user"?C.accent+"44":C.border}`,fontSize:13,lineHeight:1.6,whiteSpace:m.role==="user"?"pre-wrap":"normal",color:C.text}}>{isAssistant?<MarkdownMessage>{m.content}</MarkdownMessage>:m.content}{isAssistant&&<button onClick={()=>speak(m.content,speechId)} disabled={!voiceSupported} aria-label={isSpeaking?"Detener respuesta":"Escuchar respuesta"} style={{minHeight:38,marginTop:9,padding:"7px 10px",border:`1px solid ${voiceSupported?(isSpeaking?C.danger:C.teal+"55"):C.dim}`,borderRadius:8,color:voiceSupported?(isSpeaking?C.danger:C.teal):C.dim,display:"flex",alignItems:"center",gap:7,fontSize:9,fontWeight:800}}><SVG d={isSpeaking?IC.stop:IC.speaker} size={14} color={voiceSupported?(isSpeaking?C.danger:C.teal):C.dim}/>{isSpeaking?"DETENER":"ESCUCHAR"}</button>}</div></div>;})}
         {loading&&<div style={{display:"flex"}}><div style={{padding:"10px 14px",background:C.card,border:`1px solid ${C.border}`,borderRadius:"13px 13px 13px 3px"}}><div className="pu" style={{fontSize:10,color:C.teal,letterSpacing:"0.2em"}}>ANALIZANDO...</div></div></div>}
         <div ref={endRef}/>
       </div>
-      <div style={{padding:"9px 14px 12px",borderTop:`1px solid ${C.border}`,display:"flex",gap:7,position:"sticky",bottom:0,background:C.bg}}>
-        <textarea rows={1} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}} placeholder="Pregunta sobre tu rentabilidad..." onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border} style={{flex:1,resize:"none",background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:"10px 13px",color:C.text,fontSize:13,fontFamily:"inherit",outline:"none"}}/>
-        <button onClick={send} disabled={!input.trim()||loading} style={{padding:"10px 14px",background:input.trim()?`${C.accent}1e`:"transparent",border:`1px solid ${input.trim()?C.accent:C.border}`,borderRadius:9,color:input.trim()?C.accent:C.dim,display:"flex",alignItems:"center"}}><SVG d={IC.send} size={15} color={input.trim()?C.accent:C.dim}/></button>
+      <div style={{padding:"7px 14px 12px",borderTop:`1px solid ${C.border}`,position:"sticky",bottom:0,background:C.bg,flexShrink:0,zIndex:4}}>
+        {(listening||voiceError||speechError)&&<div aria-live="polite" style={{fontSize:9,lineHeight:1.45,color:listening?C.teal:C.danger,marginBottom:6}}>{listening?"Escuchando en español… habla con naturalidad.":voiceError||speechError}</div>}
+        <div style={{display:"flex",gap:7,alignItems:"flex-end",minWidth:0}}>
+          <textarea ref={inputRef} rows={1} value={input} onChange={e=>{setInput(e.target.value);if(voiceError)setVoiceError("");}} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}} enterKeyHint="send" placeholder={listening?"Escuchando…":"Escribe o habla con la IA…"} onFocus={e=>{e.target.style.borderColor=C.accent;setTimeout(()=>inputRef.current?.scrollIntoView({block:"nearest"}),150);}} onBlur={e=>e.target.style.borderColor=C.border} style={{flex:"1 1 0",minWidth:0,minHeight:46,maxHeight:92,resize:"none",background:C.card,border:`1px solid ${listening?C.teal:C.border}`,borderRadius:9,padding:"11px 12px",color:C.text,fontSize:16,lineHeight:1.35,fontFamily:"inherit",outline:"none"}}/>
+          <button onClick={listen} disabled={loading} aria-label={listening?"Detener dictado":"Hablar con la IA"} title={listening?"Detener dictado":"Hablar con la IA"} style={{width:46,height:46,flexShrink:0,background:listening?`${C.danger}18`:C.card,border:`1px solid ${listening?C.danger:C.teal}`,borderRadius:9,display:"grid",placeItems:"center",opacity:loading?.45:1}}><SVG d={listening?IC.stop:IC.mic} size={18} color={listening?C.danger:C.teal}/></button>
+          <button onClick={send} disabled={!input.trim()||loading} aria-label="Enviar pregunta" style={{width:46,height:46,flexShrink:0,background:input.trim()?`${C.accent}1e`:"transparent",border:`1px solid ${input.trim()?C.accent:C.border}`,borderRadius:9,color:input.trim()?C.accent:C.dim,display:"grid",placeItems:"center"}}><SVG d={IC.send} size={17} color={input.trim()?C.accent:C.dim}/></button>
+        </div>
       </div>
     </div>
   );
@@ -1590,11 +1689,26 @@ function Auth(){
   const[error,setError]=useState("");
   const[success,setSuccess]=useState("");
   const reset=()=>{setError("");setSuccess("");};
-  const redir=()=>window.location.origin;
+  const redir=()=>`${window.location.origin}/`;
   const handleLogin=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.signInWithPassword({email,password:pass});if(err)setError("Correo o contraseña incorrectos");setLoading(false);};
   const handleRegister=async e=>{e.preventDefault();reset();if(!name.trim()){setError("Ingresa tu nombre completo");return;}if(pass.length<6){setError("Contraseña mínima: 6 caracteres");return;}if(pass!==confirm){setError("Las contraseñas no coinciden");return;}setLoading(true);const{data,error:err}=await supabase.auth.signUp({email,password:pass,options:{data:{full_name:name},emailRedirectTo:redir()}});if(err){setError(err.message);setLoading(false);return;}if(data?.user)await supabase.from("profiles").upsert({id:data.user.id,full_name:name,email,config:{}});setSuccess("¡Cuenta creada! Revisa tu correo para confirmar.");setLoading(false);};
   const handleForgot=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:redir()});if(err)setError(err.message);else setSuccess("Te enviamos un link para restablecer tu contraseña.");setLoading(false);};
-  const handleGoogle=()=>supabase.auth.signInWithOAuth({provider:"google",options:{redirectTo:redir()}});
+  const handleGoogle=async()=>{
+    reset();setLoading(true);
+    const standalone=isStandaloneApp();
+    const authWindow=standalone?window.open("about:blank","rutaflow-google-oauth"):null;
+    try{
+      const{data,error:err}=await supabase.auth.signInWithOAuth({provider:"google",options:{redirectTo:standalone?`${redir()}?oauth_return=google`:redir(),skipBrowserRedirect:standalone}});
+      if(err)throw err;
+      if(standalone){
+        if(!data?.url)throw new Error("Google no devolvió una dirección de acceso.");
+        if(!authWindow){setError("No pude abrir Google dentro de RutaFlow. Permite ventanas emergentes e inténtalo de nuevo.");setLoading(false);return;}
+        authWindow.location.replace(data.url);
+        setSuccess("Completa el acceso con Google. Volverás aquí automáticamente.");
+        setLoading(false);
+      }
+    }catch(err){try{authWindow?.close();}catch{}setError(err.message||"No se pudo iniciar sesión con Google.");setLoading(false);}
+  };
   const inp={width:"100%",background:"#0a0b14",border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px 12px 42px",color:"#fff",fontSize:14,fontFamily:"IBM Plex Mono,monospace",outline:"none"};
   const FI=({d})=><div style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}><SVG d={d} size={15} color={C.muted}/></div>;
   return(
@@ -1657,15 +1771,77 @@ export default function RutaFlow(){
   const[editingKind,setEditingKind]=useState("event");
   const[selectedRecord,setSelectedRecord]=useState(null);
   const[selectedClosure,setSelectedClosure]=useState(null);
+  const[copilotState,setCopilotState]=useState({supported:false,running:false,busy:false,message:"",lastOffer:null});
+  const[copilotPlatform,setCopilotPlatform]=useState(()=>LS.get("rf_copilot_platform","didi"));
+  const authUserRef=useRef(null);
   const installApp=useInstallApp();
 
   const showToast=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
   const{dayKm,reset:resetDayGPS}=useDayGPS(!!activeDay?.running);
 
   useEffect(()=>{
-    supabase.auth.getSession().then(({data:{session}})=>{setSession(session);if(session)loadCloud(session.user.id);else{setProfile(null);setLoading(false);}});
-    const{data:{subscription}}=supabase.auth.onAuthStateChange((ev,session)=>{setSession(session);if(session)loadCloud(session.user.id);else{setProfile(null);setLoading(false);}});
-    return()=>subscription.unsubscribe();
+    let mounted=true;
+    const handles=[];
+    const refresh=async()=>{
+      try{
+        const support=await copilot.supported();
+        if(!mounted)return;
+        if(!support.supported){setCopilotState(p=>({...p,supported:false,running:false}));return;}
+        const status=await copilot.status();
+        if(mounted)setCopilotState(p=>({...p,supported:true,...status,lastOffer:status.lastOffer||p.lastOffer}));
+      }catch(e){if(mounted)setCopilotState(p=>({...p,supported:false,message:e.message||"Copiloto no disponible"}));}
+    };
+    (async()=>{
+      try{
+        handles.push(await copilot.onOffer(offer=>mounted&&setCopilotState(p=>({...p,lastOffer:offer,message:"Oferta analizada"}))));
+        handles.push(await copilot.onStatus(status=>mounted&&setCopilotState(p=>({...p,...status}))));
+      }catch{}
+      await refresh();
+    })();
+    const visible=()=>{if(document.visibilityState==="visible")refresh();};
+    document.addEventListener("visibilitychange",visible);
+    return()=>{mounted=false;document.removeEventListener("visibilitychange",visible);handles.forEach(h=>h?.remove?.());};
+  },[]);
+
+  useEffect(()=>{
+    if(copilotState.supported)copilot.updateConfig({...cfg,copilotPlatform}).catch(()=>{});
+  },[cfg,copilotState.supported,copilotPlatform]);
+
+  const toggleCopilot=async()=>{
+    if(copilotState.busy||!copilotState.supported)return;
+    setCopilotState(p=>({...p,busy:true}));
+    try{
+      const status=copilotState.running?await copilot.stop():await copilot.start({...cfg,copilotPlatform});
+      setCopilotState(p=>({...p,...status,busy:false}));
+      showToast(status.message||"Copiloto actualizado");
+    }catch(e){
+      setCopilotState(p=>({...p,busy:false}));
+      showToast(e.message||"No se pudo iniciar el copiloto","err");
+    }
+  };
+
+  useEffect(()=>{
+    let active=true;
+    const acceptSession=nextSession=>{
+      if(!active)return;
+      setSession(nextSession);
+      const uid=nextSession?.user?.id||null;
+      const oauthReturn=new URLSearchParams(window.location.search).get("oauth_return")==="google";
+      if(uid&&oauthReturn&&window.opener&&window.opener!==window){
+        window.opener.postMessage({type:"rutaflow-auth-complete"},window.location.origin);
+        setLoading(false);setTimeout(()=>window.close(),180);return;
+      }
+      if(oauthReturn)window.history.replaceState({},"",`${window.location.pathname}${window.location.hash}`);
+      if(uid){if(authUserRef.current!==uid){authUserRef.current=uid;loadCloud(uid);}}
+      else{authUserRef.current=null;setProfile(null);setLoading(false);}
+    };
+    const syncSession=()=>supabase.auth.getSession().then(({data:{session:nextSession}})=>acceptSession(nextSession));
+    syncSession();
+    const{data:{subscription}}=supabase.auth.onAuthStateChange((event,nextSession)=>acceptSession(nextSession));
+    const receive=event=>{if(event.origin===window.location.origin&&event.data?.type==="rutaflow-auth-complete")syncSession();};
+    const focus=()=>syncSession();
+    window.addEventListener("message",receive);window.addEventListener("focus",focus);
+    return()=>{active=false;subscription.unsubscribe();window.removeEventListener("message",receive);window.removeEventListener("focus",focus);};
   },[]);
 
   const loadCloud=useCallback(async uid=>{
@@ -1918,7 +2094,7 @@ export default function RutaFlow(){
           </div>
         </div>
 
-        {tab==="home"   &&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade}/>}
+        {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}}/>}
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses}/>}
         {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} userId={session.user.id}/>}

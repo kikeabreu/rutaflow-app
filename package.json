@@ -2,6 +2,9 @@
   "name": "rutaflow",
   "version": "1.0.0",
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
     "@supabase/supabase-js": "^2.39.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -13,6 +16,8 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "node scripts/build.js",
+    "android:sync": "npm run build && cap sync android",
+    "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug",
     "test:api": "node --test tests/*.test.js",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
