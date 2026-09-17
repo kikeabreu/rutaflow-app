@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>RutaFlow | Maneja con números, no con intuición</title>
+  <meta name="description" content="RutaFlow ayuda a conductores de DiDi, Uber, inDrive y viajes particulares a saber si un viaje conviene, registrar su operación y conocer su ganancia real." />
+  <meta name="theme-color" content="#07080d" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root{
+      --bg:#07080d;
+      --panel:#0d0f1a;
+      --panel2:#111320;
+      --border:#242740;
+      --text:#eef0ff;
+      --muted:#8d91ad;
+      --accent:#f0a500;
+      --teal:#00c9a7;
+      --danger:#ff4055;
+      --shadow:0 24px 80px rgba(0,0,0,.38);
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{margin:0;background:
+      radial-gradient(circle at 85% 10%,rgba(240,165,0,.12),transparent 28%),
+      radial-gradient(circle at 15% 35%,rgba(0,201,167,.08),transparent 26%),
+      var(--bg);color:var(--text);font-family:"IBM Plex Mono",monospace;line-height:1.6}
+    a{color:inherit;text-decoration:none}
+    .wrap{width:min(1160px,calc(100% - 32px));margin:auto}
+    .nav{position:sticky;top:0;z-index:20;background:rgba(7,8,13,.82);backdrop-filter:blur(14px);border-bottom:1px solid rgba(255,255,255,.06)}
+    .navin{height:72px;display:flex;align-items:center;justify-content:space-between;gap:18px}
+    .brand{display:flex;align-items:center;gap:12px;font-family:"Barlow Condensed",sans-serif;font-weight:900;font-size:24px;letter-spacing:.5px}
+    .brand img{width:38px;height:38px;border-radius:10px}
+    .navlinks{display:flex;align-items:center;gap:24px;color:var(--muted);font-size:13px}
+    .btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 20px;border-radius:12px;border:1px solid var(--border);font-weight:700;transition:.2s ease;cursor:pointer}
+    .btn:hover{transform:translateY(-1px);border-color:#3b3f63}
+    .btn.primary{background:var(--accent);color:#0a0b10;border-color:var(--accent);box-shadow:0 10px 30px rgba(240,165,0,.22)}
+    .btn.ghost{background:rgba(255,255,255,.02)}
+    .hero{padding:96px 0 72px}
+    .hero-grid{display:grid;grid-template-columns:1.08fr .92fr;gap:56px;align-items:center}
+    .eyebrow{display:inline-flex;gap:10px;align-items:center;color:var(--teal);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:18px}
+    .dot{width:8px;height:8px;border-radius:99px;background:var(--teal);box-shadow:0 0 18px rgba(0,201,167,.9)}
+    h1,h2,h3{font-family:"Barlow Condensed",sans-serif;margin:0;line-height:.98}
+    h1{font-size:clamp(54px,7vw,94px);letter-spacing:-1px}
+    h1 span{color:var(--accent)}
+    .lead{font-size:18px;color:#b7bad0;max-width:700px;margin:26px 0 30px}
+    .hero-actions{display:flex;gap:12px;flex-wrap:wrap}
+    .micro{margin-top:14px;color:var(--muted);font-size:12px}
+    .phone{position:relative;max-width:430px;margin-left:auto;background:linear-gradient(160deg,#151827,#090b12);border:1px solid #2b2f49;border-radius:34px;padding:18px;box-shadow:var(--shadow)}
+    .phone:before{content:"";display:block;width:86px;height:6px;background:#25283a;border-radius:99px;margin:0 auto 16px}
+    .screen{border-radius:24px;background:#080911;border:1px solid #1d2135;padding:20px}
+    .screen-top{display:flex;justify-content:space-between;color:var(--muted);font-size:11px}
+    .offer{margin-top:18px;background:var(--panel2);border:1px solid var(--border);border-radius:18px;padding:18px}
+    .offer .amount{font-family:"Barlow Condensed",sans-serif;font-size:46px;font-weight:900}
+    .offer .route{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin-top:6px}
+    .verdict{margin-top:14px;border-radius:16px;padding:16px;background:rgba(0,201,167,.08);border:1px solid rgba(0,201,167,.25)}
+    .verdict strong{display:block;color:var(--teal);font-family:"Barlow Condensed",sans-serif;font-size:28px;text-transform:uppercase}
+    .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+    .metric{background:#0c0e17;border-radius:11px;padding:10px;border:1px solid #181b2b;text-align:center}
+    .metric b{display:block;font-size:13px}.metric span{font-size:10px;color:var(--muted)}
+    section{padding:80px 0}
+    .section-head{max-width:760px;margin-bottom:38px}
+    .section-head h2{font-size:clamp(42px,5vw,68px)}
+    .section-head p{color:var(--muted);margin:16px 0 0}
+    .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+    .card{background:rgba(13,15,26,.86);border:1px solid var(--border);border-radius:20px;padding:24px;min-height:210px}
+    .num{font-family:"Barlow Condensed",sans-serif;font-weight:900;color:var(--accent);font-size:48px;line-height:1}
+    .card h3{font-size:30px;margin:14px 0 10px}.card p{color:var(--muted);font-size:14px;margin:0}
+    .feature-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+    .feature{display:flex;gap:16px;padding:20px;background:rgba(17,19,32,.7);border:1px solid #20243a;border-radius:16px}
+    .tick{width:34px;height:34px;flex:0 0 34px;border-radius:10px;background:rgba(0,201,167,.1);color:var(--teal);display:grid;place-items:center;font-weight:900}
+    .feature h3{font-size:23px;margin-bottom:5px}.feature p{margin:0;color:var(--muted);font-size:13px}
+    .pricing{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:stretch}
+    .plan{position:relative;background:var(--panel);border:1px solid var(--border);border-radius:24px;padding:30px}
+    .plan.pro{border-color:rgba(240,165,0,.55);box-shadow:0 20px 60px rgba(240,165,0,.08)}
+    .badge{position:absolute;right:20px;top:20px;background:rgba(240,165,0,.12);border:1px solid rgba(240,165,0,.35);color:var(--accent);padding:6px 10px;border-radius:999px;font-size:10px;font-weight:700;text-transform:uppercase}
+    .plan h3{font-size:42px}.price{font-family:"Barlow Condensed",sans-serif;font-size:58px;font-weight:900;margin:12px 0 2px}.price small{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--muted);font-weight:500}
+    .plan ul{list-style:none;padding:0;margin:24px 0}.plan li{padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:13px;color:#c4c7d8}.plan li:before{content:"✓";color:var(--teal);font-weight:900;margin-right:10px}
+    .trial{padding:34px;border-radius:24px;background:linear-gradient(120deg,rgba(240,165,0,.14),rgba(0,201,167,.08));border:1px solid rgba(240,165,0,.28);display:flex;justify-content:space-between;gap:24px;align-items:center}
+    .trial h2{font-size:48px}.trial p{color:#bbbfd2;max-width:680px;margin:10px 0 0}
+    .faq{display:grid;grid-template-columns:1fr 1fr;gap:14px}.faqitem{padding:20px;border-radius:16px;border:1px solid var(--border);background:rgba(13,15,26,.7)}.faqitem h3{font-size:24px}.faqitem p{color:var(--muted);font-size:13px;margin-bottom:0}
+    footer{padding:34px 0 48px;color:var(--muted);font-size:12px;border-top:1px solid rgba(255,255,255,.06)}
+    .footerin{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+    @media (max-width:900px){.hero-grid,.pricing{grid-template-columns:1fr}.phone{margin:20px auto 0}.cards{grid-template-columns:1fr}.feature-grid,.faq{grid-template-columns:1fr}.trial{display:block}.trial .btn{margin-top:20px}.navlinks a:not(.btn){display:none}.hero{padding-top:68px}}
+    @media (max-width:560px){.wrap{width:min(100% - 22px,1160px)}.navin{height:64px}.brand span{font-size:21px}.hero{padding:58px 0 46px}h1{font-size:56px}.lead{font-size:15px}.hero-actions .btn{width:100%}.phone{border-radius:26px;padding:12px}.screen{padding:15px}.metrics{grid-template-columns:1fr}.feature{padding:16px}.plan{padding:22px}.trial{padding:24px}.trial h2{font-size:40px}}
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <div class="wrap navin">
+      <a class="brand" href="#inicio"><img src="/icons/icon-192.png" alt="RutaFlow" /><span>RUTAFLOW</span></a>
+      <div class="navlinks">
+        <a href="#como-funciona">Cómo funciona</a>
+        <a href="#planes">Planes</a>
+        <a class="btn primary" href="/">Probar RutaFlow</a>
+      </div>
+    </div>
+  </nav>
+
+  <main id="inicio">
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div>
+          <div class="eyebrow"><span class="dot"></span>Hecho para conductores de plataformas</div>
+          <h1>Maneja con <span>números.</span><br />No con intuición.</h1>
+          <p class="lead">RutaFlow te ayuda a saber si un viaje realmente conviene, registrar lo que haces y entender cuánto dinero te queda después de gasolina, comisión y costos del auto.</p>
+          <div class="hero-actions">
+            <a class="btn primary" href="/">Probar Pro 14 días</a>
+            <a class="btn ghost" href="#como-funciona">Ver cómo funciona</a>
+          </div>
+          <div class="micro">Sin tarjeta para iniciar. Al terminar la prueba puedes seguir usando RutaFlow Free.</div>
+        </div>
+
+        <div class="phone" aria-label="Ejemplo de análisis de viaje en RutaFlow">
+          <div class="screen">
+            <div class="screen-top"><span>RUTAFLOW</span><span>ANÁLISIS DE VIAJE</span></div>
+            <div class="offer">
+              <div style="color:var(--muted);font-size:11px">OFERTA</div>
+              <div class="amount">$84.00</div>
+              <div class="route"><span>11.2 km</span><span>31 min</span></div>
+            </div>
+            <div class="verdict">
+              <span style="font-size:10px;color:var(--muted)">VEREDICTO RUTAFLOW</span>
+              <strong>Buen viaje</strong>
+              <div class="metrics">
+                <div class="metric"><b>$2.11</b><span>neto/km</span></div>
+                <div class="metric"><b>$45.7</b><span>neto/hora</span></div>
+                <div class="metric"><b>$23.62</b><span>neto estimado</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="como-funciona">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Un viaje puede verse bueno y aun así hacerte perder tiempo.</h2>
+          <p>RutaFlow toma los datos que sí importan para ayudarte a decidir mejor y llevar control de tu operación.</p>
+        </div>
+        <div class="cards">
+          <article class="card"><div class="num">01</div><h3>Registra</h3><p>Captura tarifa, distancia y tiempo. RutaFlow también puede apoyarse en GPS para tu seguimiento operativo.</p></article>
+          <article class="card"><div class="num">02</div><h3>Calcula</h3><p>Considera comisión, gasolina y los costos configurados de tu vehículo para estimar la ganancia real.</p></article>
+          <article class="card"><div class="num">03</div><h3>Decide</h3><p>Recibe una lectura clara del viaje y construye un historial que te permita dejar de manejar a ciegas.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <div class="section-head"><h2>Tu operación, en un solo lugar.</h2><p>Diseñado alrededor del día real de un conductor, no de una hoja de cálculo eterna.</p></div>
+        <div class="feature-grid">
+          <div class="feature"><div class="tick">✓</div><div><h3>Rentabilidad por viaje</h3><p>Compara tarifa, comisión, combustible, distancia, tiempo y costos configurados.</p></div></div>
+          <div class="feature"><div class="tick">✓</div><div><h3>GPS y kilómetros reales</h3><p>Apoya el seguimiento de distancia y contexto operativo durante tu jornada.</p></div></div>
+          <div class="feature"><div class="tick">✓</div><div><h3>Historial de operación</h3><p>Viajes, cargas, kilómetros sin pasajero, bonos y otros movimientos en un mismo registro.</p></div></div>
+          <div class="feature"><div class="tick">✓</div><div><h3>Combustible y autonomía</h3><p>Estima cuánto combustible te queda usando cargas, recorridos y rendimiento configurado.</p></div></div>
+          <div class="feature"><div class="tick">✓</div><div><h3>Copiloto inteligente</h3><p>En Pro, consulta tu operación y recibe ayuda contextual con IA.</p></div></div>
+          <div class="feature"><div class="tick">✓</div><div><h3>Funciones por voz</h3><p>En Pro, interactúa más rápido mientras trabajas y reduce la necesidad de escribir.</p></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="planes">
+      <div class="wrap">
+        <div class="section-head"><h2>Empieza completo. Después decides.</h2><p>Los primeros 14 días tienes RutaFlow Pro. Después puedes continuar gratis o conservar las funciones avanzadas.</p></div>
+        <div class="pricing">
+          <article class="plan">
+            <h3>RutaFlow Free</h3>
+            <div class="price">$0 <small>MXN</small></div>
+            <ul>
+              <li>Registro manual de viajes ilimitado</li>
+              <li>GPS y seguimiento básico</li>
+              <li>Cálculo de rentabilidad</li>
+              <li>Veredicto del viaje</li>
+              <li>Control operativo esencial</li>
+            </ul>
+            <a class="btn ghost" style="width:100%" href="/">Usar RutaFlow Free</a>
+          </article>
+
+          <article class="plan pro">
+            <span class="badge">14 días gratis</span>
+            <h3>RutaFlow Pro</h3>
+            <div class="price">$99 <small>MXN / mes</small></div>
+            <ul>
+              <li>Todo lo incluido en Free</li>
+              <li>Copiloto inteligente con IA</li>
+              <li>Funciones por voz</li>
+              <li>Lectura inteligente de ofertas y capturas</li>
+              <li>Análisis e historial avanzado</li>
+              <li>Herramientas avanzadas para bonos y operación</li>
+            </ul>
+            <a class="btn primary" style="width:100%" href="/">Iniciar 14 días de Pro</a>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <div class="trial">
+          <div><h2>La idea es simple: que RutaFlow se pague tomando mejores decisiones.</h2><p>No tienes que abandonar la app si no pagas. Después de tu prueba Pro, RutaFlow Free sigue disponible para que continúes registrando y evaluando tu operación.</p></div>
+          <a class="btn primary" href="/">Empezar ahora</a>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <div class="section-head"><h2>Preguntas rápidas.</h2></div>
+        <div class="faq">
+          <div class="faqitem"><h3>¿Es solo para DiDi?</h3><p>No. RutaFlow contempla Uber, DiDi, inDrive y viajes particulares, además de permitir configuración de comisiones.</p></div>
+          <div class="faqitem"><h3>¿Tengo que pagar desde el primer día?</h3><p>No. La propuesta actual es darte 14 días de RutaFlow Pro y luego dejarte elegir entre Free y Pro.</p></div>
+          <div class="faqitem"><h3>¿Free deja de funcionar?</h3><p>No. La versión Free está pensada para mantener el registro manual, GPS, cálculo y evaluación básica de viajes.</p></div>
+          <div class="faqitem"><h3>¿RutaFlow acepta viajes por mí?</h3><p>No. RutaFlow te da información para que tú tomes la decisión. El control siempre sigue siendo tuyo.</p></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap footerin"><span>© 2026 RutaFlow</span><span>Tu operación. Tus números. Tu decisión.</span></div>
+  </footer>
+</body>
+</html>
