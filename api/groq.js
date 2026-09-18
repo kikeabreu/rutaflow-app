@@ -1,10 +1,23 @@
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-const MODELS = {
+// Verificado contra GET /v1/models de la cuenta: qwen/qwen3.8-27b es hoy el unico
+// modelo con vision disponible. El desplegado pedia "qwen/qwen3.6-27b", que Groq ya
+// retiro, y por eso Foto IA respondia 404. Los de texto si siguen vivos.
+const DEFAULT_MODELS = {
   advisor: "openai/gpt-oss-120b",
   parser: "openai/gpt-oss-20b",
-  vision: "qwen/qwen3.6-27b",
+  vision: "qwen/qwen3.8-27b",
 };
+
+const MODELS = {
+  advisor: process.env.GROQ_MODEL_ADVISOR || DEFAULT_MODELS.advisor,
+  parser: process.env.GROQ_MODEL_PARSER || DEFAULT_MODELS.parser,
+  vision: process.env.GROQ_MODEL_VISION || DEFAULT_MODELS.vision,
+};
+
+// Groq responde 404 con este texto cuando el modelo configurado ya no existe.
+const MODEL_GONE = /does not exist or you do not have access|model_not_found|decommissioned/i;
+
 
 const PARSER_SCHEMA = {
   type: "json_schema",
@@ -27,6 +40,24 @@ const PARSER_SCHEMA = {
         expires_at: { type: "string" },
       },
       required: ["type", "fare", "trip_km", "dead_km", "amount", "liters", "tank_liters", "odometer", "platform", "note", "bonus_mode", "bonus_type", "required_trips", "completed_trips", "extra_km", "extra_min", "expires_at"],
+      additionalProperties: false,
+    },
+  },
+};
+
+const VISION_SCHEMA = {
+  type: "json_schema",
+  json_schema: {
+    name: "rutaflow_vision_trip",
+    strict: true,
+    schema: {
+      type: "object",
+      properties: {
+        fare: { type: "number" },
+        pickup_km: { type: "number" }, pickup_min: { type: "number" },
+        dest_km: { type: "number" }, dest_min: { type: "number" },
+      },
+      required: ["fare", "pickup_km", "pickup_min", "dest_km", "dest_min"],
       additionalProperties: false,
     },
   },
@@ -63,6 +94,13 @@ async function authenticate(req) {
 }
 
 module.exports = async function handler(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Metodo no permitido" });
@@ -107,6 +145,8 @@ module.exports = async function handler(req, res) {
       : incoming;
     const maxTokens = Math.min(Math.max(Number(req.body?.max_tokens) || 450, 80), mode === "advisor" ? 900 : 3000);
 
+    let activeModel = MODELS[mode];
+
     const requestCompletion = async completionMessages => fetch(GROQ_URL, {
       method: "POST",
       headers: {
@@ -114,21 +154,32 @@ module.exports = async function handler(req, res) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: MODELS[mode],
+        model: activeModel,
         messages: completionMessages,
         max_tokens: maxTokens,
         temperature: mode === "advisor" ? 0.35 : 0.1,
         ...(mode === "parser" ? { response_format: PARSER_SCHEMA, reasoning_effort: "low" } : {}),
-        ...(mode === "vision" ? { response_format: { type: "json_object" }, reasoning_effort: "none" } : {}),
+        ...(mode === "vision" ? { response_format: VISION_SCHEMA, reasoning_effort: "none" } : {}),
       }),
     });
 
-    const response = await requestCompletion(messages);
+    let response = await requestCompletion(messages);
+    let data = await response.json().catch(() => ({}));
 
-    const data = await response.json().catch(() => ({}));
+    // Si GROQ_MODEL_* apunta a un modelo dado de baja, reintentamos con el modelo
+    // vivo por defecto en vez de dejar la funcion muerta hasta tocar Vercel.
+    if (!response.ok && activeModel !== DEFAULT_MODELS[mode] && MODEL_GONE.test(data?.error?.message || "")) {
+      console.warn(`RutaFlow Groq: modelo "${activeModel}" no disponible, reintentando con "${DEFAULT_MODELS[mode]}".`);
+      activeModel = DEFAULT_MODELS[mode];
+      response = await requestCompletion(messages);
+      data = await response.json().catch(() => ({}));
+    }
+
     if (!response.ok) {
       const rawDetail = data?.error?.message || `Groq respondio con error ${response.status}`;
-      const detail = /failed_generation|failed to validate json/i.test(rawDetail)
+      const detail = MODEL_GONE.test(rawDetail)
+        ? `El modelo de IA "${activeModel}" ya no existe en Groq. Actualiza GROQ_MODEL_${mode.toUpperCase()} en Vercel o borra esa variable para usar el modelo por defecto.`
+        : /failed_generation|failed to validate json/i.test(rawDetail)
         ? "La IA no pudo estructurar el movimiento. Intenta decirlo de forma breve, por ejemplo: 12 km sin pasajero."
         : /request too large|tokens per minute|TPM|rate limit/i.test(rawDetail)
         ? "La IA recibio demasiada informacion. Intenta de nuevo con una pregunta mas corta."
@@ -148,7 +199,7 @@ module.exports = async function handler(req, res) {
       content += `\n\n${continuation}`;
       finishReason = continuationData?.choices?.[0]?.finish_reason;
     }
-    return res.status(200).json({ content, model: MODELS[mode] });
+    return res.status(200).json({ content, model: activeModel });
   } catch (error) {
     console.error("RutaFlow Groq proxy error", error);
     return res.status(500).json({ error: "No se pudo conectar con la IA. Intenta de nuevo." });

@@ -36,6 +36,7 @@ test("uses the current Groq model without exposing the API key", async () => {
   assert.equal(res.body.content, "Consejo listo");
   const groqRequest = JSON.parse(calls[1].options.body);
   assert.equal(groqRequest.model, "openai/gpt-oss-120b");
+
   assert.equal(calls[1].options.headers.Authorization, "Bearer groq-test");
   global.fetch = originalFetch;
 });
@@ -70,6 +71,7 @@ test("uses strict structured output for quick-entry parsing", async () => {
     assert.equal(res.statusCode, 200);
     const groqRequest = JSON.parse(calls[1].options.body);
     assert.equal(groqRequest.model, "openai/gpt-oss-20b");
+
     assert.equal(groqRequest.response_format.type, "json_schema");
     assert.equal(groqRequest.response_format.json_schema.strict, true);
     assert.equal(groqRequest.response_format.json_schema.schema.additionalProperties, false);
@@ -134,7 +136,8 @@ test("preserves image content for vision requests", async () => {
 
     assert.equal(res.statusCode, 200);
     const groqRequest = JSON.parse(calls[1].options.body);
-    assert.equal(groqRequest.model, "qwen/qwen3.6-27b");
+    assert.equal(groqRequest.model, "qwen/qwen3.8-27b");
+
     assert.equal(groqRequest.messages[1].content[0].type, "image_url");
     assert.equal(groqRequest.messages[1].content[0].image_url.url, "data:image/jpeg;base64,abc");
   } finally {
@@ -169,5 +172,54 @@ test("continues advisor responses that reach the token limit", async () => {
     assert.equal(completionCount, 2);
   } finally {
     global.fetch = originalFetch;
+  }
+});
+
+test("falls back to the default model when the configured one is gone", async () => {
+  process.env.SUPABASE_URL = "https://example.supabase.co";
+  process.env.SUPABASE_ANON_KEY = "anon-test";
+  process.env.GROQ_API_KEY = "groq-test";
+  const calls = [];
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    if (String(url).includes("/auth/v1/user")) return { ok: true };
+    // La primera llamada usa el modelo retirado que trae la configuracion.
+    if (JSON.parse(options.body).model === "qwen/qwen3.6-27b") {
+      return {
+        ok: false,
+        status: 404,
+        json: async () => ({ error: { message: "The model `qwen/qwen3.6-27b` does not exist or you do not have access to it." } }),
+      };
+    }
+    return { ok: true, json: async () => ({ choices: [{ message: { content: '{"fare":66}' } }] }) };
+  };
+
+  const previous = process.env.GROQ_MODEL_VISION;
+  process.env.GROQ_MODEL_VISION = "qwen/qwen3.6-27b";
+  delete require.cache[require.resolve("../api/groq.js")];
+  const freshHandler = require("../api/groq.js");
+
+  try {
+    const req = {
+      method: "POST",
+      headers: { authorization: "Bearer user-token" },
+      body: { mode: "vision", messages: [{ role: "user", content: [
+        { type: "image_url", image_url: { url: "data:image/jpeg;base64,abc" } },
+      ] }] },
+    };
+    const res = responseRecorder();
+    await freshHandler(req, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.model, "qwen/qwen3.8-27b");
+    // Auth + intento fallido + reintento con el modelo vivo.
+    assert.equal(calls.length, 3);
+    assert.equal(JSON.parse(calls[2].options.body).model, "qwen/qwen3.8-27b");
+  } finally {
+    global.fetch = originalFetch;
+    if (previous === undefined) delete process.env.GROQ_MODEL_VISION;
+    else process.env.GROQ_MODEL_VISION = previous;
+    delete require.cache[require.resolve("../api/groq.js")];
   }
 });
