@@ -9,3 +9,8 @@ yarn-debug.log*
 yarn-error.log*
 .vercel
 .env*
+
+# Artefactos de build y basura del SO
+.DS_Store
+dist/
+supabase/.temp/

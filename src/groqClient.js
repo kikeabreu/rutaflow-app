@@ -1,10 +1,11 @@
 import { supabase } from "./supabaseClient";
+import { apiUrl } from "./apiClient";
 
 export async function callGroq(mode, messages, maxTokens = 700) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error("Inicia sesion nuevamente para usar la IA.");
 
-  const response = await fetch("/api/groq", {
+  const response = await fetch(apiUrl("/api/groq"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

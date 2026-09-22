@@ -14,6 +14,13 @@ async function authenticate(req){
 }
 
 module.exports=async function handler(req,res){
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   if(req.method!=="GET"){
     res.setHeader("Allow","GET");
     return res.status(405).json({error:"Metodo no permitido"});
@@ -24,17 +31,19 @@ module.exports=async function handler(req,res){
     if(!Number.isFinite(lat)||lat< -90||lat>90||!Number.isFinite(lon)||lon< -180||lon>180){
       return res.status(400).json({error:"Coordenadas no validas"});
     }
-    const params=new URLSearchParams({format:"jsonv2",lat:String(lat),lon:String(lon),zoom:"14",addressdetails:"1",layer:"address","accept-language":"es"});
+    const params=new URLSearchParams({format:"jsonv2",lat:String(lat),lon:String(lon),zoom:"16",addressdetails:"1",layer:"address","accept-language":"es"});
     const response=await fetch(`${NOMINATIM_URL}?${params}`,{
       headers:{"User-Agent":"RutaFlow/1.0 (https://github.com/kikeabreu/rutaflow-app)","Accept-Language":"es"},
     });
     if(!response.ok)return res.status(502).json({error:"No se pudo identificar la zona"});
     const data=await response.json();
     const a=data.address||{};
-    const zone=a.neighbourhood||a.suburb||a.quarter||a.city_district||a.borough||a.village||a.town||a.city||"";
-    const city=a.city||a.town||a.municipality||a.county||"";
+    const zone=a.neighbourhood||a.suburb||a.residential||a.quarter||a.city_district||a.borough||a.village||a.town||a.city||"";
+    const city=a.city||a.town||a.municipality||a.county||a.state_district||"";
+    const display_name=zone&&city&&zone!==city?`${zone}, ${city}`:(zone||city||"");
     res.setHeader("Cache-Control","s-maxage=86400, stale-while-revalidate=604800");
-    return res.status(200).json({zone,city,attribution:"OpenStreetMap contributors"});
+    return res.status(200).json({zone,city,display_name,attribution:"OpenStreetMap contributors"});
+
   }catch(error){
     console.error("RutaFlow geocode error",error);
     return res.status(500).json({error:"No se pudo identificar la zona"});

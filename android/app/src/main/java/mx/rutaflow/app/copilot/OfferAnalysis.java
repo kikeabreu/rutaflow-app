@@ -60,15 +60,21 @@ final class OfferAnalysis {
             + ':' + Math.round(tripKm * 10) + ':' + Math.round((pickupMin + tripMin) * 10);
     }
 
+    /**
+     * Veredicto primero para que el conductor decida sin esperar el resto, luego el monto
+     * ofrecido para confirmar de oido que hablamos del viaje que tiene en pantalla. La
+     * explicacion queda en la notificacion expandida: al volante, una frase larga se
+     * pierde antes de que termine de sonar.
+     */
     String spokenText() {
         String lead;
         switch (verdict) {
-            case "good": lead = "Buen viaje."; break;
-            case "maybe": lead = "Viaje aceptable."; break;
-            default: lead = "No conviene.";
+            case "good": lead = "Buen viaje"; break;
+            case "maybe": lead = "Viaje aceptable"; break;
+            default: lead = "No conviene";
         }
-        return String.format(Locale.forLanguageTag("es-MX"), "%s Aproximadamente %.0f pesos por hora. %s",
-            lead, hourly, explanation);
+        return String.format(Locale.forLanguageTag("es-MX"), "%s. Ofrecen %.0f pesos, %.0f por hora.",
+            lead, fare, hourly);
     }
 
     private static double round(double value) {

@@ -1,5 +1,6 @@
 package mx.rutaflow.app.copilot;
 
+import android.app.ActivityManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -27,6 +28,7 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
 import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
@@ -35,6 +37,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.nio.ByteBuffer;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -44,6 +47,7 @@ import mx.rutaflow.app.R;
 public class CopilotCaptureService extends Service implements TextToSpeech.OnInitListener {
     public static final String ACTION_START = "mx.rutaflow.app.copilot.START";
     public static final String ACTION_STOP = "mx.rutaflow.app.copilot.STOP";
+    public static final String ACTION_DUMP = "mx.rutaflow.app.copilot.DUMP";
     public static final String ACTION_EVENT = "mx.rutaflow.app.copilot.EVENT";
     public static final String EXTRA_EVENT = "event";
     public static final String EXTRA_PAYLOAD = "payload";
@@ -54,9 +58,13 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     public static final String PREF_LAST_OFFER = "lastOffer";
 
     private static final String CHANNEL_ID = "rutaflow_copilot";
+    private static final String CHANNEL_ALERTS_ID = "rutaflow_copilot_alerts";
     private static final int NOTIFICATION_ID = 7401;
+    private static final int ALERT_NOTIFICATION_ID = 7402;
     private static final long OCR_INTERVAL_MS = 1100;
     private static final long DUPLICATE_WINDOW_MS = 45_000;
+    // Ventana de diagnostico: volcamos el OCR crudo con geometria mientras este armado.
+    private static final long DUMP_WINDOW_MS = 180_000;
 
     private final AtomicBoolean processing = new AtomicBoolean(false);
     private MediaProjection projection;
@@ -70,6 +78,10 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     private long lastFrameAt;
     private long lastOfferAt;
     private String lastSignature = "";
+    private long dumpArmedUntil;
+    private int dumpCount;
+    private int captureWidth;
+    private int captureHeight;
     private CopilotConfig config = CopilotConfig.defaults();
 
     @Nullable
@@ -91,13 +103,17 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent == null) return START_NOT_STICKY;
+        if (intent == null) return START_STICKY;
         if (ACTION_STOP.equals(intent.getAction())) {
             announce("Copiloto apagado.");
             stopSelf();
             return START_NOT_STICKY;
         }
-        if (!ACTION_START.equals(intent.getAction())) return START_NOT_STICKY;
+        if (ACTION_DUMP.equals(intent.getAction())) {
+            armDump();
+            return START_STICKY;
+        }
+        if (!ACTION_START.equals(intent.getAction())) return START_STICKY;
 
         config = CopilotConfig.fromJson(getSharedPreferences(PREFS, MODE_PRIVATE)
             .getString(PREF_CONFIG, "{}"));
@@ -117,7 +133,7 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
             return START_NOT_STICKY;
         }
         startProjection(resultCode, resultData);
-        return START_NOT_STICKY;
+        return START_STICKY;
     }
 
     private void startAsForeground(String title, String body) {
@@ -150,6 +166,8 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
         int width = Math.max(720, metrics.widthPixels);
         int height = Math.max(1280, metrics.heightPixels);
         int density = metrics.densityDpi;
+        captureWidth = width;
+        captureHeight = height;
         imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2);
         imageReader.setOnImageAvailableListener(this::onImageAvailable, captureHandler);
         virtualDisplay = projection.createVirtualDisplay(
@@ -162,27 +180,40 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     }
 
     private void onImageAvailable(ImageReader reader) {
-        Image image = reader.acquireLatestImage();
-        if (image == null) return;
-        long now = System.currentTimeMillis();
-        if (now - lastFrameAt < OCR_INTERVAL_MS || !processing.compareAndSet(false, true)) {
-            image.close();
-            return;
-        }
-        lastFrameAt = now;
-        Bitmap bitmap = bitmapFrom(image);
-        image.close();
-        if (bitmap == null) {
-            processing.set(false);
-            return;
-        }
-        recognizer.process(InputImage.fromBitmap(bitmap, 0))
-            .addOnSuccessListener(result -> handleRecognizedText(result.getText()))
-            .addOnFailureListener(error -> sendStatus(true, "No pude leer esta pantalla; sigo escuchando."))
-            .addOnCompleteListener(task -> {
-                bitmap.recycle();
+        Image image = null;
+        try {
+            image = reader.acquireLatestImage();
+            if (image == null) return;
+            long now = System.currentTimeMillis();
+            if (now - lastFrameAt < OCR_INTERVAL_MS || !processing.compareAndSet(false, true)) {
+                image.close();
+                return;
+            }
+            if (isRutaFlowForeground()) {
+                image.close();
                 processing.set(false);
-            });
+                return;
+            }
+            lastFrameAt = now;
+            Bitmap bitmap = bitmapFrom(image);
+            image.close();
+            if (bitmap == null) {
+                processing.set(false);
+                return;
+            }
+            recognizer.process(InputImage.fromBitmap(bitmap, 0))
+                .addOnSuccessListener(this::handleRecognized)
+                .addOnFailureListener(error -> sendStatus(true, "No pude leer esta pantalla; sigo escuchando."))
+                .addOnCompleteListener(task -> {
+                    bitmap.recycle();
+                    processing.set(false);
+                });
+        } catch (Exception e) {
+            if (image != null) {
+                try { image.close(); } catch (Exception ignored) {}
+            }
+            processing.set(false);
+        }
     }
 
     private Bitmap bitmapFrom(Image image) {
@@ -203,7 +234,52 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
         }
     }
 
+    private boolean isRutaFlowScreen(String text) {
+        if (text == null || text.trim().isEmpty()) return false;
+        String lower = text.toLowerCase(Locale.ROOT);
+        return lower.contains("rutaflow")
+            || lower.contains("copiloto de ofertas")
+            || lower.contains("ganancia estimada")
+            || lower.contains("iniciar jornada")
+            || lower.contains("terminar jornada")
+            || lower.contains("jornada activos")
+            || lower.contains("resumen del día")
+            || lower.contains("sin pasaje")
+            || lower.contains("registrar viaje")
+            || lower.contains("foto ia")
+            || lower.contains("utilidad operativa")
+            || lower.contains("nivel registrado");
+    }
+
+    private void handleRecognized(Text result) {
+        maybeDump(result);
+        handleRecognizedText(result.getText());
+    }
+
+    /**
+     * Escribe el OCR crudo con cajas cuando el diagnostico esta armado. Solo volcamos
+     * pantallas que traen un importe: una pantalla de mapa sin ofertas no aporta nada
+     * y llenaria la carpeta antes de capturar una oferta real.
+     */
+    private void maybeDump(Text result) {
+        if (System.currentTimeMillis() > dumpArmedUntil) return;
+        String text = result.getText();
+        if (text == null || !text.contains("$")) return;
+        String path = OcrDump.write(this, result, captureWidth, captureHeight);
+        if (path == null) return;
+        dumpCount += 1;
+        updateNotification("Diagnóstico activo", dumpCount + " pantalla(s) guardada(s) para análisis.", false);
+    }
+
+    private void armDump() {
+        dumpArmedUntil = System.currentTimeMillis() + DUMP_WINDOW_MS;
+        dumpCount = 0;
+        announce("Diagnóstico activado por tres minutos. Deja que lleguen ofertas.");
+        updateNotification("Diagnóstico activo", "Guardando pantallas con ofertas durante 3 minutos.", false);
+    }
+
     private void handleRecognizedText(String text) {
+        if (isRutaFlowScreen(text)) return;
         config = CopilotConfig.fromJson(getSharedPreferences(PREFS, MODE_PRIVATE)
             .getString(PREF_CONFIG, "{}"));
         OfferAnalysis offer = OfferParser.parse(text, config);
@@ -217,10 +293,25 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
             .putString(PREF_LAST_OFFER, json.toString()).apply();
         sendEvent("offer", json);
         announce(offer.spokenText());
-        String title = "good".equals(offer.verdict) ? "Buen viaje"
-            : "maybe".equals(offer.verdict) ? "Viaje aceptable" : "No conviene";
-        updateNotification(title, String.format(Locale.forLanguageTag("es-MX"),
-            "$%.0f netos · $%.0f/h · %s", offer.net, offer.hourly, offer.explanation));
+
+        String icon = "good".equals(offer.verdict) ? "🟢" : "maybe".equals(offer.verdict) ? "🟡" : "🔴";
+        String verdictTitle = "good".equals(offer.verdict) ? "BUEN VIAJE"
+            : "maybe".equals(offer.verdict) ? "VIAJE ACEPTABLE" : "NO CONVIENE";
+
+        // Veredicto primero (es la decision), luego la tarifa ofrecida para confirmar que
+        // hablamos del viaje que esta en pantalla, y al final el rendimiento por hora.
+        // Sin la palabra "Ofrecen" en el titulo: cabe entero y no se corta el $/h.
+        String title = String.format(Locale.forLanguageTag("es-MX"),
+            "%s %s · $%.0f · $%.0f/h", icon, verdictTitle, offer.fare, offer.hourly);
+        String body = String.format(Locale.forLanguageTag("es-MX"),
+            "$%.0f netos · %.0f min", offer.net, (offer.pickupMin + offer.tripMin));
+        String detail = String.format(Locale.forLanguageTag("es-MX"),
+            "Ofrecen $%.0f · %s%n$%.0f netos · %.1f km · %.0f min%n%s",
+            offer.fare, String.valueOf(offer.platform).toUpperCase(), offer.net,
+            (offer.pickupKm + offer.tripKm), (offer.pickupMin + offer.tripMin), offer.explanation);
+
+        sendAlertNotification(title, body, detail);
+        updateNotification(title, body);
     }
 
     private void sendStatus(boolean running, String message) {
@@ -264,6 +355,9 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
         Intent stop = new Intent(this, CopilotCaptureService.class).setAction(ACTION_STOP);
         PendingIntent stopIntent = PendingIntent.getService(this, 1, stop,
             PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        Intent dump = new Intent(this, CopilotCaptureService.class).setAction(ACTION_DUMP);
+        PendingIntent dumpIntent = PendingIntent.getService(this, 2, dump,
+            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         return new NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_copilot)
             .setContentTitle(title)
@@ -274,22 +368,58 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
             .setOnlyAlertOnce(!alert)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .addAction(0, "Apagar", stopIntent)
+            .addAction(0, "Diagnóstico", dumpIntent)
             .build();
     }
 
     private void updateNotification(String title, String body) {
+        updateNotification(title, body, true);
+    }
+
+    private void updateNotification(String title, String body, boolean alert) {
         NotificationManager manager = getSystemService(NotificationManager.class);
-        if (manager != null) manager.notify(NOTIFICATION_ID, notification(title, body, true));
+        if (manager != null) manager.notify(NOTIFICATION_ID, notification(title, body, alert));
+    }
+
+    private void sendAlertNotification(String title, String body, String detail) {
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager == null) return;
+
+        Intent open = new Intent(this, MainActivity.class);
+        PendingIntent openIntent = PendingIntent.getActivity(this, 0, open,
+            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ALERTS_ID)
+            .setSmallIcon(R.drawable.ic_stat_copilot)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(new NotificationCompat.BigTextStyle().bigText(detail))
+            .setContentIntent(openIntent)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setAutoCancel(true)
+            .setDefaults(NotificationCompat.DEFAULT_VIBRATE | NotificationCompat.DEFAULT_LIGHTS);
+
+        manager.notify(ALERT_NOTIFICATION_ID, builder.build());
     }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT < 26) return;
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager == null) return;
+
         NotificationChannel channel = new NotificationChannel(
             CHANNEL_ID, "Copiloto de ofertas", NotificationManager.IMPORTANCE_DEFAULT);
-        channel.setDescription("Muestra el estado y las evaluaciones del copiloto RutaFlow.");
+        channel.setDescription("Muestra el estado del copiloto RutaFlow.");
         channel.setSound(null, null);
-        NotificationManager manager = getSystemService(NotificationManager.class);
-        if (manager != null) manager.createNotificationChannel(channel);
+        manager.createNotificationChannel(channel);
+
+        NotificationChannel alertsChannel = new NotificationChannel(
+            CHANNEL_ALERTS_ID, "Alertas de ofertas del Copiloto", NotificationManager.IMPORTANCE_HIGH);
+        alertsChannel.setDescription("Notificaciones emergentes visuales para ofertas de viajes evaluadas.");
+        alertsChannel.enableVibration(true);
+        alertsChannel.enableLights(true);
+        manager.createNotificationChannel(alertsChannel);
     }
 
     private void stopProjection() {
@@ -320,5 +450,22 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
         if (captureThread != null) captureThread.quitSafely();
         stopForeground(STOP_FOREGROUND_REMOVE);
         super.onDestroy();
+    }
+
+    private boolean isRutaFlowForeground() {
+        ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        if (am != null) {
+            List<ActivityManager.RunningAppProcessInfo> processes = am.getRunningAppProcesses();
+            if (processes != null) {
+                for (ActivityManager.RunningAppProcessInfo processInfo : processes) {
+                    if (processInfo.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND) {
+                        for (String pkg : processInfo.pkgList) {
+                            if (pkg.equals(getPackageName())) return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
     }
 }

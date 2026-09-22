@@ -48,40 +48,38 @@ final class OfferParser {
 
         double totalKm = pickupKm + tripKm;
         double totalMin = pickupMin + tripMin;
-        if (totalKm <= 0 && totalMin <= 0) return null;
+        if (fare <= 0 || totalKm <= 0 || totalMin <= 0) return null;
 
         double commission = fare * config.commissionFor(platform) / 100.0;
         double fuel = totalKm / config.kmPerLiter * config.gasPrice;
         double wear = totalKm * config.wearPerKm;
         double net = fare - commission - fuel - wear;
-        // Distance-only cards use a conservative city-speed estimate.
-        double evaluatedMinutes = totalMin > 0 ? totalMin : totalKm / 24.0 * 60.0;
-        double hourly = evaluatedMinutes > 0 ? net / (evaluatedMinutes / 60.0) : 0;
+        double hourly = totalMin > 0 ? net / (totalMin / 60.0) : 0;
         double perKm = totalKm > 0 ? net / totalKm : 0;
 
-        double confidence = 0.45;
+        double confidence = 0.50;
         if (!"otra".equals(platform)) confidence += 0.15;
-        if (totalKm > 0) confidence += 0.15;
-        if (totalMin > 0) confidence += 0.15;
-        if (allKm.size() >= 2 || allMin.size() >= 2) confidence += 0.10;
-        confidence = Math.min(1, confidence);
+        if (pickupKm > 0 && tripKm > 0) confidence += 0.20;
+        if (pickupMin > 0 && tripMin > 0) confidence += 0.15;
+        confidence = Math.min(1.0, confidence);
 
         String verdict = hourly >= config.targetHourlyRate ? "good"
             : hourly >= config.targetHourlyRate * 0.75 && net > 0 ? "maybe" : "bad";
         String explanation;
         if (pickupKm > 4 || pickupMin > 10) {
-            explanation = String.format(Locale.forLanguageTag("es-MX"), "La recogida es larga: %.1f kilómetros y %.0f minutos.", pickupKm, pickupMin);
-        } else if (fuel + wear > fare * 0.25) {
-            explanation = String.format(Locale.forLanguageTag("es-MX"), "Gasolina y desgaste consumirían cerca de %.0f pesos.", fuel + wear);
+            explanation = String.format(Locale.forLanguageTag("es-MX"), "La recogida es larga: %.1f km y %.0f min.", pickupKm, pickupMin);
+        } else if (wear > 0 && (fuel + wear) > fare * 0.25) {
+            explanation = String.format(Locale.forLanguageTag("es-MX"), "Gasolina y desgaste consumirían cerca de $%.0f.", fuel + wear);
+        } else if (fuel > fare * 0.25) {
+            explanation = String.format(Locale.forLanguageTag("es-MX"), "Gasolina consumiría cerca de $%.0f.", fuel);
         } else if (commission > fare * 0.18) {
-            explanation = String.format(Locale.forLanguageTag("es-MX"), "La comisión estimada es de %.0f pesos.", commission);
-        } else if (totalMin > 0) {
-            explanation = String.format(Locale.forLanguageTag("es-MX"), "Dejaría %.0f pesos netos en aproximadamente %.0f minutos.", net, totalMin);
+            explanation = String.format(Locale.forLanguageTag("es-MX"), "La comisión de %s es de $%.0f.", platform.toUpperCase(), commission);
         } else {
-            explanation = String.format(Locale.forLanguageTag("es-MX"), "Dejaría %.0f pesos netos después de costos.", net);
+            explanation = String.format(Locale.forLanguageTag("es-MX"), "Dejaría $%.0f netos en %.0f minutos.", net, totalMin);
         }
         return new OfferAnalysis(platform, fare, pickupKm, pickupMin, tripKm, tripMin,
             net, hourly, perKm, confidence, verdict, explanation);
+
     }
 
     private static String platform(String text) {

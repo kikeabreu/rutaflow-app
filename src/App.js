@@ -6,8 +6,14 @@ import { supabase } from "./supabaseClient";
 import { callGroq, imageToDataUrl, parseJsonContent } from "./groqClient";
 import { locateDriver } from "./locationClient";
 import { copilot } from "./copilotClient";
+import { startSpeechRecognition } from "./speechClient";
 import dateUtils from "./dateUtils";
 import { useSpanishSpeech } from "./voiceClient";
+import { App as CapacitorApp } from "@capacitor/app";
+import { Browser } from "@capacitor/browser";
+import { NativeSettings, AndroidSettings, IOSSettings } from 'capacitor-native-settings';
+import { Capacitor } from "@capacitor/core";
+import { ANDROID_AUTH_CALLBACK, ANDROID_AUTH_CALLBACK_FALLBACK, googleOAuthOptions, restoreOAuthSession } from "./authFlow";
 
 // ─── PALETA ──────────────────────────────────────────────────────────────────
 const C={bg:"#07080d",card:"#0d0f1a",card2:"#111320",border:"#1a1d2e",bord2:"#242740",accent:"#f0a500",teal:"#00c9a7",danger:"#ff4055",dim:"#3a3d55",muted:"#6b6e8a",text:"#dde0f5"};
@@ -45,6 +51,7 @@ const haversine=(a,b)=>{const R=6371,r=x=>x*Math.PI/180;const dLat=r(b.lat-a.lat
 const dateOf=x=>dateKey(x?.end_time||x?.occurred_at||x?.paid_at||x?.created_at||x?.date||Date.now());
 const inDateRange=(item,range)=>{const d=dateOf(item);return(!range.from||d>=range.from)&&(!range.to||d<=range.to);};
 const locationName=point=>point?.zone||point?.city||(Number.isFinite(Number(point?.latitude??point?.lat))?`${Number(point.latitude??point.lat).toFixed(3)}, ${Number(point.longitude??point.lon).toFixed(3)}`:"");
+const openSettings=()=>NativeSettings.open({optionAndroid:AndroidSettings.ApplicationDetails,optionIOS:IOSSettings.App}).catch(()=>{});
 
 const DEFAULT_PLATFORMS=[
   {id:"uber",name:"Uber",commission:25,enabled:true,color:"#00b4d8"},
@@ -72,8 +79,6 @@ const calcTrip=(trip,cfg)=>{
   const fee=fare*platformCommission(cfg,trip.platform)/100;
   const p2d={diario:1,semanal:7,mensual:30,trimestral:90,semestral:180,anual:365};
   let fx=0;
-  if(cfg.rentaEnabled)fx+=(cfg.rentaMonto||0)/(p2d[cfg.rentaPeriodo]||30);
-  if(cfg.seguroEnabled)fx+=(cfg.seguroMonto||0)/(p2d[cfg.seguroPeriodo]||30);
   if(cfg.llantasEnabled)fx+=((cfg.llantasMonto||0)/(cfg.llantasKmVida||40000))*km;
   if(cfg.mantenimientoEnabled)fx+=((cfg.mantenimientoMonto||0)/(cfg.mantenimientoKmVida||5000))*km;
   const net=fare-fee-gas-fx,hrs=min/60;
@@ -441,6 +446,7 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
               <div style={{fontSize:10,color:C.muted,marginTop:3,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
                 {fmtDate(trip.end_time||trip.created_at||trip.timestamp)} · <Pill platform={editing?form.platform:trip.platform}/>
                 {trip.start_time&&<span>{fmtHour(trip.start_time)}</span>}
+                {(trip.start_location||trip.zone)&&<span style={{color:C.teal}}>📍 {typeof trip.start_location==="string"?trip.start_location:(trip.start_location?.display_name||(trip.start_location?.zone?`${trip.start_location.zone}${trip.start_location.city?`, ${trip.start_location.city}`:""}`:trip.zone||""))}</span>}
               </div>
             </div>
             <div style={{display:"flex",gap:7,alignItems:"center"}}>
@@ -534,7 +540,7 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
 // ─── MODAL: NUEVO VIAJE ───────────────────────────────────────────────────────
 const DRAFT0={fare:"",pickup_km:"",pickup_min:"",dest_km:"",dest_min:"",platform:"uber",gps_km:null,gps_min:null,mode:"manual",phase:0,gpsOn:false,gpsStartMs:null,gpsDistKm:0,start_location:null};
 
-function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgrade=openUpgrade}){
+function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgrade=openUpgrade,copilotState={}}){
   const platforms=enabledPlatforms(cfg);
   const storedDraft=LS.get(K.DRAFT,DRAFT0);
   const draft={...storedDraft,platform:platforms.some(p=>p.id===storedDraft.platform)?storedDraft.platform:(platforms[0]?.id||"")};
@@ -594,7 +600,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
         lastRef.current={lat,lon};
         setGpsStatus(`📍 ${distRef.current.toFixed(2)} km`);
       },
-      ()=>setGpsStatus("⚠️ Error GPS — verifica permisos"),
+      ()=>setGpsStatus("⚠️ Error GPS — activa 'Permitir todo el tiempo' y 'Precisa'"),
       {enableHighAccuracy:true,maximumAge:0,timeout:15000}
     );
   };
@@ -668,6 +674,23 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
       <div className="su" style={{background:C.card,border:`1px solid ${C.bord2}`,borderRadius:"24px",maxHeight:"calc(100vh - 160px)",display:"flex",flexDirection:"column",width:"100%",overflow:"hidden",boxShadow:"0px -4px 20px rgba(0,0,0,0.2)"}}>
         <div style={{padding:"16px 18px 0",flexShrink:0}}>
           <div style={{width:30,height:3,background:C.bord2,borderRadius:4,margin:"0 auto 13px"}}/>
+          {copilotState?.lastOffer&&mode==="manual"&&!trip.fare&&(
+            <button onClick={()=>{
+              const o=copilotState.lastOffer;
+              setTrip(p=>({
+                ...p,
+                fare:String(o.fare||""),
+                pickup_km:String(o.pickupKm||""),
+                pickup_min:String(o.pickupMin||""),
+                dest_km:String(o.tripKm||""),
+                dest_min:String(o.tripMin||""),
+                platform:o.platform||p.platform
+              }));
+            }} style={{width:"100%",padding:"8px 10px",borderRadius:8,background:`${C.teal}12`,border:`1px solid ${C.teal}`,color:C.teal,fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justify:"center",gap:6,marginBottom:10}}>
+              <SVG d={IC.plus} size={12} color={C.teal}/> Cargar datos del Copiloto (${copilotState.lastOffer.fare||0} · {((copilotState.lastOffer.pickupKm||0)+(copilotState.lastOffer.tripKm||0)).toFixed(1)}km · {String(copilotState.lastOffer.platform||"uber").toUpperCase()})
+            </button>
+          )}
+
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <Big size={19} color={C.accent} s={{letterSpacing:1}}>NUEVO VIAJE</Big>
             <button onClick={onClose} style={{color:C.muted,fontSize:20,lineHeight:1,padding:"4px 8px"}}>✕</button>
@@ -697,7 +720,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
               <Lbl s={{marginBottom:10}}>Rastreo GPS en tiempo real</Lbl>
               {!isPro&&<UpgradeCard onUpgrade={onUpgrade} s={{marginBottom:12}}/>}
               {gpsOn&&<div className="B" style={{fontSize:46,fontWeight:900,color:C.teal,textAlign:"center",marginBottom:8}}>{fmtClock(gpsMs)}</div>}
-              {gpsStatus&&<div style={{fontSize:13,color:gpsOn?C.teal:C.muted,textAlign:"center",marginBottom:10}}>{gpsStatus}</div>}
+              {gpsStatus&&<div style={{fontSize:13,color:gpsOn?C.teal:C.muted,textAlign:"center",marginBottom:10}}>{gpsStatus}{gpsStatus.includes("Error")&&<div style={{marginTop:8}}><button onClick={openSettings} style={{color:C.danger,textDecoration:"underline",fontWeight:700,fontSize:11}}>Abrir ajustes de ubicación</button></div>}</div>}
               {!gpsOn?(
                 <Btn full onClick={startGPS} color={C.teal}><SVG d={IC.gps} size={13} color={C.teal}/>Iniciar GPS</Btn>
               ):(
@@ -787,7 +810,39 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
   const[saving,setSaving]=useState(false);
   const[listening,setListening]=useState(false);
   const[voiceError,setVoiceError]=useState("");
+  const[deadGpsOn,setDeadGpsOn]=useState(false);
+  const[deadGpsMs,setDeadGpsMs]=useState(0);
   const recRef=useRef(null);
+  const deadWatchRef=useRef(null),deadTimerRef=useRef(null),deadStartRef=useRef(null);
+  const deadDistRef=useRef(0),deadLastRef=useRef(null);
+
+  const startDeadGps=()=>{
+    if(!navigator.geolocation)return;
+    deadDistRef.current=0;deadLastRef.current=null;deadStartRef.current=Date.now();
+    setDeadGpsOn(true);
+    clearInterval(deadTimerRef.current);
+    deadTimerRef.current=setInterval(()=>setDeadGpsMs(Date.now()-deadStartRef.current),1000);
+    if(deadWatchRef.current)navigator.geolocation.clearWatch(deadWatchRef.current);
+    deadWatchRef.current=navigator.geolocation.watchPosition(
+      ({coords:{latitude:lat,longitude:lon}})=>{
+        if(deadLastRef.current){const d=haversine(deadLastRef.current,{lat,lon});if(d>0.005)deadDistRef.current+=d;}
+        deadLastRef.current={lat,lon};
+        set("km",deadDistRef.current.toFixed(2));
+      },
+      ()=>{},{enableHighAccuracy:true,maximumAge:3000,timeout:15000}
+    );
+  };
+  const stopDeadGps=()=>{
+    if(deadWatchRef.current)navigator.geolocation.clearWatch(deadWatchRef.current);
+    clearInterval(deadTimerRef.current);
+    deadWatchRef.current=null;
+    setDeadGpsOn(false);
+    set("km",deadDistRef.current.toFixed(2));
+  };
+  useEffect(()=>()=>{
+    if(deadWatchRef.current)navigator.geolocation.clearWatch(deadWatchRef.current);
+    clearInterval(deadTimerRef.current);
+  },[]);
   const set=(k,v)=>setForm(p=>({...p,[k]:v}));
   const TYPES=[
     {id:"trip",label:"Viaje",d:IC.trips},
@@ -814,16 +869,20 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
   };
   const listen=()=>{
     if(listening){recRef.current?.stop();return;}
-    const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
-    if(!Recognition){setVoiceError("El dictado del navegador no esta disponible. Puedes escribir el movimiento.");return;}
     setVoiceError("");
     const base=text.trim();
-    const rec=new Recognition();rec.lang="es-MX";rec.interimResults=true;rec.continuous=true;rec.maxAlternatives=3;recRef.current=rec;
-    rec.onstart=()=>setListening(true);
-    rec.onend=()=>{setListening(false);recRef.current=null;};
-    rec.onerror=e=>{setListening(false);recRef.current=null;setVoiceError(e.error==="not-allowed"?"Activa el permiso del microfono para RutaFlow.":"No se escucho con claridad. Intenta de nuevo o corrige el texto.");};
-    rec.onresult=e=>{let heard="";for(let i=0;i<e.results.length;i++)heard+=`${e.results[i][0].transcript} `;setText(`${base}${base?" ":""}${heard.trim()}`);};
-    rec.start();
+    recRef.current = startSpeechRecognition(
+      { lang: "es-MX", continuous: true },
+      (heard) => setText(`${base}${base?" ":""}${heard.trim()}`),
+      (e) => {
+        setVoiceError(e.error==="not-allowed"?"Activa el permiso del microfono para RutaFlow.":"No se escucho con claridad. Intenta de nuevo o corrige el texto.");
+      },
+      () => {
+        setListening(false);
+        recRef.current = null;
+      }
+    );
+    if (recRef.current) setListening(true);
   };
   const valid=form.type==="trip"
     ? Number(form.fare)>0&&!!form.platform
@@ -864,10 +923,28 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
           <button onClick={parse} disabled={!text.trim()||parsing} style={{padding:"0 12px",border:`1px solid ${C.teal}`,borderRadius:8,color:C.teal,fontSize:10,fontWeight:700}}>{parsing?"...":"IA"}</button>
         </div>
         <div style={{fontSize:9,color:listening?C.teal:C.dim,lineHeight:1.45,marginBottom:voiceError?6:14}}>{listening?"Escuchando... puedes corregir el texto antes de enviarlo a IA.":"La IA prepara el registro. Tu confirmas antes de guardarlo."}</div>
-        {voiceError&&<div style={{fontSize:10,color:C.danger,background:`${C.danger}10`,border:`1px solid ${C.danger}33`,borderRadius:7,padding:"8px 9px",marginBottom:12}}>{voiceError}</div>}
+        {voiceError&&<div style={{fontSize:10,color:C.danger,background:`${C.danger}10`,border:`1px solid ${C.danger}33`,borderRadius:7,padding:"8px 9px",marginBottom:12}}>{voiceError}{voiceError.includes("permiso")&&<div style={{marginTop:6}}><button onClick={openSettings} style={{color:C.danger,textDecoration:"underline",fontWeight:700,fontSize:10}}>Abrir ajustes</button></div>}</div>}
         <div style={{display:"grid",gridTemplateColumns:initial?"1fr":"repeat(3,1fr)",gap:5,marginBottom:15}}>{TYPES.filter(t=>!initial||t.id===form.type).map(t=><button key={t.id} onClick={()=>set("type",t.id)} style={{minHeight:initial?44:58,padding:"7px 3px",border:`1px solid ${form.type===t.id?C.accent:C.border}`,borderRadius:8,background:form.type===t.id?`${C.accent}12`:C.card2,color:form.type===t.id?C.accent:C.muted,fontSize:8,fontWeight:700,display:"flex",flexDirection:initial?"row":"column",alignItems:"center",justifyContent:"center",gap:5}}><SVG d={t.d} size={16} color={form.type===t.id?C.accent:C.muted}/>{t.label}</button>)}</div>
         {form.type==="trip"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Tarifa" type="number" value={form.fare} onChange={v=>set("fare",v)} unit="$"/><Inp label="Distancia" type="number" value={form.trip_km} onChange={v=>set("trip_km",v)} unit="km"/><div style={{gridColumn:"1 / -1"}}><Lbl s={{marginBottom:5}}>Plataforma</Lbl><select value={form.platform} onChange={e=>set("platform",e.target.value)} disabled={!platforms.length} style={{width:"100%",background:C.card2,border:`1px solid ${platforms.length?C.border:C.danger}`,borderRadius:8,padding:"10px",color:platforms.length?C.text:C.danger}}>{!platforms.length&&<option value="">Activa una plataforma en Config</option>}{platforms.map(p=><option key={p.id} value={p.id}>{p.name} · {p.commission}%</option>)}</select></div></div>}
-        {form.type==="dead_km"&&<Inp label="Kilometros sin pasajero" type="number" value={form.km} onChange={v=>set("km",v)} unit="km"/>}
+        {form.type==="dead_km"&&(
+          <div>
+            <Inp label="Kilometros sin pasajero" type="number" value={form.km} onChange={v=>set("km",v)} unit="km"/>
+            <div style={{marginTop:8}}>
+              {!deadGpsOn?(
+                <button type="button" onClick={startDeadGps} style={{padding:"8px 11px",borderRadius:8,background:`${C.teal}14`,border:`1px solid ${C.teal}`,color:C.teal,fontSize:10,fontWeight:700,display:"inline-flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+                  <SVG d={IC.gps} size={14} color={C.teal}/> Medir con GPS en tiempo real
+                </button>
+              ):(
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:`${C.teal}12`,border:`1px solid ${C.teal}`,borderRadius:8,padding:"8px 10px"}}>
+                  <div style={{fontSize:11,fontWeight:800,color:C.teal}}>📍 GPS: {fmtClock(deadGpsMs)} · {deadDistRef.current.toFixed(2)} km</div>
+                  <button type="button" onClick={stopDeadGps} style={{padding:"5px 9px",borderRadius:6,background:`${C.danger}18`,border:`1px solid ${C.danger}`,color:C.danger,fontSize:9,fontWeight:800,cursor:"pointer"}}>
+                    Detener GPS
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {form.type==="refuel"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Litros cargados" type="number" value={form.liters} onChange={v=>set("liters",v)} unit="L"/><Inp label="Importe pagado" type="number" value={form.amount} onChange={v=>set("amount",v)} unit="$"/></div>}
         {form.type==="tank_checkpoint"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Litros estimados" type="number" value={form.tank_liters} onChange={v=>set("tank_liters",v)} unit="L"/><Inp label="Odometro opcional" type="number" value={form.odometer} onChange={v=>set("odometer",v)} unit="km"/></div>}
         {form.type==="tip"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Monto de propina" type="number" value={form.amount} onChange={v=>set("amount",v)} unit="$"/><div><Lbl s={{marginBottom:5}}>Plataforma</Lbl><select value={form.platform} onChange={e=>set("platform",e.target.value)} style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px",color:C.text}}><option value="">Sin plataforma</option>{platforms.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></div></div>}
@@ -1003,7 +1080,7 @@ function BonusTripAdvice({bonus,insight}){
 }
 
 // ─── HOME TAB ─────────────────────────────────────────────────────────────────
-function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,onNew,onQuick,dayKm:propDayKm,onSelect,onDeleteEvent,onEditEvent,onSelectClosure,onUpdateBonus,isPro,monthlyTripsCount,onUpgrade,copilotState,onToggleCopilot,copilotPlatform,onCopilotPlatform}){
+function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,onNew,onQuick,dayKm:propDayKm,onSelect,onDeleteEvent,onEditEvent,onSelectClosure,onUpdateBonus,isPro,monthlyTripsCount,onUpgrade,copilotState,onToggleCopilot,copilotPlatform,onCopilotPlatform,onRegisterCopilotOffer}){
   const[elapsed,setElapsed]=useState(0);
   const[showAll,setShowAll]=useState(false);
   const timerRef=useRef(null);
@@ -1058,15 +1135,17 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
             {copilotState.busy?"ESPERA":copilotState.running?"APAGAR":"ACTIVAR"}
           </button>
         </div>
-        {copilotState.supported&&<div style={{display:"flex",gap:5,marginTop:10}}>
-          {enabledPlatforms(cfg).filter(p=>p.id!=="particular").map(p=><button key={p.id} onClick={()=>onCopilotPlatform(p.id)} style={{flex:1,padding:"6px 3px",borderRadius:7,border:`1px solid ${copilotPlatform===p.id?C.accent:C.border}`,background:copilotPlatform===p.id?`${C.accent}13`:"transparent",color:copilotPlatform===p.id?C.accent:C.muted,fontSize:8,fontWeight:700,textTransform:"uppercase"}}>{p.name}</button>)}
-        </div>}
-        {copilotState.lastOffer&&<div style={{marginTop:11,paddingTop:10,borderTop:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"1fr auto",gap:10,alignItems:"center"}}>
-          <div>
-            <div style={{fontSize:11,color:copilotState.lastOffer.verdict==="good"?C.teal:copilotState.lastOffer.verdict==="maybe"?C.accent:C.danger,fontWeight:800}}>{copilotState.lastOffer.verdict==="good"?"BUEN VIAJE":copilotState.lastOffer.verdict==="maybe"?"ACEPTABLE":"NO CONVIENE"} · {String(copilotState.lastOffer.platform||"otra").toUpperCase()}</div>
-            <div style={{fontSize:9,color:C.muted,marginTop:3,lineHeight:1.45}}>{copilotState.lastOffer.explanation}</div>
+        {copilotState.lastOffer&&<div style={{marginTop:11,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:10,alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:11,color:copilotState.lastOffer.verdict==="good"?C.teal:copilotState.lastOffer.verdict==="maybe"?C.accent:C.danger,fontWeight:800}}>{copilotState.lastOffer.verdict==="good"?"BUEN VIAJE":copilotState.lastOffer.verdict==="maybe"?"ACEPTABLE":"NO CONVIENE"} · {String(copilotState.lastOffer.platform||"otra").toUpperCase()}</div>
+              <div style={{fontSize:9,color:C.muted,marginTop:3,lineHeight:1.45}}>{copilotState.lastOffer.explanation}</div>
+            </div>
+            <div style={{textAlign:"right"}}><Big size={19} color={copilotState.lastOffer.verdict==="good"?C.teal:C.accent}>{fmtMXN(copilotState.lastOffer.hourly)}/h</Big><div style={{fontSize:8,color:C.muted,marginTop:2}}>{fmtMXN(copilotState.lastOffer.net)} netos</div></div>
           </div>
-          <div style={{textAlign:"right"}}><Big size={19} color={copilotState.lastOffer.verdict==="good"?C.teal:C.accent}>{fmtMXN(copilotState.lastOffer.hourly)}/h</Big><div style={{fontSize:8,color:C.muted,marginTop:2}}>{fmtMXN(copilotState.lastOffer.net)} netos</div></div>
+          <button onClick={()=>onRegisterCopilotOffer(copilotState.lastOffer)} style={{marginTop:9,width:"100%",padding:"8px 10px",borderRadius:7,background:`${C.teal}18`,border:`1px solid ${C.teal}`,color:C.teal,fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",gap:6,cursor:"pointer"}}>
+            <SVG d={IC.plus} size={13} color={C.teal}/> Registrar este viaje fácil (${copilotState.lastOffer.fare||copilotState.lastOffer.gross||0})
+          </button>
         </div>}
         {copilotState.supported&&!copilotState.running&&<div style={{fontSize:8,color:C.dim,lineHeight:1.45,marginTop:9}}>Android mostrará el permiso de captura. RutaFlow procesa el texto en el teléfono y no guarda imágenes.</div>}
       </Card>
@@ -1181,6 +1260,7 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
                   <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3}}>
                     <Pill platform={t.platform}/>
                     {t.gps_km>0&&<span style={{fontSize:9,color:C.teal}}>📍GPS</span>}
+                    {(t.start_location||t.zone)&&<span style={{fontSize:9,color:C.teal}}>📍{typeof t.start_location==="string"?t.start_location:(t.start_location?.display_name||(t.start_location?.zone?`${t.start_location.zone}${t.start_location.city?`, ${t.start_location.city}`:""}`:t.zone||""))}</span>}
                     {t.end_time&&<span style={{fontSize:9,color:C.dim}}>{fmtHour(t.end_time)}</span>}
                   </div>
                   <div style={{fontSize:11,color:C.muted}}>{fmtMXN(t.fare)} · {fmt(c.km,1)}km · {c.min.toFixed(0)}min</div>
@@ -1246,6 +1326,7 @@ function TripsTab({cfg,trips,events,bonuses,closures,onSelect,onNew,onQuick,onSe
                 <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:4,flexWrap:"wrap"}}>
                   <Pill platform={t.platform}/>
                   {t.gps_km>0&&<span style={{fontSize:9,color:C.teal}}>📍GPS</span>}
+                  {(t.start_location||t.zone)&&<span style={{fontSize:9,color:C.teal}}>📍{typeof t.start_location==="string"?t.start_location:(t.start_location?.display_name||(t.start_location?.zone?`${t.start_location.zone}${t.start_location.city?`, ${t.start_location.city}`:""}`:t.zone||""))}</span>}
                   <span style={{fontSize:9,color:C.muted}}>{fmtDate(t.end_time||t.created_at)}</span>
                   {t.end_time&&<span style={{fontSize:9,color:C.dim}}>{fmtHour(t.end_time)}</span>}
                 </div>
@@ -1440,31 +1521,28 @@ function AITab({cfg,trips,events=[],bonuses,closures=[],locations=[],isPro,month
   };
   const listen=()=>{
     if(listening){recRef.current?.stop();return;}
-    const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
-    if(!Recognition){setVoiceError("El dictado por voz no está disponible en este dispositivo. Puedes escribir tu pregunta.");return;}
     stopSpeaking();setVoiceError("");
     const base=input.trim();
-    const rec=new Recognition();
-    rec.lang="es-MX";rec.interimResults=true;rec.continuous=false;rec.maxAlternatives=3;recRef.current=rec;
-    rec.onstart=()=>setListening(true);
-    rec.onend=()=>{setListening(false);recRef.current=null;};
-    rec.onerror=event=>{
-      setListening(false);recRef.current=null;
-      const errors={
-        "not-allowed":"Activa el permiso del micrófono para hablar con RutaFlow.",
-        "service-not-allowed":"El servicio de dictado está bloqueado en este dispositivo.",
-        "audio-capture":"No encontré un micrófono disponible.",
-        "no-speech":"No alcancé a escuchar. Toca el micrófono e inténtalo de nuevo.",
-        network:"El dictado necesita conexión en este dispositivo. Revisa tu señal.",
-      };
-      setVoiceError(errors[event.error]||"No se escuchó con claridad. Inténtalo de nuevo o corrige el texto.");
-    };
-    rec.onresult=event=>{
-      let heard="";
-      for(let i=0;i<event.results.length;i++)heard+=`${event.results[i][0].transcript} `;
-      setInput(`${base}${base?" ":""}${heard.trim()}`);
-    };
-    try{rec.start();}catch{recRef.current=null;setListening(false);setVoiceError("No pude iniciar el micrófono. Inténtalo de nuevo.");}
+    recRef.current = startSpeechRecognition(
+      { lang: "es-MX", continuous: false },
+      (heard) => setInput(`${base}${base?" ":""}${heard.trim()}`),
+      (e) => {
+        const errors={
+          "not-allowed":"Activa el permiso del micrófono para hablar con RutaFlow.",
+          "service-not-allowed":"El servicio de dictado está bloqueado en este dispositivo.",
+          "audio-capture":"No encontré un micrófono disponible.",
+          "no-speech":"No alcancé a escuchar. Toca el micrófono e inténtalo de nuevo.",
+          network:"El dictado necesita conexión en este dispositivo. Revisa tu señal.",
+          "not-supported":"El dictado por voz no está disponible en este dispositivo."
+        };
+        setVoiceError(errors[e.error]||"No se escuchó con claridad. Inténtalo de nuevo o corrige el texto.");
+      },
+      () => {
+        setListening(false);
+        recRef.current = null;
+      }
+    );
+    if (recRef.current) setListening(true);
   };
   const recent=trips.filter(t=>new Date(t.end_time||t.created_at||0).getTime()>=Date.now()-30*86400000);
   const ctx=()=>{
@@ -1611,7 +1689,7 @@ ULTIMOS ${last3||"s/d"}`;
         <div ref={endRef}/>
       </div>
       <div style={{padding:"7px 14px 12px",borderTop:`1px solid ${C.border}`,position:"sticky",bottom:0,background:C.bg,flexShrink:0,zIndex:4}}>
-        {(listening||voiceError||speechError)&&<div aria-live="polite" style={{fontSize:9,lineHeight:1.45,color:listening?C.teal:C.danger,marginBottom:6}}>{listening?"Escuchando en español… habla con naturalidad.":voiceError||speechError}</div>}
+        {(listening||voiceError||speechError)&&<div aria-live="polite" style={{fontSize:9,lineHeight:1.45,color:listening?C.teal:C.danger,marginBottom:6}}>{listening?"Escuchando en español… habla con naturalidad.":voiceError||speechError}{(voiceError||speechError)&&String(voiceError||speechError).includes("permiso")&&<button onClick={openSettings} style={{marginLeft:8,color:C.danger,textDecoration:"underline",fontWeight:700,fontSize:9}}>Abrir ajustes</button>}</div>}
         <div style={{display:"flex",gap:7,alignItems:"flex-end",minWidth:0}}>
           <textarea ref={inputRef} rows={1} value={input} onChange={e=>{setInput(e.target.value);if(voiceError)setVoiceError("");}} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}} enterKeyHint="send" placeholder={listening?"Escuchando…":"Escribe o habla con la IA…"} onFocus={e=>{e.target.style.borderColor=C.accent;setTimeout(()=>inputRef.current?.scrollIntoView({block:"nearest"}),150);}} onBlur={e=>e.target.style.borderColor=C.border} style={{flex:"1 1 0",minWidth:0,minHeight:46,maxHeight:92,resize:"none",background:C.card,border:`1px solid ${listening?C.teal:C.border}`,borderRadius:9,padding:"11px 12px",color:C.text,fontSize:16,lineHeight:1.35,fontFamily:"inherit",outline:"none"}}/>
           <button onClick={listen} disabled={loading} aria-label={listening?"Detener dictado":"Hablar con la IA"} title={listening?"Detener dictado":"Hablar con la IA"} style={{width:46,height:46,flexShrink:0,background:listening?`${C.danger}18`:C.card,border:`1px solid ${listening?C.danger:C.teal}`,borderRadius:9,display:"grid",placeItems:"center",opacity:loading?.45:1}}><SVG d={listening?IC.stop:IC.mic} size={18} color={listening?C.danger:C.teal}/></button>
@@ -1695,19 +1773,17 @@ function Auth(){
   const handleForgot=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:redir()});if(err)setError(err.message);else setSuccess("Te enviamos un link para restablecer tu contraseña.");setLoading(false);};
   const handleGoogle=async()=>{
     reset();setLoading(true);
-    const standalone=isStandaloneApp();
-    const authWindow=standalone?window.open("about:blank","rutaflow-google-oauth"):null;
     try{
-      const{data,error:err}=await supabase.auth.signInWithOAuth({provider:"google",options:{redirectTo:standalone?`${redir()}?oauth_return=google`:redir(),skipBrowserRedirect:standalone}});
+      const native=Capacitor.isNativePlatform();
+      const{data,error:err}=await supabase.auth.signInWithOAuth({provider:"google",options:googleOAuthOptions(window.location.origin,native)});
       if(err)throw err;
-      if(standalone){
-        if(!data?.url)throw new Error("Google no devolvió una dirección de acceso.");
-        if(!authWindow){setError("No pude abrir Google dentro de RutaFlow. Permite ventanas emergentes e inténtalo de nuevo.");setLoading(false);return;}
-        authWindow.location.replace(data.url);
-        setSuccess("Completa el acceso con Google. Volverás aquí automáticamente.");
+      if(native){
+        if(!data?.url)throw new Error("No se recibió el enlace de inicio de sesión.");
+        await Browser.open({url:data.url});
+        setSuccess("Completa el acceso en Google; volverás automáticamente a RutaFlow.");
         setLoading(false);
       }
-    }catch(err){try{authWindow?.close();}catch{}setError(err.message||"No se pudo iniciar sesión con Google.");setLoading(false);}
+    }catch(err){setError(err.message||"No se pudo iniciar sesión con Google.");setLoading(false);}
   };
   const inp={width:"100%",background:"#0a0b14",border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px 12px 42px",color:"#fff",fontSize:14,fontFamily:"IBM Plex Mono,monospace",outline:"none"};
   const FI=({d})=><div style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}><SVG d={d} size={15} color={C.muted}/></div>;
@@ -1822,26 +1898,38 @@ export default function RutaFlow(){
 
   useEffect(()=>{
     let active=true;
+    let appUrlListener=null;
     const acceptSession=nextSession=>{
       if(!active)return;
       setSession(nextSession);
       const uid=nextSession?.user?.id||null;
       const oauthReturn=new URLSearchParams(window.location.search).get("oauth_return")==="google";
-      if(uid&&oauthReturn&&window.opener&&window.opener!==window){
-        window.opener.postMessage({type:"rutaflow-auth-complete"},window.location.origin);
-        setLoading(false);setTimeout(()=>window.close(),180);return;
-      }
       if(oauthReturn)window.history.replaceState({},"",`${window.location.pathname}${window.location.hash}`);
       if(uid){if(authUserRef.current!==uid){authUserRef.current=uid;loadCloud(uid);}}
       else{authUserRef.current=null;setProfile(null);setLoading(false);}
     };
+    const acceptOAuthUrl=async url=>{
+      const isWebCallback=url?.startsWith(ANDROID_AUTH_CALLBACK_FALLBACK);
+      const isAppCallback=url?.startsWith(ANDROID_AUTH_CALLBACK);
+      if(!isWebCallback&&!isAppCallback)return;
+      try{
+        const nextSession=await restoreOAuthSession(supabase,url);
+        if(nextSession)acceptSession(nextSession);
+      }catch(error){
+        console.error("No se pudo recuperar la sesión OAuth",error);
+        if(active)alert(`No se pudo completar el acceso con Google: ${error.message}`);
+      }finally{
+        Browser.close().catch(()=>{});
+      }
+    };
     const syncSession=()=>supabase.auth.getSession().then(({data:{session:nextSession}})=>acceptSession(nextSession));
     syncSession();
     const{data:{subscription}}=supabase.auth.onAuthStateChange((event,nextSession)=>acceptSession(nextSession));
-    const receive=event=>{if(event.origin===window.location.origin&&event.data?.type==="rutaflow-auth-complete")syncSession();};
-    const focus=()=>syncSession();
-    window.addEventListener("message",receive);window.addEventListener("focus",focus);
-    return()=>{active=false;subscription.unsubscribe();window.removeEventListener("message",receive);window.removeEventListener("focus",focus);};
+    if(Capacitor.isNativePlatform()){
+      CapacitorApp.addListener("appUrlOpen",({url})=>acceptOAuthUrl(url)).then(listener=>{appUrlListener=listener;});
+      CapacitorApp.getLaunchUrl().then(result=>acceptOAuthUrl(result?.url)).catch(()=>{});
+    }
+    return()=>{active=false;subscription.unsubscribe();appUrlListener?.remove?.();};
   },[]);
 
   const loadCloud=useCallback(async uid=>{
@@ -2058,6 +2146,22 @@ export default function RutaFlow(){
     await supabase.from("profiles").upsert({id:session.user.id,config:normalized,updated_at:new Date().toISOString()});
   };
 
+  const registerCopilotOffer=(offer)=>{
+    if(!offer)return;
+    const draft={
+      ...DRAFT0,
+      fare:String(offer.fare||""),
+      pickup_km:String(offer.pickupKm||""),
+      pickup_min:String(offer.pickupMin||""),
+      dest_km:String(offer.tripKm||""),
+      dest_min:String(offer.tripMin||""),
+      platform:offer.platform||"uber",
+      mode:"manual"
+    };
+    LS.set(K.DRAFT,draft);
+    setShowNew(true);
+  };
+
   if(loading)return(
     <><style>{CSS}</style>
     <div style={{background:C.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
@@ -2094,7 +2198,7 @@ export default function RutaFlow(){
           </div>
         </div>
 
-        {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}}/>}
+        {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer}/>}
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses}/>}
         {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} userId={session.user.id}/>}
@@ -2113,7 +2217,7 @@ export default function RutaFlow(){
       </div>{/* ← CIERRE DEL DIV PRINCIPAL */}
 
       {/* MODALES FUERA DEL DIV — flotan sobre todo incluyendo la NAV */}
-      {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} activeBonuses={bonuses.filter(b=>String(b.status||"")==="active")} onClose={()=>setShowNew(false)} isPro={isPro} onUpgrade={openUpgrade}/>}
+      {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} activeBonuses={bonuses.filter(b=>String(b.status||"")==="active")} onClose={()=>setShowNew(false)} isPro={isPro} onUpgrade={openUpgrade} copilotState={copilotState}/>}
       {showOperation&&<OperationModal cfg={cfg} initial={editingEvent} initialKind={editingKind} onClose={()=>{setShowOperation(false);setEditingEvent(null);setEditingKind("event");}} onSaveOperation={saveOperation} onUpdateOperation={updateOperation} onSaveTrip={saveTrip} onSaveBonus={saveBonus} onUpdateBonus={updateBonus}/>}
       {selectedRecord&&<RecordDetail kind={selectedRecord.kind} record={selectedRecord.record} cfg={cfg} onClose={()=>setSelectedRecord(null)} onEdit={()=>{setEditingEvent(selectedRecord.record);setEditingKind(selectedRecord.kind);setSelectedRecord(null);setShowOperation(true);}} onDelete={async()=>{const deleted=selectedRecord.kind==="bonus"?await deleteBonus(selectedRecord.record.id):await deleteOperation(selectedRecord.record.id);if(deleted)setSelectedRecord(null);}}/>}
       {selectedClosure&&<ClosureModal closure={selectedClosure} cfg={cfg} trips={trips} events={events} bonuses={bonuses} onClose={()=>setSelectedClosure(null)} onSelectTrip={trip=>{setSelectedClosure(null);setSelTrip(trip);}} onSelectRecord={(kind,record)=>{setSelectedClosure(null);setSelectedRecord({kind,record});}}/>}
@@ -2123,3 +2227,4 @@ export default function RutaFlow(){
     </>
   );
 }
+

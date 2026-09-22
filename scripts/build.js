@@ -11,8 +11,16 @@ const env = {
     process.env.REACT_APP_SUPABASE_ANON_KEY ||
     process.env.SUPABASE_PUBLISHABLE_KEY ||
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    "",
+  "",
 };
+
+if (!env.REACT_APP_SUPABASE_URL || !env.REACT_APP_SUPABASE_ANON_KEY) {
+  console.error(
+    "Build cancelado: faltan REACT_APP_SUPABASE_URL o REACT_APP_SUPABASE_ANON_KEY. " +
+    "Sin ellas la aplicacion Android abre en negro antes de renderizar."
+  );
+  process.exit(1);
+}
 
 const result = spawnSync(
   process.execPath,

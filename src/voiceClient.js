@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
+import { TextToSpeech } from "@capacitor-community/text-to-speech";
 
 export function textForSpeech(value) {
   return String(value || "")
@@ -47,16 +49,20 @@ function findSpanishVoice(voices) {
 }
 
 export function useSpanishSpeech() {
-  const supported = typeof window !== "undefined"
+  const supported = Capacitor.isNativePlatform() || (typeof window !== "undefined"
     && "speechSynthesis" in window
-    && "SpeechSynthesisUtterance" in window;
+    && "SpeechSynthesisUtterance" in window);
   const [speakingId, setSpeakingId] = useState(null);
   const [speechError, setSpeechError] = useState("");
   const runRef = useRef(0);
 
   const stop = useCallback(() => {
     runRef.current += 1;
-    if (supported) window.speechSynthesis.cancel();
+    if (Capacitor.isNativePlatform()) {
+      TextToSpeech.stop().catch(() => {});
+    } else if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
     setSpeakingId(null);
   }, [supported]);
 
@@ -73,12 +79,29 @@ export function useSpanishSpeech() {
     const chunks = splitSpeechText(value);
     if (!chunks.length) return false;
 
-    const synth = window.speechSynthesis;
     const run = runRef.current + 1;
     runRef.current = run;
-    synth.cancel();
     setSpeechError("");
     setSpeakingId(id);
+
+    if (Capacitor.isNativePlatform()) {
+      TextToSpeech.speak({
+        text: textForSpeech(value),
+        lang: 'es-MX',
+        rate: 1.0,
+        pitch: 1.0,
+      }).then(() => {
+        if (runRef.current === run) setSpeakingId(null);
+      }).catch((err) => {
+        if (runRef.current !== run) return;
+        setSpeakingId(null);
+        setSpeechError("No pude reproducir la voz nativa.");
+      });
+      return true;
+    }
+
+    const synth = window.speechSynthesis;
+    synth.cancel();
 
     const voice = findSpanishVoice(synth.getVoices());
     chunks.forEach((chunk, index) => {
@@ -106,7 +129,11 @@ export function useSpanishSpeech() {
 
   useEffect(() => () => {
     runRef.current += 1;
-    if (supported) window.speechSynthesis.cancel();
+    if (Capacitor.isNativePlatform()) {
+      TextToSpeech.stop().catch(() => {});
+    } else if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
   }, [supported]);
 
   return { supported, speakingId, speechError, speak, stop };

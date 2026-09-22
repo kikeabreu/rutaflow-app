@@ -19,11 +19,56 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Barlow+Condensed:wght@700;800;900&display=swap" rel="stylesheet" />
+  <script>
+    (() => {
+      const page = new URL(window.location.href);
+      const fragment = new URLSearchParams(page.hash.replace(/^#/, ""));
+      const isAndroid = /Android/i.test(navigator.userAgent);
+      const hasOAuthResult = (
+        (fragment.has("access_token") && fragment.has("refresh_token")) ||
+        page.searchParams.has("code") ||
+        fragment.has("error") ||
+        page.searchParams.has("error")
+      );
+      if (!isAndroid || !hasOAuthResult) return;
+
+      const callback = new URL("mx.rutaflow.app://auth/callback");
+      ["access_token", "refresh_token", "expires_in", "expires_at", "token_type", "type", "code", "error", "error_code", "error_description"].forEach(key => {
+        const value = fragment.get(key) || page.searchParams.get(key);
+        if (value) callback.searchParams.set(key, value);
+      });
+      const appUrl = callback.toString();
+
+      // Do not leave OAuth credentials in Chrome's address or history.
+      window.history.replaceState({}, "", "/");
+
+      const openApp = () => {
+        try { window.location.assign(appUrl); } catch (_) {}
+      };
+      openApp();
+
+      window.addEventListener("DOMContentLoaded", () => {
+        const bridge = document.createElement("div");
+        bridge.id = "rutaflow-auth-bridge";
+        bridge.innerHTML = `
+          <main style="position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;background:#07080d;color:#dde0f5;font-family:Arial,sans-serif;padding:24px;text-align:center">
+            <section style="width:100%;max-width:390px">
+              <img src="/icons/icon-192.png" width="92" height="92" alt="RutaFlow" style="border-radius:22px;margin-bottom:18px" />
+              <h1 style="color:#f0a500;font-size:30px;margin:0 0 10px">RUTAFLOW</h1>
+              <p style="color:#9a9db5;line-height:1.5;margin:0 0 22px">Tu acceso con Google terminó. Toca el botón para regresar a la aplicación.</p>
+              <button id="rutaflow-open-app" style="width:100%;padding:15px;border:2px solid #f0a500;border-radius:12px;background:#2a210d;color:#f0a500;font-size:16px;font-weight:700">VOLVER A RUTAFLOW</button>
+            </section>
+          </main>`;
+        document.body.appendChild(bridge);
+        document.getElementById("rutaflow-open-app")?.addEventListener("click", openApp);
+      }, { once: true });
+    })();
+  </script>
 </head>
 <body>
   <div id="root"></div>
   <script>
-    if ("serviceWorker" in navigator) {
+    if ("serviceWorker" in navigator && !window.Capacitor?.isNativePlatform?.()) {
       window.addEventListener("load", () => {
         navigator.serviceWorker
           .register("/sw.js")

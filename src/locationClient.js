@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { apiUrl } from "./apiClient";
 
 const CACHE_KEY="rf_zone_cache";
 
@@ -31,15 +32,20 @@ export async function locateDriver(options={}){
   try{
     const{data:{session}}=await supabase.auth.getSession();
     if(!session?.access_token)return point;
-    const response=await fetch(`/api/geocode?lat=${point.lat}&lon=${point.lon}`,{
+    const response=await fetch(apiUrl(`/api/geocode?lat=${point.lat}&lon=${point.lon}`),{
       headers:{Authorization:`Bearer ${session.access_token}`},
     });
     const data=await response.json().catch(()=>({}));
     if(!response.ok)return point;
-    const place={zone:data.zone||"",city:data.city||""};
+    const place={
+      zone:data.zone||"",
+      city:data.city||"",
+      display_name:data.display_name||(data.zone&&data.city&&data.zone!==data.city?`${data.zone}, ${data.city}`:(data.zone||data.city||""))
+    };
     const cache=readCache();cache[key]=place;
     const entries=Object.entries(cache).slice(-120);
     writeCache(Object.fromEntries(entries));
     return{...point,...place};
   }catch{return point;}
 }
+

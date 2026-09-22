@@ -4,9 +4,16 @@ const NativeCopilot = registerPlugin("RutaFlowCopilot");
 
 export const isAndroidApp = () => Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
 
+const DEFAULT_PLATFORMS = [
+  { id: "didi", name: "DiDi", commission: 12 },
+  { id: "uber", name: "Uber", commission: 25 },
+  { id: "indrive", name: "inDrive", commission: 10 },
+  { id: "cabify", name: "Cabify", commission: 15 }
+];
+
 export const copilotConfig = cfg => {
-  const platforms = Array.isArray(cfg?.platforms) ? cfg.platforms : [];
-  const commissions = Object.fromEntries(platforms.map(p => [String(p.id || "").toLowerCase(), Number(p.commission) || 0]));
+  const platformsList = Array.isArray(cfg?.platforms) && cfg.platforms.length ? cfg.platforms : DEFAULT_PLATFORMS;
+  const commissions = Object.fromEntries(platformsList.map(p => [String(p.id || "").toLowerCase(), Number(p.commission) || 0]));
   let wearPerKm = 0;
   if(cfg?.llantasEnabled) wearPerKm += (Number(cfg.llantasMonto) || 0) / (Number(cfg.llantasKmVida) || 40000);
   if(cfg?.mantenimientoEnabled) wearPerKm += (Number(cfg.mantenimientoMonto) || 0) / (Number(cfg.mantenimientoKmVida) || 5000);
@@ -19,6 +26,7 @@ export const copilotConfig = cfg => {
     platformHint:String(cfg?.copilotPlatform||"otra").toLowerCase(),
   });
 };
+
 
 export const copilot = {
   async supported() {
