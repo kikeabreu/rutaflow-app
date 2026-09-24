@@ -422,8 +422,8 @@ const Inp=({label,value,onChange,type="text",unit,placeholder="0"})=>(
   </div>
 );
 const Toast=({msg,type="ok"})=>msg?(
-  <div style={{position:"fixed",top:"calc(16px + env(safe-area-inset-top))",left:"50%",transform:"translateX(-50%)",zIndex:99999,background:type==="ok"?"#00c9a7":"#ff4055",color:"#000",borderRadius:10,padding:"10px 20px",fontSize:12,fontWeight:700,letterSpacing:"0.08em",whiteSpace:"nowrap",boxShadow:"0 4px 24px rgba(0,0,0,.6)"}}>
-    {type==="ok"?"✅":"⚠️"} {msg}
+  <div style={{position:"fixed",top:"calc(16px + env(safe-area-inset-top))",left:"50%",transform:"translateX(-50%)",zIndex:99999,background:type==="ok"?"#00c9a7":type==="warn"?"#f0a500":"#ff4055",color:"#000",borderRadius:10,padding:"10px 20px",fontSize:12,fontWeight:700,letterSpacing:"0.08em",whiteSpace:"nowrap",boxShadow:"0 4px 24px rgba(0,0,0,.6)"}}>
+    {type==="ok"?"✅":type==="warn"?"📥":"⚠️"} {msg}
   </div>
 ):null;
 const MarkdownMessage=({children})=><div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{table:({children})=><div className="table-wrap"><table>{children}</table></div>}}>{String(children||"")}</ReactMarkdown></div>;
@@ -2657,7 +2657,7 @@ export default function RutaFlow(){
       {selTrip&&<TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)}
         onSave={async(id,d)=>{await updateTrip(id,d);setSelTrip(null);}}
         onDelete={async id=>{await deleteTrip(id);setSelTrip(null);}}/>}
-      {showSupport&&<SupportModal isOpen={showSupport} onClose={()=>setShowSupport(false)} userId={session?.user?.id} userEmail={session?.user?.email} onReportSent={()=>showToast("Reporte enviado con éxito")}/>}
+      {showSupport&&<SupportModal isOpen={showSupport} onClose={()=>setShowSupport(false)} userId={session?.user?.id} userEmail={session?.user?.email} onReportSent={sent=>showToast(sent?"Reporte enviado con éxito":"Reporte guardado; se enviará al recuperar la conexión",sent?"ok":"warn")}/>}
       {showOnboarding&&<OnboardingWizard isOpen={showOnboarding} onComplete={()=>setShowOnboarding(false)} onDismissNever={()=>{setShowOnboarding(false);LS.set("rf_onboarding_dismissed",true);}} setTab={setTab} currentTab={tab}/>}
     </>
   );

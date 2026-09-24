@@ -38,6 +38,9 @@ export function SupportModal({ isOpen, onClose, userId, userEmail, onReportSent 
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [sentSuccess, setSentSuccess] = useState(false);
+  // Distingue llegar al servidor de quedar en cola: decir siempre "recibido"
+  // deja al conductor creyendo que alguien ya leyó su reporte.
+  const [queuedOffline, setQueuedOffline] = useState(false);
 
   if (!isOpen) return null;
 
@@ -76,14 +79,16 @@ export function SupportModal({ isOpen, onClose, userId, userEmail, onReportSent 
         await queueSupportTicket(ticketPayload);
       }
 
+      setQueuedOffline(!savedToCloud);
       setSentSuccess(true);
-      if (onReportSent) onReportSent();
+      if (onReportSent) onReportSent(savedToCloud);
       setTimeout(() => {
         setSentSuccess(false);
+        setQueuedOffline(false);
         setSubject('');
         setMessage('');
         onClose();
-      }, 2000);
+      }, 2600);
     } catch (err) {
       console.error("Error creating ticket:", err);
     } finally {
@@ -128,10 +133,14 @@ export function SupportModal({ isOpen, onClose, userId, userEmail, onReportSent 
           ) : (
             <form onSubmit={handleSubmit} style={{display:"flex",flexDirection:"column",gap:11}}>
               {sentSuccess ? (
-                <div style={{padding:"30px 10px",textAlign:"center",color:C.teal}}>
-                  <div style={{fontSize:32,marginBottom:8}}>✅</div>
-                  <div style={{fontSize:14,fontWeight:800}}>¡Mensaje recibido!</div>
-                  <div style={{fontSize:11,color:C.muted,marginTop:4}}>El equipo de soporte te responderá a la brevedad.</div>
+                <div style={{padding:"30px 10px",textAlign:"center",color:queuedOffline?C.accent:C.teal}}>
+                  <div style={{fontSize:32,marginBottom:8}}>{queuedOffline?"📥":"✅"}</div>
+                  <div style={{fontSize:14,fontWeight:800}}>{queuedOffline?"Guardado en tu teléfono":"¡Mensaje recibido!"}</div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:4}}>
+                    {queuedOffline
+                      ? "No se pudo enviar ahora. Se mandará solo en cuanto haya conexión; no cierres sesión."
+                      : "El equipo de soporte te responderá a la brevedad."}
+                  </div>
                 </div>
               ) : (
                 <>
