@@ -2518,6 +2518,33 @@ export default function RutaFlow(){
       });
       closed=response.data;closeError=response.error;
     }catch(error){closeError=error;}
+
+    // Si la función RPC aún no se ha ejecutado en Supabase (error PGRST202), cerramos directamente en las tablas
+    if(!closed && closeError?.code==="PGRST202"){
+      try {
+        const uid = session.user.id;
+        const nowIso = new Date().toISOString();
+        const startIso = new Date(activeDay.startTime).toISOString();
+        
+        await supabase.from("days").insert({
+          user_id: uid, date: activeDay.date, total_net: tots.net, total_km: tots.totalKm,
+          total_min: tots.min || 0, total_ms: totalMs, trip_count: dayTrips.length
+        });
+        
+        const closureData = {
+          id: closeId, user_id: uid, date: activeDay.date, start_time: startIso, end_time: nowIso,
+          total_ms: totalMs, trip_count: dayTrips.length, total_net: tots.net, total_km: tots.totalKm,
+          dead_km: tots.deadKm, productive_pct: tots.productivePct, snapshot: tots
+        };
+        const { data: directClosure } = await supabase.from("shift_closures").insert(closureData).select().maybeSingle();
+        closed = directClosure || closureData;
+        await supabase.from("active_days").delete().eq("user_id", uid);
+        closeError = null;
+      } catch (fallbackErr) {
+        console.warn("Shift closure fallback", fallbackErr);
+      }
+    }
+
     if(closeError||!closed){
       showToast(closeError?.code==="PGRST202"?"Falta actualizar la base de datos para cerrar jornadas.":"No se cerró la jornada. Tus datos siguen guardados; intenta de nuevo con conexión.","err");
       return;

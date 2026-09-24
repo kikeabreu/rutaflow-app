@@ -138,6 +138,9 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
 
         config = CopilotConfig.fromJson(getSharedPreferences(PREFS, MODE_PRIVATE)
             .getString(PREF_CONFIG, "{}"));
+        if (overlayView == null && android.provider.Settings.canDrawOverlays(this)) {
+            overlayView = new CopilotOverlayView(this);
+        }
         startAsForeground("Escuchando ofertas", "RutaFlow analiza únicamente mientras este aviso esté activo.");
 
         int resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0);

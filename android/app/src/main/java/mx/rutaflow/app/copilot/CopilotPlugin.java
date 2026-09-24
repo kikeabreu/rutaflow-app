@@ -104,6 +104,7 @@ public class CopilotPlugin extends Plugin {
         result.put("desired", desired);
         result.put("needs_consent", needsConsent);
         result.put("stop_reason", stopReason == null ? "" : stopReason);
+        result.put("canDrawOverlays", android.provider.Settings.canDrawOverlays(getContext()));
         result.put("message", running ? "Copiloto escuchando ofertas"
             : needsConsent ? "La captura requiere autorización. Toca iniciar el copiloto." : "Copiloto apagado");
         String lastOffer = prefs.getString(CopilotCaptureService.PREF_LAST_OFFER, "");

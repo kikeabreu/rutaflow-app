@@ -124,12 +124,11 @@ export function OnboardingWizard({ isOpen, onComplete, onDismissNever, setTab, c
       position: "fixed",
       inset: 0,
       zIndex: 10005,
-      background: "rgba(5, 7, 13, 0.78)",
-      backdropFilter: "blur(3px)",
+      background: "rgba(5, 7, 13, 0.45)",
       display: "flex",
       flexDirection: "column",
       justifyContent: "flex-end",
-      padding: "16px 14px calc(20px + env(safe-area-inset-bottom))",
+      padding: "16px 14px calc(65px + env(safe-area-inset-bottom))",
       pointerEvents: "auto"
     }}>
       
