@@ -399,7 +399,7 @@ function useInstallApp(){
 }
 
 // ─── ATOMS ───────────────────────────────────────────────────────────────────
-const Card=({children,s,onClick})=><div onClick={onClick} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:15,...s}}>{children}</div>;
+const Card=({children,s,onClick,tour})=><div data-tour={tour} onClick={onClick} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:13,padding:15,...s}}>{children}</div>;
 const Lbl=({children,color=C.muted,s})=><div style={{fontSize:9,letterSpacing:"0.2em",textTransform:"uppercase",color,fontWeight:600,...s}}>{children}</div>;
 const Big=({children,size=24,color=C.text,s})=><div className="B" style={{fontSize:size,fontWeight:800,color,lineHeight:1,...s}}>{children}</div>;
 const Pill=({platform})=>{
@@ -407,8 +407,8 @@ const Pill=({platform})=>{
   const p=(platform||"uber").toLowerCase();
   return <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.08em",color:cols[p]||C.muted,textTransform:"uppercase",background:`${cols[p]||C.muted}18`,padding:"2px 7px",borderRadius:4}}>{p}</span>;
 };
-const Btn=({children,onClick,color=C.accent,outline=false,sm=false,disabled=false,s,full})=>(
-  <button onClick={onClick} disabled={disabled} style={{padding:sm?"7px 13px":"12px 18px",background:outline?"transparent":`${color}1e`,border:`${outline?1:2}px solid ${disabled?C.dim:color}`,borderRadius:9,color:disabled?C.dim:color,fontSize:sm?10:11,fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase",display:"inline-flex",alignItems:"center",justifyContent:"center",gap:7,transition:"all .15s",width:full?"100%":undefined,opacity:disabled?.5:1,cursor:disabled?"not-allowed":"pointer",...s}}>{children}</button>
+const Btn=({children,onClick,color=C.accent,outline=false,sm=false,disabled=false,s,full,tour})=>(
+  <button data-tour={tour} onClick={onClick} disabled={disabled} style={{padding:sm?"7px 13px":"12px 18px",background:outline?"transparent":`${color}1e`,border:`${outline?1:2}px solid ${disabled?C.dim:color}`,borderRadius:9,color:disabled?C.dim:color,fontSize:sm?10:11,fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase",display:"inline-flex",alignItems:"center",justifyContent:"center",gap:7,transition:"all .15s",width:full?"100%":undefined,opacity:disabled?.5:1,cursor:disabled?"not-allowed":"pointer",...s}}>{children}</button>
 );
 const Inp=({label,value,onChange,type="text",unit,placeholder="0"})=>(
   <div>
@@ -1235,7 +1235,7 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
   return(
     <div className="fu" style={{padding:"15px 14px 90px"}}>
       {!isPro&&<UpgradeCard monthlyTripsCount={monthlyTripsCount} onUpgrade={onUpgrade} s={{marginBottom:13}}/>}
-      <Card s={{marginBottom:13,borderColor:copilotState.running?`${C.teal}66`:C.border}}>
+      <Card tour="copilot-card" s={{marginBottom:13,borderColor:copilotState.running?`${C.teal}66`:C.border}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
           <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
             <div className={copilotState.running?"pu":""} style={{width:34,height:34,borderRadius:10,display:"grid",placeItems:"center",background:copilotState.running?`${C.teal}18`:`${C.accent}12`,flexShrink:0}}>
@@ -1312,7 +1312,7 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
         )}
         {copilotState.supported&&!copilotState.running&&<div style={{fontSize:8,color:C.dim,lineHeight:1.45,marginTop:9}}>Android mostrará el permiso de captura. RutaFlow procesa el texto en el teléfono y no guarda imágenes.</div>}
       </Card>
-      <div style={{marginBottom:14}}>
+      <div data-tour="kpi-panel" style={{marginBottom:14}}>
         <Lbl s={{marginBottom:3}}>Ganancia neta hoy</Lbl>
         <div className="B" style={{fontSize:54,fontWeight:900,color:stats.net>=0?C.teal:C.danger,lineHeight:1}}>{fmtMXN(stats.net)}</div>
         <div style={{fontSize:11,color:C.muted,marginTop:5}}>
@@ -1324,12 +1324,12 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
         {speechError&&<div style={{fontSize:9,color:C.danger,marginTop:6}}>{speechError}</div>}
       </div>
 
-      <Card s={{marginBottom:13}}>
+      <Card tour="jornada-card" s={{marginBottom:13}}>
         <Lbl s={{marginBottom:11}}>Estado de jornada</Lbl>
         {!activeDay?(
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             <Btn full onClick={startDay} color={C.teal}><SVG d={IC.play} size={13} color={C.teal} fill={C.teal}/>Iniciar jornada</Btn>
-            <Btn full onClick={onQuick} color={C.accent}><SVG d={IC.plus} size={13} color={C.accent}/>Registrar</Btn>
+            <Btn tour="registro-rapido" full onClick={onQuick} color={C.accent}><SVG d={IC.plus} size={13} color={C.accent}/>Registrar</Btn>
           </div>
         ):(
           <div>
@@ -1370,7 +1370,7 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
             )}
 
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-              <Btn full onClick={onNew} color={C.accent}><SVG d={IC.plus} size={13} color={C.accent}/>Nuevo viaje</Btn>
+              <Btn tour="nuevo-viaje" full onClick={onNew} color={C.accent}><SVG d={IC.plus} size={13} color={C.accent}/>Nuevo viaje</Btn>
               <Btn full onClick={onQuick} color={C.teal}><SVG d={IC.mic} size={13} color={C.teal}/>Registro rapido</Btn>
             </div>
             <Btn full onClick={onEndDay} color={C.danger} outline><SVG d={IC.flag} size={12} color={C.danger}/>Terminar y ver cierre</Btn>
@@ -1474,7 +1474,7 @@ function TripsTab({cfg,trips,events,bonuses,closures,onSelect,onNew,onQuick,onSe
       </div>
       <DateRangeControl value={range} onChange={setRange}/>
       {section==="trips"?<>
-      <Btn full onClick={onNew} s={{marginBottom:11}}><SVG d={IC.plus} size={13} color={C.accent}/>Agregar viaje</Btn>
+      <Btn tour="trips-list" full onClick={onNew} s={{marginBottom:11}}><SVG d={IC.plus} size={13} color={C.accent}/>Agregar viaje</Btn>
       {filtered.length===0?(
         <div style={{textAlign:"center",padding:"48px 0",color:C.dim}}><div style={{fontSize:34,marginBottom:9}}>🚗</div><Lbl>Sin viajes registrados</Lbl></div>
       ):filtered.map(t=>{
@@ -1569,7 +1569,7 @@ function StatsTab({cfg,trips,events,bonuses}){
       {filtered.length===0&&filteredEvents.length===0?(
         <div style={{textAlign:"center",padding:"50px 0",color:C.dim}}><div style={{fontSize:34,marginBottom:9}}>📊</div><Lbl>Registra viajes para ver estadísticas</Lbl></div>
       ):<>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:13}}>
+        <div data-tour="stats-cards" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:13}}>
           {[{l:"Utilidad operativa",v:fmtMXN(tot.net),c:tot.net>=0?C.teal:C.danger},{l:"Flujo de efectivo",v:fmtMXN(tot.cash),c:tot.cash>=0?C.text:C.danger},{l:"Viajes",v:filtered.length,c:C.text},{l:"Propinas",v:fmtMXN(tot.tips),c:C.teal},{l:"Km totales",v:`${fmt(tot.km,0)} km`,c:C.accent},{l:"Km sin pasajero",v:`${fmt(tot.deadKm,0)} km`,c:tot.deadKm>tot.productiveKm?C.danger:C.accent},{l:"Km productivos",v:fmtPct(tot.km>0?tot.productiveKm/tot.km*100:0),c:C.teal},{l:"$/hora promedio",v:fmtMXN(tot.min>0?tot.net/(tot.min/60):0),c:C.accent},{l:"Gas consumida",v:fmtMXN(tot.gas),c:C.danger},{l:"Gas comprada",v:fmtMXN(tot.fuelPurchased),c:C.accent},{l:"Promedio/viaje",v:fmtMXN(filtered.length>0?tot.net/filtered.length:0),c:C.teal}].map(({l,v,c})=>(
             <Card key={l} s={{padding:"11px 13px"}}><Lbl s={{marginBottom:5}}>{l}</Lbl><Big size={21} color={c}>{v}</Big></Card>
           ))}
@@ -1858,7 +1858,7 @@ ULTIMOS ${last3||"s/d"}`;
       <div style={{padding:"7px 14px 12px",borderTop:`1px solid ${C.border}`,position:"sticky",bottom:0,background:C.bg,flexShrink:0,zIndex:4}}>
         {(listening||voiceError||speechError)&&<div aria-live="polite" style={{fontSize:9,lineHeight:1.45,color:listening?C.teal:C.danger,marginBottom:6}}>{listening?"Escuchando en español… habla con naturalidad.":voiceError||speechError}{(voiceError||speechError)&&String(voiceError||speechError).includes("permiso")&&<button onClick={openSettings} style={{marginLeft:8,color:C.danger,textDecoration:"underline",fontWeight:700,fontSize:9}}>Abrir ajustes</button>}</div>}
         <div style={{display:"flex",gap:7,alignItems:"flex-end",minWidth:0}}>
-          <textarea ref={inputRef} rows={1} value={input} onChange={e=>{setInput(e.target.value);if(voiceError)setVoiceError("");}} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}} enterKeyHint="send" placeholder={listening?"Escuchando…":"Escribe o habla con la IA…"} onFocus={e=>{e.target.style.borderColor=C.accent;setTimeout(()=>inputRef.current?.scrollIntoView({block:"nearest"}),150);}} onBlur={e=>e.target.style.borderColor=C.border} style={{flex:"1 1 0",minWidth:0,minHeight:46,maxHeight:92,resize:"none",background:C.card,border:`1px solid ${listening?C.teal:C.border}`,borderRadius:9,padding:"11px 12px",color:C.text,fontSize:16,lineHeight:1.35,fontFamily:"inherit",outline:"none"}}/>
+          <textarea data-tour="ai-chat" ref={inputRef} rows={1} value={input} onChange={e=>{setInput(e.target.value);if(voiceError)setVoiceError("");}} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}} enterKeyHint="send" placeholder={listening?"Escuchando…":"Escribe o habla con la IA…"} onFocus={e=>{e.target.style.borderColor=C.accent;setTimeout(()=>inputRef.current?.scrollIntoView({block:"nearest"}),150);}} onBlur={e=>e.target.style.borderColor=C.border} style={{flex:"1 1 0",minWidth:0,minHeight:46,maxHeight:92,resize:"none",background:C.card,border:`1px solid ${listening?C.teal:C.border}`,borderRadius:9,padding:"11px 12px",color:C.text,fontSize:16,lineHeight:1.35,fontFamily:"inherit",outline:"none"}}/>
           <button onClick={listen} disabled={loading} aria-label={listening?"Detener dictado":"Hablar con la IA"} title={listening?"Detener dictado":"Hablar con la IA"} style={{width:46,height:46,flexShrink:0,background:listening?`${C.danger}18`:C.card,border:`1px solid ${listening?C.danger:C.teal}`,borderRadius:9,display:"grid",placeItems:"center",opacity:loading?.45:1}}><SVG d={listening?IC.stop:IC.mic} size={18} color={listening?C.danger:C.teal}/></button>
           <button onClick={send} disabled={!input.trim()||loading} aria-label="Enviar pregunta" style={{width:46,height:46,flexShrink:0,background:input.trim()?`${C.accent}1e`:"transparent",border:`1px solid ${input.trim()?C.accent:C.border}`,borderRadius:9,color:input.trim()?C.accent:C.dim,display:"grid",placeItems:"center"}}><SVG d={IC.send} size={17} color={input.trim()?C.accent:C.dim}/></button>
         </div>
@@ -1896,7 +1896,7 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
       <div className="B" style={{fontSize:22,fontWeight:800,color:C.accent,marginBottom:16,letterSpacing:1}}>CONFIGURACIÓN</div>
       {installApp?.available&&<div style={{background:`${C.teal}10`,border:`1px solid ${C.teal}33`,borderRadius:10,padding:"12px 13px",display:"flex",alignItems:"center",gap:11,marginBottom:14}}><SVG d={IC.home} size={18} color={C.teal}/><div style={{flex:1}}><div style={{fontSize:12,color:C.text,fontWeight:700}}>Instalar RutaFlow</div><div style={{fontSize:10,color:C.muted,marginTop:3}}>Acceso directo a pantalla completa</div></div><button onClick={installApp.install} style={{padding:"8px 10px",border:`1px solid ${C.teal}`,borderRadius:7,color:C.teal,fontSize:9,fontWeight:800}}>INSTALAR</button></div>}
       <Lbl s={{marginBottom:9}}>Variables base</Lbl>
-      <Card s={{marginBottom:13}}>
+      <Card tour="variables" s={{marginBottom:13}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
           <Inp label="Gasolina (MXN/L)" type="number" value={local.gasPricePerLiter} onChange={v=>set("gasPricePerLiter",parseFloat(v)||0)} unit="$/L"/>
           <Inp label="Rendimiento" type="number" value={local.kmPerLiter} onChange={v=>set("kmPerLiter",parseFloat(v)||0)} unit="km/L"/>
@@ -1904,7 +1904,7 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
         </div>
       </Card>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}><Lbl>Plataformas y comisiones</Lbl><Btn sm onClick={addPlatform} color={C.teal}><SVG d={IC.plus} size={11} color={C.teal}/>Añadir</Btn></div>
-      <div style={{marginBottom:14}}>{platformList(local).map(p=><div key={p.id} style={{display:"grid",gridTemplateColumns:"34px minmax(0,1fr) 86px 30px",gap:7,alignItems:"end",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
+      <div data-tour="platforms" style={{marginBottom:14}}>{platformList(local).map(p=><div key={p.id} style={{display:"grid",gridTemplateColumns:"34px minmax(0,1fr) 86px 30px",gap:7,alignItems:"end",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
         <button onClick={()=>updatePlatform(p.id,{enabled:p.enabled===false})} title={p.enabled===false?"Activar":"Desactivar"} style={{width:34,height:34,borderRadius:8,background:p.enabled===false?C.card2:`${C.teal}18`,border:`1px solid ${p.enabled===false?C.border:C.teal}`,position:"relative"}}><div style={{width:12,height:12,borderRadius:"50%",background:p.enabled===false?C.dim:C.teal,margin:"0 auto"}}/></button>
         <div><Lbl s={{marginBottom:4}}>Nombre</Lbl><input value={p.name} onChange={e=>updatePlatform(p.id,{name:e.target.value})} style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 9px",color:C.text,minWidth:0}}/></div>
         <div><Lbl s={{marginBottom:4}}>Comisión</Lbl><div style={{position:"relative"}}><input type="number" min="0" max="100" value={p.commission} onChange={e=>updatePlatform(p.id,{commission:Math.max(0,Math.min(100,Number(e.target.value)||0))})} style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 24px 8px 8px",color:C.text}}/><span style={{position:"absolute",right:8,top:9,fontSize:10,color:C.muted}}>%</span></div></div>

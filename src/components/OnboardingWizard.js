@@ -1,342 +1,342 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 const C = {
-  bg: "#07080d",
-  card: "#0d0f1a",
-  card2: "#111320",
-  border: "#1a1d2e",
-  bord2: "#242740",
-  accent: "#f0a500",
-  teal: "#00c9a7",
-  muted: "#6b6e8a",
-  text: "#dde0f5"
+  bg: "#07080d", card: "#0f1119", card2: "#131620", border: "#1e2230", bord2: "#2a3040",
+  text: "#e8eaf0", muted: "#8b93a7", dim: "#565e73", accent: "#f0a500", teal: "#00c9a7", danger: "#ff4055"
 };
 
+// Cada paso apunta a un elemento real vía data-tour. `action: "click"` convierte
+// el paso en una práctica: el conductor tiene que tocar el elemento para avanzar,
+// y solo ese elemento queda tocable. Los pasos sin action son informativos y se
+// bloquea el toque para no disparar acciones reales durante el tour.
 export const TOUR_STEPS = [
-  // 1. Bienvenida
   {
     targetTab: "home",
-    badge: "PASO 1 / 10",
+    badge: "BIENVENIDA",
     icon: "🚕",
     title: "¡Bienvenido a RutaFlow!",
-    subtitle: "Tu copiloto financiero y operativo",
-    description: "RutaFlow calcula tu ganancia real descontando gasolina, comisiones y desgaste. Vamos a hacer un recorrido guiado juntos para aprender a dominar cada función.",
-    actionText: "EMPEZAR TOUR INTERACTIVO ▶",
-    highlight: null
+    subtitle: "Vamos a configurarla juntos",
+    description: "Te voy a ir señalando cada parte. No tienes que memorizar nada: solo sigue el círculo amarillo.",
+    actionText: "EMPEZAR ▶",
+    highlight: null,
   },
-  // 2. Configuración: Variables base
   {
     targetTab: "config",
-    badge: "PASO 2 / 10 · CONFIGURACIÓN",
+    badge: "CONFIGURACIÓN",
     icon: "⚙️",
-    title: "1. Ajusta tu Gasolina y Meta",
-    subtitle: "¿Cuánto gastas y cuánto quieres ganar?",
-    description: "• Gasolina ($/L): Ajusta al costo actual en tu zona.\n• Rendimiento (km/L): Cuántos km rinde tu coche por litro.\n• Meta ($/hr): Tu aspiración neta por hora.\n¡Al guardar estos datos, el semáforo calculará tu ganancia neta en tiempo real!",
-    actionText: "CONTINUAR A PLATAFORMAS ▶",
-    highlight: "variables"
+    title: "Tu gasolina y tu meta",
+    subtitle: "De aquí sale todo el cálculo",
+    description: "Ajusta el precio del litro, cuánto rinde tu coche y cuánto quieres ganar por hora.",
+    actionText: "SIGUIENTE ▶",
+    highlight: "variables",
+    action: "click",
+    actionHint: "Tócalo para revisar tus números",
   },
-  // 3. Configuración: Plataformas
   {
     targetTab: "config",
-    badge: "PASO 3 / 10 · PLATAFORMAS",
+    badge: "PLATAFORMAS",
     icon: "📱",
-    title: "2. Comisiones de tus Apps",
-    subtitle: "Uber, DiDi, inDrive o Particulares",
-    description: "Revisa la comisión de cada app (Uber ~25%, DiDi ~12%, inDrive ~10%). Puedes agregar servicios propios o ajustar las comisiones exactas para que el cálculo no falle.",
-    actionText: "PROBAR ASISTENTE DE IA ▶",
-    highlight: "platforms"
+    title: "Comisiones de tus apps",
+    subtitle: "Uber, DiDi, inDrive o particular",
+    description: "RutaFlow resta esta comisión sola al evaluar cada oferta. Ajústala si no coincide con la tuya.",
+    actionText: "SIGUIENTE ▶",
+    highlight: "platforms",
+    action: "click",
+    actionHint: "Tócalo para ver tus comisiones",
   },
-  // 4. Asistente IA
   {
     targetTab: "ai",
-    badge: "PASO 4 / 10 · ASISTENTE DE IA",
+    badge: "ASISTENTE IA",
     icon: "🧠",
-    title: "3. Tu Asesor Inteligente",
-    subtitle: "Preguntas por voz o texto",
-    description: "Inicia conversaciones o presiona los botones rápidos como «¿A qué hora me conviene salir?» o «¿Qué zona deja más dinero?». La IA analiza tus datos y te da recomendaciones clave.",
-    actionText: "IR A ESTADÍSTICAS ▶",
-    highlight: "ai-chat"
+    title: "Pregúntale lo que sea",
+    subtitle: "Por voz o escrito",
+    description: "«¿A qué hora me conviene salir?» o «¿qué zona deja más?». Conoce tus números reales.",
+    actionText: "SIGUIENTE ▶",
+    highlight: "ai-chat",
+    action: "click",
+    actionHint: "Toca el campo para escribirle",
   },
-  // 5. Stats
   {
     targetTab: "stats",
-    badge: "PASO 5 / 10 · ESTADÍSTICAS",
+    badge: "ESTADÍSTICAS",
     icon: "📊",
-    title: "4. Métricas y Rendimiento",
-    subtitle: "Visualiza de dónde vienen tus ganancias",
-    description: "Aquí verás la comparativa por plataforma, tus mejores horas para trabajar, gráficos de $/hora contra tu meta y la eficiencia de tus kilómetros recorridos.",
-    actionText: "VER HISTORIAL DE VIAJES ▶",
-    highlight: "stats-cards"
+    title: "De dónde sale tu dinero",
+    subtitle: "Tus métricas del periodo",
+    description: "Utilidad, propinas, km productivos y tu $/hora real contra la meta que pusiste.",
+    actionText: "SIGUIENTE ▶",
+    highlight: "stats-cards",
+    action: "click",
+    actionHint: "Tócalas para verlas de cerca",
   },
-  // 6. Historial de viajes
   {
     targetTab: "trips",
-    badge: "PASO 6 / 10 · HISTORIAL",
+    badge: "VIAJES",
     icon: "📋",
-    title: "5. Viajes y Cierres de Jornada",
-    subtitle: "Transparencia total de movimientos",
-    description: "Revisa cada viaje aceptado y tus cierres diarios. Puedes tocar cualquier elemento para ver el desglose exacto de comisión, costo de gas y ganancia limpia.",
-    actionText: "PROBAR REGISTROS EN HOY ▶",
-    highlight: "trips-list"
+    title: "Tu historial completo",
+    subtitle: "Cada viaje, con su desglose",
+    description: "Desde aquí agregas un viaje a mano. Al tocar cualquiera ves comisión, gas y ganancia limpia.",
+    actionText: "SIGUIENTE ▶",
+    highlight: "trips-list",
   },
-  // 7. Tipos de Registro de Viaje
   {
     targetTab: "home",
-    badge: "PASO 7 / 10 · HOY",
-    icon: "➕",
-    title: "6. Modos de Registrar Viaje",
-    subtitle: "Manual, GPS o Foto con IA",
-    description: "Al tocar «+ NUEVO VIAJE» puedes:\n1. Manual: Llenar kilómetros y tarifa a mano.\n2. GPS: Iniciar taxímetro inteligente que mide tiempo y km reales.\n3. Foto IA: Subir captura de pantalla de la app de viajes.",
-    actionText: "VER REGISTRO RÁPIDO Y VOZ ▶",
-    highlight: "nuevo-viaje"
-  },
-  // 8. Botón Registro Rápido (Amarillo)
-  {
-    targetTab: "home",
-    badge: "PASO 8 / 10 · REGISTRO RÁPIDO",
-    icon: "🎤",
-    title: "7. Gastos, Gasolina y Km Muertos",
-    subtitle: "El botón de Registro Rápido",
-    description: "Toca el botón con micrófono para dictar o seleccionar:\n• Cargas de gasolina (ej. «Cargué 15 litros por 360 pesos»).\n• Kilómetros muertos (sin pasajero).\n• Propinas u otros gastos de tu turno.",
-    actionText: "VER ESTADO DE JORNADA ▶",
-    highlight: "registro-rapido"
-  },
-  // 9. Iniciar Jornada GPS
-  {
-    targetTab: "home",
-    badge: "PASO 9 / 10 · JORNADA GPS",
+    badge: "HOY",
     icon: "⏱️",
-    title: "8. Medición de Turno en Vivo",
-    subtitle: "Iniciar y Cerrar Jornada",
-    description: "Al presionar «INICIAR JORNADA», el GPS comenzará a medir el tiempo transcurrido y los kilómetros sin pasaje. Al finalizar tu turno, presiona «TERMINAR Y VER CIERRE» para guardar el resumen diario.",
-    actionText: "VER PANEL DE GANANCIAS ▶",
-    highlight: "jornada-card"
+    title: "Tu jornada",
+    subtitle: "Aquí arranca el turno",
+    description: "«Iniciar jornada» mide tiempo y km con GPS. Al terminar te da el cierre del día.",
+    actionText: "SIGUIENTE ▶",
+    highlight: "jornada-card",
   },
-  // 10. Copiloto y Panel KPI
   {
     targetTab: "home",
-    badge: "PASO 10 / 10 · COPILOTO Y PANEL",
+    badge: "REGISTRO RÁPIDO",
+    icon: "🎤",
+    title: "Gastos y km muertos",
+    subtitle: "Dicta o selecciona",
+    description: "Cargas de gasolina, kilómetros sin pasaje y propinas. Puedes dictarlo mientras manejas.",
+    actionText: "SIGUIENTE ▶",
+    highlight: "registro-rapido",
+  },
+  {
+    targetTab: "home",
+    badge: "COPILOTO",
     icon: "🟢",
-    title: "9. Copiloto de Ofertas y Panel KPI",
-    subtitle: "¡Todo listo para trabajar!",
-    description: "En el panel superior verás tu Ganancia Neta del día, % de Km Productivos y el botón «ACTIVAR COPILOTO» para sobreponer el semáforo sobre Uber/DiDi.",
-    actionText: "¡ENTENDIDO, FINALIZAR TOUR! 🏁",
-    highlight: "kpi-panel"
-  }
+    title: "El semáforo de ofertas",
+    subtitle: "Encima de Uber y DiDi",
+    description: "Activado, lee la oferta en pantalla y te dice en verde si conviene, sin que salgas de la app.",
+    actionText: "SIGUIENTE ▶",
+    highlight: "copilot-card",
+  },
+  {
+    targetTab: "home",
+    badge: "LISTO",
+    icon: "🏁",
+    title: "Tu ganancia real",
+    subtitle: "Ya con gasolina y comisión descontadas",
+    description: "Este número es lo que de verdad te queda. Eso es todo: ya puedes salir a rodar.",
+    actionText: "¡ENTENDIDO! 🏁",
+    highlight: "kpi-panel",
+  },
 ];
 
-export function OnboardingWizard({ isOpen, onComplete, onDismissNever, setTab, currentTab }) {
-  const [stepIdx, setStepIdx] = useState(0);
+const GUTTER = 12;
+const HOLE_PAD = 8;
 
+/**
+ * Geometría del spotlight, aislada para poder probarla sin navegador.
+ * Devuelve el hueco alrededor del objetivo y de qué lado cabe el globo.
+ */
+export function computeTourPlacement(rect, viewportHeight, pad = HOLE_PAD) {
+  if (!rect) return { hole: null, placeBelow: false };
+  const hole = {
+    top: rect.top - pad,
+    left: rect.left - pad,
+    width: rect.width + pad * 2,
+    height: rect.height + pad * 2,
+  };
+  const spaceBelow = viewportHeight - (hole.top + hole.height);
+  // Abajo si cabe cómodo, o si de plano hay más espacio abajo que arriba.
+  const placeBelow = spaceBelow > 260 || spaceBelow > hole.top;
+  return { hole, placeBelow };
+}
+
+function useTargetRect(highlight, stepIdx, isOpen) {
+  const [rect, setRect] = useState(null);
+
+  const measure = useCallback(() => {
+    if (!highlight) { setRect(null); return; }
+    const el = document.querySelector(`[data-tour="${highlight}"]`);
+    if (!el) { setRect(null); return; }
+    const r = el.getBoundingClientRect();
+    // Un elemento de tamaño cero está montado pero aún no pintado.
+    if (r.width === 0 && r.height === 0) { setRect(null); return; }
+    setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+  }, [highlight]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    let raf;
+    // La pestaña acaba de cambiar: se deja pintar antes de centrar el objetivo.
+    const settle = setTimeout(() => {
+      const el = highlight && document.querySelector(`[data-tour="${highlight}"]`);
+      if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 60);
+    // Seguir el rect en vivo cubre el scroll suave, el teclado y los reflows.
+    const loop = () => { measure(); raf = requestAnimationFrame(loop); };
+    raf = requestAnimationFrame(loop);
+    return () => { clearTimeout(settle); cancelAnimationFrame(raf); };
+  }, [measure, highlight, stepIdx, isOpen]);
+
+  return rect;
+}
+
+export function OnboardingWizard({ isOpen, onComplete, onDismissNever, setTab }) {
+  const [stepIdx, setStepIdx] = useState(0);
   const step = TOUR_STEPS[stepIdx] || TOUR_STEPS[0];
   const isLast = stepIdx === TOUR_STEPS.length - 1;
+  const rect = useTargetRect(step.highlight, stepIdx, isOpen);
+  const advanceRef = useRef(null);
 
-  // Sincronizar la pestaña de la app con el objetivo del paso actual
-  React.useEffect(() => {
-    if (isOpen && step.targetTab && setTab) {
-      setTab(step.targetTab);
-    }
+  useEffect(() => {
+    if (isOpen && step.targetTab && setTab) setTab(step.targetTab);
   }, [isOpen, stepIdx, step.targetTab, setTab]);
+
+  const goTo = useCallback((idx) => {
+    if (idx < 0 || idx >= TOUR_STEPS.length) return;
+    setStepIdx(idx);
+    if (setTab && TOUR_STEPS[idx]?.targetTab) setTab(TOUR_STEPS[idx].targetTab);
+  }, [setTab]);
+
+  const handleNext = useCallback(() => {
+    if (isLast) { if (setTab) setTab("home"); onComplete(); }
+    else goTo(stepIdx + 1);
+  }, [isLast, setTab, onComplete, goTo, stepIdx]);
+
+  advanceRef.current = handleNext;
+
+  // Paso de práctica: tocar el elemento real avanza el tour.
+  const waitingForTap = step.action === "click" && !!rect;
+  useEffect(() => {
+    if (!isOpen || !waitingForTap || !step.highlight) return undefined;
+    const el = document.querySelector(`[data-tour="${step.highlight}"]`);
+    if (!el) return undefined;
+    const onTap = () => { setTimeout(() => advanceRef.current?.(), 220); };
+    el.addEventListener("click", onTap, { once: true });
+    return () => el.removeEventListener("click", onTap);
+  }, [isOpen, waitingForTap, step.highlight, stepIdx]);
 
   if (!isOpen) return null;
 
-  const handleNext = () => {
-    if (isLast) {
-      if (setTab) setTab("home");
-      onComplete();
-    } else {
-      const nextIdx = stepIdx + 1;
-      setStepIdx(nextIdx);
-      if (setTab && TOUR_STEPS[nextIdx]?.targetTab) {
-        setTab(TOUR_STEPS[nextIdx].targetTab);
-      }
-    }
-  };
+  const vh = window.innerHeight;
+  // El globo va del lado con más espacio, nunca encima del objetivo.
+  const { hole, placeBelow } = computeTourPlacement(rect, vh);
+  const dim = "rgba(5, 7, 13, 0.82)";
 
-  const handlePrev = () => {
-    if (stepIdx > 0) {
-      const prevIdx = stepIdx - 1;
-      setStepIdx(prevIdx);
-      if (setTab && TOUR_STEPS[prevIdx]?.targetTab) {
-        setTab(TOUR_STEPS[prevIdx].targetTab);
-      }
-    }
-  };
+  const blocker = (s) => (
+    <div style={{ position: "fixed", background: dim, zIndex: 10005, ...s }} />
+  );
 
   return (
-    <div style={{
-      position: "fixed",
-      inset: 0,
-      zIndex: 10005,
-      background: "rgba(5, 7, 13, 0.45)",
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "flex-end",
-      padding: "16px 14px calc(65px + env(safe-area-inset-bottom))",
-      pointerEvents: "auto"
-    }}>
-      
-      {/* Tarjeta Flotante Interactiva de la Guía */}
-      <div style={{
-        width: "100%",
-        maxWidth: 440,
-        margin: "0 auto",
-        background: C.card,
-        border: `2px solid ${C.accent}`,
-        borderRadius: 20,
-        padding: "20px 18px 16px",
-        boxShadow: "0 16px 48px rgba(0,0,0,0.85), 0 0 25px rgba(240, 165, 0, 0.2)",
-        display: "flex",
-        flexDirection: "column",
-        position: "relative"
-      }}>
-
-        {/* Encabezado con badge y saltar */}
-        <div style={{display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12}}>
-          <span style={{
-            background: `${C.accent}22`,
-            color: C.accent,
-            fontSize: 10,
-            fontWeight: 800,
-            padding: "4px 9px",
-            borderRadius: 6,
-            border: `1px solid ${C.accent}55`,
-            letterSpacing: "0.08em"
-          }}>
-            {step.badge}
-          </span>
-
-          <button 
-            onClick={onComplete}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: C.muted,
-              fontSize: 11,
-              fontWeight: 700,
-              cursor: "pointer",
-              padding: "4px 8px"
-            }}
-          >
-            Saltar tutorial ✕
-          </button>
-        </div>
-
-        {/* Barra de progreso */}
-        <div style={{display: "flex", gap: 5, marginBottom: 16}}>
-          {TOUR_STEPS.map((_, i) => (
-            <div 
-              key={i} 
-              style={{
-                flex: 1,
-                height: 4,
-                borderRadius: 2,
-                background: i <= stepIdx ? C.accent : C.border,
-                transition: "all .2s ease"
-              }}
-            />
-          ))}
-        </div>
-
-        {/* Icono + Título */}
-        <div style={{display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 10}}>
+    <>
+      {hole ? (
+        <>
+          {/* Cuatro paneles alrededor del objetivo: oscurecen y bloquean, y
+              dejan libre el hueco para que el conductor pueda tocarlo. */}
+          {blocker({ top: 0, left: 0, right: 0, height: Math.max(0, hole.top) })}
+          {blocker({ top: hole.top + hole.height, left: 0, right: 0, bottom: 0 })}
+          {blocker({ top: hole.top, left: 0, width: Math.max(0, hole.left), height: hole.height })}
+          {blocker({ top: hole.top, left: hole.left + hole.width, right: 0, height: hole.height })}
+          {/* Aro señalador */}
           <div style={{
-            fontSize: 32,
-            background: C.card2,
-            border: `1px solid ${C.bord2}`,
-            borderRadius: 14,
-            width: 52,
-            height: 52,
-            display: "grid",
-            placeItems: "center",
-            flexShrink: 0
-          }}>
-            {step.icon}
-          </div>
-          <div>
-            <div style={{fontSize: 17, fontWeight: 900, color: C.text, lineHeight: 1.25}}>
-              {step.title}
-            </div>
-            <div style={{fontSize: 12, fontWeight: 700, color: C.teal, marginTop: 3}}>
-              {step.subtitle}
-            </div>
-          </div>
-        </div>
+            position: "fixed", top: hole.top, left: hole.left, width: hole.width, height: hole.height,
+            border: `2px solid ${C.accent}`, borderRadius: 14, zIndex: 10006, pointerEvents: "none",
+            boxShadow: `0 0 0 3px ${C.accent}33, 0 0 22px ${C.accent}55`,
+          }} />
+          {/* Los pasos informativos no deben disparar acciones reales por un toque. */}
+          {!waitingForTap && (
+            <div style={{
+              position: "fixed", top: hole.top, left: hole.left, width: hole.width, height: hole.height,
+              zIndex: 10006, background: "transparent",
+            }} />
+          )}
+        </>
+      ) : (
+        blocker({ inset: 0 })
+      )}
 
-        {/* Explicación paso a paso con bullets limpios */}
+      <div style={{
+        position: "fixed", zIndex: 10007, left: GUTTER, right: GUTTER,
+        ...(hole
+          ? (placeBelow
+              ? { top: Math.min(hole.top + hole.height + 14, vh - 200) }
+              : { bottom: Math.max(vh - hole.top + 14, 90) })
+          : { bottom: "calc(74px + env(safe-area-inset-bottom))" }),
+        display: "flex", justifyContent: "center", pointerEvents: "none",
+      }}>
         <div style={{
-          fontSize: 12,
-          color: "#b0b4d4",
-          lineHeight: 1.55,
-          whiteSpace: "pre-line",
-          background: C.card2,
-          border: `1px solid ${C.border}`,
-          borderRadius: 12,
-          padding: "12px 14px",
-          marginBottom: 16
+          width: "100%", maxWidth: 420, background: C.card, border: `2px solid ${C.accent}`,
+          borderRadius: 16, padding: "13px 14px 12px", pointerEvents: "auto",
+          boxShadow: "0 16px 48px rgba(0,0,0,0.9)",
         }}>
-          {step.description}
-        </div>
-
-        {/* Botones de navegación del paso */}
-        <div style={{display: "flex", gap: 8, alignItems: "center"}}>
-          {stepIdx > 0 && (
-            <button
-              onClick={handlePrev}
-              style={{
-                padding: "13px 16px",
-                background: C.card2,
-                border: `1px solid ${C.bord2}`,
-                borderRadius: 12,
-                color: C.text,
-                fontSize: 12,
-                fontWeight: 800,
-                cursor: "pointer"
-              }}
-            >
-              ◀ Atrás
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 9 }}>
+            <span style={{
+              background: `${C.accent}22`, color: C.accent, fontSize: 9, fontWeight: 800,
+              padding: "3px 7px", borderRadius: 5, border: `1px solid ${C.accent}55`, letterSpacing: "0.08em",
+            }}>
+              {stepIdx + 1}/{TOUR_STEPS.length} · {step.badge}
+            </span>
+            <button onClick={onComplete} style={{
+              background: "transparent", border: "none", color: C.muted,
+              fontSize: 10, fontWeight: 700, cursor: "pointer", padding: "4px 2px", flexShrink: 0,
+            }}>
+              Saltar ✕
             </button>
+          </div>
+
+          <div style={{ display: "flex", gap: 3, marginBottom: 11 }}>
+            {TOUR_STEPS.map((_, i) => (
+              <div key={i} style={{
+                flex: 1, height: 3, borderRadius: 2,
+                background: i <= stepIdx ? C.accent : C.border, transition: "background .2s",
+              }} />
+            ))}
+          </div>
+
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 9 }}>
+            <div style={{ fontSize: 22, lineHeight: 1.1, flexShrink: 0 }}>{step.icon}</div>
+            <div style={{ minWidth: 0 }}>
+              <div className="B" style={{ fontSize: 16, fontWeight: 800, color: C.text, lineHeight: 1.2 }}>
+                {step.title}
+              </div>
+              <div style={{ fontSize: 11, color: C.teal, marginTop: 2 }}>{step.subtitle}</div>
+            </div>
+          </div>
+
+          <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.45, marginBottom: 11 }}>
+            {step.description}
+          </div>
+
+          {waitingForTap && (
+            <div className="pu" style={{
+              fontSize: 11, fontWeight: 800, color: C.accent, marginBottom: 10,
+              display: "flex", alignItems: "center", gap: 6,
+            }}>
+              👆 {step.actionHint}
+            </div>
           )}
 
-          <button
-            onClick={handleNext}
-            style={{
-              flex: 1,
-              padding: "13px 16px",
-              background: C.teal,
-              border: "none",
-              borderRadius: 12,
-              color: "#000",
-              fontSize: 13,
-              fontWeight: 900,
-              cursor: "pointer",
-              letterSpacing: "0.04em",
-              boxShadow: "0 4px 14px rgba(0, 201, 167, 0.35)"
-            }}
-          >
-            {step.actionText}
-          </button>
-        </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {stepIdx > 0 && (
+              <button onClick={() => goTo(stepIdx - 1)} style={{
+                padding: "10px 12px", background: "transparent", border: `1px solid ${C.bord2}`,
+                borderRadius: 9, color: C.muted, fontSize: 11, fontWeight: 700, cursor: "pointer", flexShrink: 0,
+              }}>
+                ◀
+              </button>
+            )}
+            <button onClick={handleNext} style={{
+              flex: 1, padding: "11px 12px",
+              background: waitingForTap ? "transparent" : C.teal,
+              border: `1px solid ${waitingForTap ? C.bord2 : C.teal}`,
+              borderRadius: 9, color: waitingForTap ? C.muted : "#04231d",
+              fontSize: waitingForTap ? 10 : 12, fontWeight: 800,
+              letterSpacing: "0.08em", cursor: "pointer",
+            }}>
+              {waitingForTap ? "SALTAR ESTE PASO" : step.actionText}
+            </button>
+          </div>
 
-        {/* Opción de no volver a mostrar */}
-        <div style={{textAlign: "center", marginTop: 12}}>
-          <button 
-            onClick={onDismissNever} 
-            style={{
-              background: "none",
-              border: "none",
-              color: C.muted,
-              fontSize: 11,
-              cursor: "pointer",
-              textDecoration: "underline",
-              padding: "4px"
-            }}
-          >
-            No volver a mostrar esta guía en el futuro
-          </button>
+          {isLast && (
+            <button onClick={onDismissNever} style={{
+              width: "100%", marginTop: 9, background: "transparent", border: "none",
+              color: C.dim, fontSize: 10, textDecoration: "underline", cursor: "pointer",
+            }}>
+              No volver a mostrar esta guía
+            </button>
+          )}
         </div>
-
       </div>
-    </div>
+    </>
   );
 }
