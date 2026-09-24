@@ -2340,8 +2340,12 @@ export default function RutaFlow(){
   useEffect(()=>{
     const uid=session?.user?.id;
     if(!uid)return;
-    const resume=()=>{if(document.visibilityState==="visible")syncPendingFor(uid);};
+    // El outbox Dexie (tickets de soporte) necesita su propio drenado: sin esto se
+    // encolaban para siempre y el conductor veía "enviado con éxito" sin que saliera.
+    const drainDexieOutbox=()=>{import("./storage/syncEngine").then(({syncOutbox})=>syncOutbox(uid)).catch(()=>{});};
+    const resume=()=>{if(document.visibilityState==="visible"){syncPendingFor(uid);drainDexieOutbox();}};
     syncPendingFor(uid);
+    drainDexieOutbox();
     window.addEventListener("online",resume);
     document.addEventListener("visibilitychange",resume);
     return()=>{window.removeEventListener("online",resume);document.removeEventListener("visibilitychange",resume);};

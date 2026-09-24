@@ -47,25 +47,34 @@ export function SupportModal({ isOpen, onClose, userId, userEmail, onReportSent 
     setSending(true);
 
     try {
-      // Send ticket or log report to Supabase or outbox
-      const DexieDB = await import('../storage/db');
-      await DexieDB.db.outbox.add({
-        id: crypto.randomUUID(),
-        user_id: userId || 'anonymous',
-        action: 'SUPPORT_TICKET',
-        payload: {
-          user_id: userId,
-          email: userEmail,
-          subject: subject || 'Reporte de soporte / error',
-          message: message.trim(),
-          device_info: {
-            userAgent: navigator.userAgent,
-            screen: `${window.innerWidth}x${window.innerHeight}`,
-            time: new Date().toISOString()
-          }
-        },
-        created_at: Date.now()
-      });
+      const ticketPayload = {
+        user_id: userId,
+        email: userEmail,
+        subject: subject || 'Sugerencia / Ticket de soporte',
+        message: message.trim(),
+        device_info: {
+          userAgent: navigator.userAgent,
+          screen: `${window.innerWidth}x${window.innerHeight}`,
+          time: new Date().toISOString()
+        }
+      };
+
+      // Se intenta la nube primero; el outbox es el respaldo y lo drena syncOutbox.
+      let savedToCloud = false;
+      if (userId && navigator.onLine) {
+        try {
+          const { syncSupportTicket } = await import('../storage/syncEngine');
+          await syncSupportTicket(ticketPayload);
+          savedToCloud = true;
+        } catch (cloudErr) {
+          console.warn("Direct ticket insert failed, saving to local outbox", cloudErr);
+        }
+      }
+
+      if (!savedToCloud) {
+        const { queueSupportTicket } = await import('../storage/syncEngine');
+        await queueSupportTicket(ticketPayload);
+      }
 
       setSentSuccess(true);
       if (onReportSent) onReportSent();
@@ -101,7 +110,7 @@ export function SupportModal({ isOpen, onClose, userId, userEmail, onReportSent 
             📖 Preguntas Frecuentes
           </button>
           <button onClick={()=>setTab('ticket')} style={{padding:"8px 0",borderRadius:8,background:tab==='ticket'?`${C.accent}22`:"transparent",border:`1px solid ${tab==='ticket'?C.accent:C.border}`,color:tab==='ticket'?C.accent:C.muted,fontSize:11,fontWeight:700,cursor:"pointer"}}>
-            ✉️ Enviar Mensaje / Ticket
+            💡 Sugerencias / Tickets
           </button>
         </div>
 

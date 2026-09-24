@@ -16,68 +16,112 @@ export const TOUR_STEPS = [
   // 1. Bienvenida
   {
     targetTab: "home",
-    badge: "PASO 1 / 6",
+    badge: "PASO 1 / 10",
     icon: "🚕",
     title: "¡Bienvenido a RutaFlow!",
     subtitle: "Tu copiloto financiero y operativo",
-    description: "RutaFlow calcula tu ganancia real descontando gasolina, comisiones y desgaste. Vamos a configurarla juntos en 1 minuto para que te dé números 100% exactos.",
-    actionText: "COMENZAR GUÍA PASO A PASO ▶",
+    description: "RutaFlow calcula tu ganancia real descontando gasolina, comisiones y desgaste. Vamos a hacer un recorrido guiado juntos para aprender a dominar cada función.",
+    actionText: "EMPEZAR TOUR INTERACTIVO ▶",
     highlight: null
   },
   // 2. Configuración: Variables base
   {
     targetTab: "config",
-    badge: "PASO 2 / 6 · CONFIGURACIÓN",
+    badge: "PASO 2 / 10 · CONFIGURACIÓN",
     icon: "⚙️",
     title: "1. Ajusta tu Gasolina y Meta",
     subtitle: "¿Cuánto gastas y cuánto quieres ganar?",
-    description: "Aquí defines: \n• Precio Gasolina: Pon lo que cuesta el litro en tu ciudad ($24 MXN prom).\n• Rendimiento: Cuántos km da tu carro por litro (ej. 12 km/L).\n• Meta por hora: Lo que aspiras ganar neto ($150-$200/hr).\n¡Esto calibra el semáforo de viajes!",
-    actionText: "ENTENDIDO, SIGUIENTE ▶",
+    description: "• Gasolina ($/L): Ajusta al costo actual en tu zona.\n• Rendimiento (km/L): Cuántos km rinde tu coche por litro.\n• Meta ($/hr): Tu aspiración neta por hora.\n¡Al guardar estos datos, el semáforo calculará tu ganancia neta en tiempo real!",
+    actionText: "CONTINUAR A PLATAFORMAS ▶",
     highlight: "variables"
   },
   // 3. Configuración: Plataformas
   {
     targetTab: "config",
-    badge: "PASO 3 / 6 · PLATAFORMAS",
+    badge: "PASO 3 / 10 · PLATAFORMAS",
     icon: "📱",
     title: "2. Comisiones de tus Apps",
-    subtitle: "Uber, DiDi, inDrive o viajes particulares",
-    description: "Revisa la comisión de cada plataforma (Uber ~25%, DiDi ~20%, etc.). RutaFlow restará esta comisión automáticamente al evaluar cada oferta.",
-    actionText: "VER ASISTENTE DE IA ▶",
+    subtitle: "Uber, DiDi, inDrive o Particulares",
+    description: "Revisa la comisión de cada app (Uber ~25%, DiDi ~12%, inDrive ~10%). Puedes agregar servicios propios o ajustar las comisiones exactas para que el cálculo no falle.",
+    actionText: "PROBAR ASISTENTE DE IA ▶",
     highlight: "platforms"
   },
   // 4. Asistente IA
   {
     targetTab: "ai",
-    badge: "PASO 4 / 6 · ASISTENTE IA",
+    badge: "PASO 4 / 10 · ASISTENTE DE IA",
     icon: "🧠",
-    title: "3. Tu Asesor de Rutas y Horarios",
-    subtitle: "Habla o escribe con la Inteligencia Artificial",
-    description: "Pregúntale: «¿A qué hora me conviene salir?», «¿Qué zona me deja más dinero?» o «¿Me conviene este bono?». La IA conoce tus números, colonias y ganancias reales.",
-    actionText: "VER HISTORIAL DE VIAJES ▶",
+    title: "3. Tu Asesor Inteligente",
+    subtitle: "Preguntas por voz o texto",
+    description: "Inicia conversaciones o presiona los botones rápidos como «¿A qué hora me conviene salir?» o «¿Qué zona deja más dinero?». La IA analiza tus datos y te da recomendaciones clave.",
+    actionText: "IR A ESTADÍSTICAS ▶",
     highlight: "ai-chat"
   },
-  // 5. Historial y Registros
+  // 5. Stats
+  {
+    targetTab: "stats",
+    badge: "PASO 5 / 10 · ESTADÍSTICAS",
+    icon: "📊",
+    title: "4. Métricas y Rendimiento",
+    subtitle: "Visualiza de dónde vienen tus ganancias",
+    description: "Aquí verás la comparativa por plataforma, tus mejores horas para trabajar, gráficos de $/hora contra tu meta y la eficiencia de tus kilómetros recorridos.",
+    actionText: "VER HISTORIAL DE VIAJES ▶",
+    highlight: "stats-cards"
+  },
+  // 6. Historial de viajes
   {
     targetTab: "trips",
-    badge: "PASO 5 / 6 · VIAJES Y REGISTROS",
+    badge: "PASO 6 / 10 · HISTORIAL",
     icon: "📋",
-    title: "4. Historial y Movimientos",
-    subtitle: "Control de cada viaje, carga de gas y propinas",
-    description: "Aquí verás el detalle de cada viaje aceptado. Puedes registrar cargas de combustible, gastos mecánicos o propinas con el botón «+» para tener cuentas claras.",
-    actionText: "VER EL COPILOTO EN HOY ▶",
+    title: "5. Viajes y Cierres de Jornada",
+    subtitle: "Transparencia total de movimientos",
+    description: "Revisa cada viaje aceptado y tus cierres diarios. Puedes tocar cualquier elemento para ver el desglose exacto de comisión, costo de gas y ganancia limpia.",
+    actionText: "PROBAR REGISTROS EN HOY ▶",
     highlight: "trips-list"
   },
-  // 6. Pantalla Hoy y Copiloto
+  // 7. Tipos de Registro de Viaje
   {
     targetTab: "home",
-    badge: "PASO 6 / 6 · COPILOTO ACTIVO",
+    badge: "PASO 7 / 10 · HOY",
+    icon: "➕",
+    title: "6. Modos de Registrar Viaje",
+    subtitle: "Manual, GPS o Foto con IA",
+    description: "Al tocar «+ NUEVO VIAJE» puedes:\n1. Manual: Llenar kilómetros y tarifa a mano.\n2. GPS: Iniciar taxímetro inteligente que mide tiempo y km reales.\n3. Foto IA: Subir captura de pantalla de la app de viajes.",
+    actionText: "VER REGISTRO RÁPIDO Y VOZ ▶",
+    highlight: "nuevo-viaje"
+  },
+  // 8. Botón Registro Rápido (Amarillo)
+  {
+    targetTab: "home",
+    badge: "PASO 8 / 10 · REGISTRO RÁPIDO",
+    icon: "🎤",
+    title: "7. Gastos, Gasolina y Km Muertos",
+    subtitle: "El botón de Registro Rápido",
+    description: "Toca el botón con micrófono para dictar o seleccionar:\n• Cargas de gasolina (ej. «Cargué 15 litros por 360 pesos»).\n• Kilómetros muertos (sin pasajero).\n• Propinas u otros gastos de tu turno.",
+    actionText: "VER ESTADO DE JORNADA ▶",
+    highlight: "registro-rapido"
+  },
+  // 9. Iniciar Jornada GPS
+  {
+    targetTab: "home",
+    badge: "PASO 9 / 10 · JORNADA GPS",
+    icon: "⏱️",
+    title: "8. Medición de Turno en Vivo",
+    subtitle: "Iniciar y Cerrar Jornada",
+    description: "Al presionar «INICIAR JORNADA», el GPS comenzará a medir el tiempo transcurrido y los kilómetros sin pasaje. Al finalizar tu turno, presiona «TERMINAR Y VER CIERRE» para guardar el resumen diario.",
+    actionText: "VER PANEL DE GANANCIAS ▶",
+    highlight: "jornada-card"
+  },
+  // 10. Copiloto y Panel KPI
+  {
+    targetTab: "home",
+    badge: "PASO 10 / 10 · COPILOTO Y PANEL",
     icon: "🟢",
-    title: "5. Inicia tu Jornada y Copiloto",
-    subtitle: "¡Todo listo para rodar en la calle!",
-    description: "Al iniciar tu turno:\n1. Toca «INICIAR JORNADA» para medir tus km con GPS.\n2. Toca «ACTIVAR COPILOTO» para que analice ofertas en pantalla sobre DiDi o Uber y te pinte en verde los viajes rentables.",
-    actionText: "¡LISTO, A GANAR DINERO! 🏁",
-    highlight: "copilot-card"
+    title: "9. Copiloto de Ofertas y Panel KPI",
+    subtitle: "¡Todo listo para trabajar!",
+    description: "En el panel superior verás tu Ganancia Neta del día, % de Km Productivos y el botón «ACTIVAR COPILOTO» para sobreponer el semáforo sobre Uber/DiDi.",
+    actionText: "¡ENTENDIDO, FINALIZAR TOUR! 🏁",
+    highlight: "kpi-panel"
   }
 ];
 

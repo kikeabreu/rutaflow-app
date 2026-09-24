@@ -1,3 +1,12 @@
+// src/offlineStore.js
+//
+// FRONTERA DELIBERADA — ver también src/storage/syncEngine.js.
+//
+// Este es el sistema offline de los VIAJES y EVENTOS OPERATIVOS: outbox propio,
+// snapshots por usuario y reintentos cableados en App.js (syncPendingFor).
+// Los tickets de soporte NO viven aquí; usan la cola Dexie de storage/syncEngine.
+// Son dos sistemas a propósito. No los mezcles ni agregues un tercero.
+
 const DB_NAME = "rutaflow-offline";
 const DB_VERSION = 1;
 
