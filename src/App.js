@@ -15,6 +15,7 @@ import { Browser } from "@capacitor/browser";
 import { NativeSettings, AndroidSettings, IOSSettings } from 'capacitor-native-settings';
 import { Capacitor } from "@capacitor/core";
 import { ANDROID_AUTH_CALLBACK, ANDROID_AUTH_CALLBACK_FALLBACK, googleOAuthOptions, restoreOAuthSession } from "./authFlow";
+import { TOUR_EVENTS, emitTourEvent } from "./tourBus";
 import { normalizeUiState, readScoped, removeScoped, resolveActiveDay, writeScoped } from "./localState";
 import { acknowledge, enqueue, pendingFor, readSnapshot, saveSnapshot } from "./offlineStore";
 import { FLAGS } from "./constants/contracts";
@@ -1688,7 +1689,7 @@ function AITab({cfg,trips,events=[],bonuses,closures=[],locations=[],isPro,month
     const base=input.trim();
     recRef.current = startSpeechRecognition(
       { lang: "es-MX", continuous: false },
-      (heard) => setInput(`${base}${base?" ":""}${heard.trim()}`),
+      (heard) => {emitTourEvent(TOUR_EVENTS.AI_VOICE_STARTED);setInput(`${base}${base?" ":""}${heard.trim()}`);},
       (e) => {
         const errors={
           "not-allowed":"Activa el permiso del micrófono para hablar con RutaFlow.",
@@ -1815,6 +1816,7 @@ ULTIMOS ${last3||"s/d"}`;
     if(!isPro){onUpgrade();return;}
     if(!input.trim()||loading)return;
     if(recRef.current){try{recRef.current.stop();}catch{}}
+    emitTourEvent(TOUR_EVENTS.AI_MESSAGE_SENT);
     const question=input.trim();
     const um={role:"user",content:question};
     const pending=[...msgs,um];
@@ -1851,7 +1853,7 @@ ULTIMOS ${last3||"s/d"}`;
       {!isPro&&<UpgradeCard monthlyTripsCount={monthlyTripsCount} onUpgrade={onUpgrade} s={{margin:"11px 14px 0"}}/>}
       {msgs.length<=1&&<div style={{padding:"11px 14px 0"}}><Lbl s={{marginBottom:7}}>Preguntas frecuentes</Lbl><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{SUGG.map(s=><button key={s} onClick={()=>setInput(s)} style={{padding:"6px 11px",background:`${C.teal}12`,border:`1px solid ${C.teal}33`,borderRadius:18,color:C.teal,fontSize:11,fontWeight:600}}>{s}</button>)}</div></div>}
       <div style={{flex:1,overflowY:"auto",padding:"11px 14px",display:"flex",flexDirection:"column",gap:9}}>
-        {msgs.map((m,i)=>{const speechId=`ai-${i}`,isAssistant=m.role==="assistant",isSpeaking=speakingId===speechId;return <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}><div style={{maxWidth:m.role==="user"?"88%":"96%",padding:"10px 13px",borderRadius:m.role==="user"?"13px 13px 3px 13px":"13px 13px 13px 3px",background:m.role==="user"?`${C.accent}1e`:C.card,border:`1px solid ${m.role==="user"?C.accent+"44":C.border}`,fontSize:13,lineHeight:1.6,whiteSpace:m.role==="user"?"pre-wrap":"normal",color:C.text}}>{isAssistant?<MarkdownMessage>{m.content}</MarkdownMessage>:m.content}{isAssistant&&<button onClick={()=>speak(m.content,speechId)} disabled={!voiceSupported} aria-label={isSpeaking?"Detener respuesta":"Escuchar respuesta"} style={{minHeight:38,marginTop:9,padding:"7px 10px",border:`1px solid ${voiceSupported?(isSpeaking?C.danger:C.teal+"55"):C.dim}`,borderRadius:8,color:voiceSupported?(isSpeaking?C.danger:C.teal):C.dim,display:"flex",alignItems:"center",gap:7,fontSize:9,fontWeight:800}}><SVG d={isSpeaking?IC.stop:IC.speaker} size={14} color={voiceSupported?(isSpeaking?C.danger:C.teal):C.dim}/>{isSpeaking?"DETENER":"ESCUCHAR"}</button>}</div></div>;})}
+        {msgs.map((m,i)=>{const speechId=`ai-${i}`,isAssistant=m.role==="assistant",isSpeaking=speakingId===speechId;return <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}><div style={{maxWidth:m.role==="user"?"88%":"96%",padding:"10px 13px",borderRadius:m.role==="user"?"13px 13px 3px 13px":"13px 13px 13px 3px",background:m.role==="user"?`${C.accent}1e`:C.card,border:`1px solid ${m.role==="user"?C.accent+"44":C.border}`,fontSize:13,lineHeight:1.6,whiteSpace:m.role==="user"?"pre-wrap":"normal",color:C.text}}>{isAssistant?<MarkdownMessage>{m.content}</MarkdownMessage>:m.content}{isAssistant&&<button data-tour="ai-speak" onClick={()=>{const arranco=speak(m.content,speechId)&&!isSpeaking;if(arranco)emitTourEvent(TOUR_EVENTS.AI_SPOKEN);}} disabled={!voiceSupported} aria-label={isSpeaking?"Detener respuesta":"Escuchar respuesta"} style={{minHeight:38,marginTop:9,padding:"7px 10px",border:`1px solid ${voiceSupported?(isSpeaking?C.danger:C.teal+"55"):C.dim}`,borderRadius:8,color:voiceSupported?(isSpeaking?C.danger:C.teal):C.dim,display:"flex",alignItems:"center",gap:7,fontSize:9,fontWeight:800}}><SVG d={isSpeaking?IC.stop:IC.speaker} size={14} color={voiceSupported?(isSpeaking?C.danger:C.teal):C.dim}/>{isSpeaking?"DETENER":"ESCUCHAR"}</button>}</div></div>;})}
         {loading&&<div style={{display:"flex"}}><div style={{padding:"10px 14px",background:C.card,border:`1px solid ${C.border}`,borderRadius:"13px 13px 13px 3px"}}><div className="pu" style={{fontSize:10,color:C.teal,letterSpacing:"0.2em"}}>ANALIZANDO...</div></div></div>}
         <div ref={endRef}/>
       </div>
@@ -1859,7 +1861,7 @@ ULTIMOS ${last3||"s/d"}`;
         {(listening||voiceError||speechError)&&<div aria-live="polite" style={{fontSize:9,lineHeight:1.45,color:listening?C.teal:C.danger,marginBottom:6}}>{listening?"Escuchando en español… habla con naturalidad.":voiceError||speechError}{(voiceError||speechError)&&String(voiceError||speechError).includes("permiso")&&<button onClick={openSettings} style={{marginLeft:8,color:C.danger,textDecoration:"underline",fontWeight:700,fontSize:9}}>Abrir ajustes</button>}</div>}
         <div style={{display:"flex",gap:7,alignItems:"flex-end",minWidth:0}}>
           <textarea data-tour="ai-chat" ref={inputRef} rows={1} value={input} onChange={e=>{setInput(e.target.value);if(voiceError)setVoiceError("");}} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}} enterKeyHint="send" placeholder={listening?"Escuchando…":"Escribe o habla con la IA…"} onFocus={e=>{e.target.style.borderColor=C.accent;setTimeout(()=>inputRef.current?.scrollIntoView({block:"nearest"}),150);}} onBlur={e=>e.target.style.borderColor=C.border} style={{flex:"1 1 0",minWidth:0,minHeight:46,maxHeight:92,resize:"none",background:C.card,border:`1px solid ${listening?C.teal:C.border}`,borderRadius:9,padding:"11px 12px",color:C.text,fontSize:16,lineHeight:1.35,fontFamily:"inherit",outline:"none"}}/>
-          <button onClick={listen} disabled={loading} aria-label={listening?"Detener dictado":"Hablar con la IA"} title={listening?"Detener dictado":"Hablar con la IA"} style={{width:46,height:46,flexShrink:0,background:listening?`${C.danger}18`:C.card,border:`1px solid ${listening?C.danger:C.teal}`,borderRadius:9,display:"grid",placeItems:"center",opacity:loading?.45:1}}><SVG d={listening?IC.stop:IC.mic} size={18} color={listening?C.danger:C.teal}/></button>
+          <button data-tour="ai-mic" onClick={listen} disabled={loading} aria-label={listening?"Detener dictado":"Hablar con la IA"} title={listening?"Detener dictado":"Hablar con la IA"} style={{width:46,height:46,flexShrink:0,background:listening?`${C.danger}18`:C.card,border:`1px solid ${listening?C.danger:C.teal}`,borderRadius:9,display:"grid",placeItems:"center",opacity:loading?.45:1}}><SVG d={listening?IC.stop:IC.mic} size={18} color={listening?C.danger:C.teal}/></button>
           <button onClick={send} disabled={!input.trim()||loading} aria-label="Enviar pregunta" style={{width:46,height:46,flexShrink:0,background:input.trim()?`${C.accent}1e`:"transparent",border:`1px solid ${input.trim()?C.accent:C.border}`,borderRadius:9,color:input.trim()?C.accent:C.dim,display:"grid",placeItems:"center"}}><SVG d={IC.send} size={17} color={input.trim()?C.accent:C.dim}/></button>
         </div>
       </div>
@@ -1872,11 +1874,11 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
   const[local,setLocal]=useState(cfg);
   const[saved,setSaved]=useState(false);
   useEffect(()=>setLocal(cfg),[cfg]);
-  const set=(k,v)=>setLocal(p=>({...p,[k]:v}));
-  const updatePlatform=(id,patch)=>setLocal(p=>({...p,platforms:platformList(p).map(x=>x.id===id?{...x,...patch}:x)}));
+  const set=(k,v)=>{emitTourEvent(TOUR_EVENTS.CONFIG_CHANGED);setLocal(p=>({...p,[k]:v}));};
+  const updatePlatform=(id,patch)=>{emitTourEvent(TOUR_EVENTS.PLATFORM_CHANGED);setLocal(p=>({...p,platforms:platformList(p).map(x=>x.id===id?{...x,...patch}:x)}));};
   const addPlatform=()=>{const id=`personal-${Date.now()}`;setLocal(p=>({...p,platforms:[...platformList(p),{id,name:"Servicio propio",commission:0,enabled:true,color:C.muted}]}));};
   const removePlatform=id=>setLocal(p=>({...p,platforms:platformList(p).filter(x=>x.id!==id)}));
-  const save=async()=>{await saveConfig(local);setSaved(true);setTimeout(()=>setSaved(false),2000);};
+  const save=async()=>{await saveConfig(local);emitTourEvent(TOUR_EVENTS.CONFIG_SAVED);setSaved(true);setTimeout(()=>setSaved(false),2000);};
   const periods=["diario","semanal","mensual","trimestral","semestral","anual"];
   const FCRow=({ek,mk,pk,label,xk,xl})=>(
     <div style={{background:C.card2,border:`1px solid ${local[ek]?C.accent+"44":C.border}`,borderRadius:11,padding:"13px 14px",marginBottom:9}}>
@@ -1915,7 +1917,7 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
       <FCRow ek="seguroEnabled" mk="seguroMonto" pk="seguroPeriodo" label="🛡️ Seguro del auto"/>
       <FCRow ek="llantasEnabled" mk="llantasMonto" xk="llantasKmVida" xl="Vida (km)" label="🔧 Desgaste de llantas"/>
       <FCRow ek="mantenimientoEnabled" mk="mantenimientoMonto" xk="mantenimientoKmVida" xl="Cada (km)" label="🔩 Mantenimiento"/>
-      <Btn full onClick={save} color={saved?C.teal:C.accent} s={{marginTop:6,marginBottom:9}}><SVG d={IC.check} size={13} color={saved?C.teal:C.accent}/>{saved?"¡Guardado!":"Guardar cambios"}</Btn>
+      <Btn tour="config-save" full onClick={save} color={saved?C.teal:C.accent} s={{marginTop:6,marginBottom:9}}><SVG d={IC.check} size={13} color={saved?C.teal:C.accent}/>{saved?"¡Guardado!":"Guardar cambios"}</Btn>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:9}}>
         <Btn full onClick={onOpenSupport} color={C.teal} outline>❓ Ayuda & Soporte</Btn>
         <Btn full onClick={onOpenOnboarding} color={C.accent} outline>📖 Ver Tutorial</Btn>
@@ -2483,6 +2485,7 @@ export default function RutaFlow(){
     const{data,error}=await supabase.from("active_days").upsert({user_id:session.user.id,date:dateKey(startedAt),start_time:startedAt},{onConflict:"user_id"}).select().single();
     if(!error&&data){
       const obj={id:data.id,date:data.date,startTime:new Date(data.start_time).getTime(),running:true};
+      emitTourEvent(TOUR_EVENTS.SHIFT_STARTED);
       setActiveDay(obj);
       if (FLAGS.offline_v2) {
         import('./storage/db').then(DexieDB => DexieDB.UIStateStore.set(`${session.user.id}:active-day`, obj));
@@ -2631,8 +2634,8 @@ export default function RutaFlow(){
           </div>
         </div>
 
-        {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer} onSelectCopilotOfferIndex={idx=>setCopilotState(p=>({...p,selectedOfferIndex:idx}))}/>}
-        {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
+        {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} onQuick={()=>{emitTourEvent(TOUR_EVENTS.QUICK_OPENED);setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer} onSelectCopilotOfferIndex={idx=>setCopilotState(p=>({...p,selectedOfferIndex:idx}))}/>}
+        {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>setShowNew(true)} onQuick={()=>{emitTourEvent(TOUR_EVENTS.QUICK_OPENED);setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses}/>}
         {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} userId={session.user.id}/>}
         {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)}/>}
