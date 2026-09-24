@@ -2627,7 +2627,7 @@ export default function RutaFlow(){
         onSave={async(id,d)=>{await updateTrip(id,d);setSelTrip(null);}}
         onDelete={async id=>{await deleteTrip(id);setSelTrip(null);}}/>}
       {showSupport&&<SupportModal isOpen={showSupport} onClose={()=>setShowSupport(false)} userId={session?.user?.id} userEmail={session?.user?.email} onReportSent={()=>showToast("Reporte enviado con éxito")}/>}
-      {showOnboarding&&<OnboardingWizard isOpen={showOnboarding} onComplete={()=>setShowOnboarding(false)} onDismissNever={()=>{setShowOnboarding(false);LS.set("rf_onboarding_dismissed",true);}}/>}
+      {showOnboarding&&<OnboardingWizard isOpen={showOnboarding} onComplete={()=>setShowOnboarding(false)} onDismissNever={()=>{setShowOnboarding(false);LS.set("rf_onboarding_dismissed",true);}} setTab={setTab} currentTab={tab}/>}
     </>
   );
 }
