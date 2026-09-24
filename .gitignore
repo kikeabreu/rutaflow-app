@@ -13,4 +13,5 @@ yarn-error.log*
 # Artefactos de build y basura del SO
 .DS_Store
 dist/
+.gradle_home/
 supabase/.temp/

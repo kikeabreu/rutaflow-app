@@ -9,7 +9,8 @@ import java.util.regex.Pattern;
 
 final class OfferParser {
     private static final Pattern MONEY = Pattern.compile("(?:mx\\s*)?\\$\\s*(\\d{1,4}(?:[.,]\\d{1,2})?)|(\\d{1,4}(?:[.,]\\d{1,2})?)\\s*(?:mxn|pesos?)", Pattern.CASE_INSENSITIVE);
-    private static final Pattern KM = Pattern.compile("(\\d{1,3}(?:[.,]\\d{1,2})?)\\s*k(?:m|rn)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ACCEPT_MONEY = Pattern.compile("aceptar\\s*(?:mx\\s*)?\\$\\s*(\\d{1,4}(?:[.,]\\d{1,2})?)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern KM_OR_M = Pattern.compile("(\\d{1,3}(?:[.,]\\d{1,2})?)\\s*(k(?:m|rn)|m\\b)", Pattern.CASE_INSENSITIVE);
     private static final Pattern MIN = Pattern.compile("(\\d{1,3}(?:[.,]\\d{1,2})?)\\s*min(?:uto)?s?", Pattern.CASE_INSENSITIVE);
     private static final Pattern PICKUP = Pattern.compile("recog|recolec|pasajer|llegar|hacia el punto|a recoger|de distancia", Pattern.CASE_INSENSITIVE);
     private static final Pattern TRIP = Pattern.compile("viaje|destino|trayecto|duracion|incluye", Pattern.CASE_INSENSITIVE);
@@ -26,29 +27,30 @@ final class OfferParser {
         List<Double> allMin = new ArrayList<>();
         double pickupKm = 0, pickupMin = 0, tripKm = 0, tripMin = 0;
         for (String line : normalized.split("\\n")) {
-            List<Double> lineKm = values(KM, line);
+            List<Double> lineKm = distanceValues(line);
             List<Double> lineMin = values(MIN, line);
             allKm.addAll(lineKm);
             allMin.addAll(lineMin);
             if (PICKUP.matcher(line).find()) {
-                if (!lineKm.isEmpty()) pickupKm = lineKm.get(0);
-                if (!lineMin.isEmpty()) pickupMin = lineMin.get(0);
+                if (!lineKm.isEmpty() && pickupKm <= 0) pickupKm = lineKm.get(0);
+                if (!lineMin.isEmpty() && pickupMin <= 0) pickupMin = lineMin.get(0);
             }
             if (TRIP.matcher(line).find()) {
-                if (!lineKm.isEmpty()) tripKm = lineKm.get(lineKm.size() - 1);
-                if (!lineMin.isEmpty()) tripMin = lineMin.get(lineMin.size() - 1);
+                if (!lineKm.isEmpty() && tripKm <= 0) tripKm = lineKm.get(0);
+                if (!lineMin.isEmpty() && tripMin <= 0) tripMin = lineMin.get(0);
             }
         }
 
-        // Common offer cards put pickup first and passenger trip second.
-        if (tripKm <= 0 && !allKm.isEmpty()) tripKm = allKm.get(allKm.size() - 1);
-        if (tripMin <= 0 && !allMin.isEmpty()) tripMin = allMin.get(allMin.size() - 1);
-        if (pickupKm <= 0 && allKm.size() >= 2) pickupKm = allKm.get(0);
-        if (pickupMin <= 0 && allMin.size() >= 2) pickupMin = allMin.get(0);
+        // For list of offers (or multi-block), prioritize first pair as pickup and second pair as trip
+        if (pickupKm <= 0 && !allKm.isEmpty()) pickupKm = allKm.get(0);
+        if (pickupMin <= 0 && !allMin.isEmpty()) pickupMin = allMin.get(0);
+        if (tripKm <= 0 && allKm.size() >= 2) tripKm = allKm.get(1);
+        if (tripMin <= 0 && allMin.size() >= 2) tripMin = allMin.get(1);
 
         double totalKm = pickupKm + tripKm;
         double totalMin = pickupMin + tripMin;
-        if (fare <= 0 || totalKm <= 0 || totalMin <= 0) return null;
+        // Require both distances and times or strict complete metrics
+        if (fare <= 0 || pickupKm <= 0 || tripKm <= 0 || pickupMin <= 0 || tripMin <= 0) return null;
 
         double commission = fare * config.commissionFor(platform) / 100.0;
         double fuel = totalKm / config.kmPerLiter * config.gasPrice;
@@ -90,14 +92,33 @@ final class OfferParser {
     }
 
     private static double extractFare(String text) {
+        Matcher acceptMatcher = ACCEPT_MONEY.matcher(text);
+        if (acceptMatcher.find()) {
+            double value = number(acceptMatcher.group(1));
+            if (value >= 10 && value <= 5000) return value;
+        }
+
         Matcher matcher = MONEY.matcher(text);
-        double best = 0;
         while (matcher.find()) {
             double value = number(matcher.group(1) != null ? matcher.group(1) : matcher.group(2));
-            // Ignore tiny currency-like values but don't pick implausible four-digit map labels.
-            if (value >= 10 && value <= 5000) best = Math.max(best, value);
+            // First plausible top-down fare (ignore sub-10 gas surcharges or tiny tokens)
+            if (value >= 10 && value <= 5000) return value;
         }
-        return best;
+        return 0;
+    }
+
+    private static List<Double> distanceValues(String text) {
+        List<Double> result = new ArrayList<>();
+        Matcher matcher = KM_OR_M.matcher(text);
+        while (matcher.find()) {
+            double value = number(matcher.group(1));
+            String unit = matcher.group(2) != null ? matcher.group(2).toLowerCase(Locale.ROOT) : "km";
+            if ("m".equals(unit)) {
+                value = value / 1000.0;
+            }
+            if (value > 0) result.add(value);
+        }
+        return result;
     }
 
     private static List<Double> values(Pattern pattern, String text) {

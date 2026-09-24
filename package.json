@@ -11,6 +11,8 @@
     "@capacitor/core": "^8.5.2",
     "@supabase/supabase-js": "^2.39.0",
     "capacitor-native-settings": "^8.2.0",
+    "dexie": "^4.4.6",
+    "dexie-react-hooks": "^4.4.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^9.1.0",

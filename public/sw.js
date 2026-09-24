@@ -1,40 +1,40 @@
 // ─── RutaFlow Service Worker ──────────────────────────────────────────────────
-// Versión: actualiza este número cada vez que hagas un deploy importante
-const VERSION = "rutaflow-v5";
+const VERSION = "rutaflow-v6";
 
 // Archivos que guardamos en caché para que la app cargue sin internet
 const CACHE_STATIC = [
   "/",
   "/index.html",
   "/manifest.json",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
 ];
 
 // ─── INSTALACIÓN ─────────────────────────────────────────────────────────────
 // Se ejecuta la primera vez que el usuario instala la PWA
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(VERSION).then((cache) => {
-      return cache.addAll(CACHE_STATIC);
-    })
+    (async () => {
+      const response = await fetch("/asset-manifest.json", { cache: "no-store" });
+      if (!response.ok) throw new Error("No se pudo preparar RutaFlow para uso sin conexión");
+      const manifest = await response.json();
+      const entries = Array.isArray(manifest.entrypoints) ? manifest.entrypoints : [];
+      const assets = [...new Set([...CACHE_STATIC, ...entries.map(path => path.startsWith("/") ? path : `/${path}`)])];
+      const cache = await caches.open(VERSION);
+      await cache.addAll(assets);
+      await self.skipWaiting();
+    })()
   );
-  // Actívarse inmediatamente sin esperar a que se cierre la pestaña
-  self.skipWaiting();
 });
 
 // ─── ACTIVACIÓN ──────────────────────────────────────────────────────────────
 // Limpia cachés viejas cuando hay una nueva versión
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys
-          .filter((key) => key !== VERSION)
-          .map((key) => caches.delete(key))
-      )
-    )
+    caches.keys().then((keys) => Promise.all(
+      keys.filter((key) => key.startsWith("rutaflow-") && key !== VERSION).map((key) => caches.delete(key))
+    )).then(() => self.clients.claim())
   );
-  // Tomar control de todas las pestañas abiertas inmediatamente
-  self.clients.claim();
 });
 
 // ─── ESTRATEGIA DE RED ────────────────────────────────────────────────────────
@@ -45,8 +45,8 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Solo manejamos peticiones del mismo dominio (no APIs externas como Supabase)
-  if (url.origin !== self.location.origin) return;
+  // API responses may contain user data or payment state. Never cache them.
+  if (url.origin !== self.location.origin || request.method !== "GET" || url.pathname.startsWith("/api/")) return;
 
   // Para navegación (abrir la app): siempre servir index.html
   if (request.mode === "navigate") {
@@ -72,15 +72,6 @@ self.addEventListener("fetch", (event) => {
       });
     })
   );
-});
-
-// ─── SINCRONIZACIÓN EN BACKGROUND ────────────────────────────────────────────
-// Cuando el conductor vuelve a tener internet, sincroniza datos pendientes
-self.addEventListener("sync", (event) => {
-  if (event.tag === "sync-trips") {
-    // Aquí en el futuro podríamos sincronizar viajes guardados offline
-    console.log("[RutaFlow SW] Sincronizando viajes pendientes...");
-  }
 });
 
 // ─── NOTIFICACIONES PUSH (preparado para futuro) ──────────────────────────────

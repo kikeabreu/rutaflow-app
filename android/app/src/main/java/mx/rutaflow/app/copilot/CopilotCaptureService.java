@@ -8,9 +8,11 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.Image;
@@ -37,6 +39,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -56,6 +59,10 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     public static final String PREFS = "rutaflow_copilot";
     public static final String PREF_CONFIG = "config";
     public static final String PREF_LAST_OFFER = "lastOffer";
+    public static final String PREF_DESIRED = "desired";
+    public static final String PREF_CAPTURE_ACTIVE = "captureActive";
+    public static final String PREF_NEEDS_CONSENT = "needsConsent";
+    public static final String PREF_STOP_REASON = "stopReason";
 
     private static final String CHANNEL_ID = "rutaflow_copilot";
     private static final String CHANNEL_ALERTS_ID = "rutaflow_copilot_alerts";
@@ -83,6 +90,8 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     private int captureWidth;
     private int captureHeight;
     private CopilotConfig config = CopilotConfig.defaults();
+    private boolean explicitShutdown;
+    private CopilotOverlayView overlayView;
 
     @Nullable
     @Override
@@ -99,21 +108,33 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
         captureThread = new HandlerThread("RutaFlowCapture");
         captureThread.start();
         captureHandler = new Handler(captureThread.getLooper());
+        if (android.provider.Settings.canDrawOverlays(this)) {
+            overlayView = new CopilotOverlayView(this);
+        }
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent == null) return START_STICKY;
+        // MediaProjection grants are single-use capabilities. Android may recreate a
+        // sticky service without the grant Intent, so this service must never be sticky.
+        if (intent == null) {
+            recordStopped("missing_consent", true, "Se necesita autorizar nuevamente la captura.");
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         if (ACTION_STOP.equals(intent.getAction())) {
+            explicitShutdown = true;
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(PREF_DESIRED, false).apply();
+            recordStopped("user_stopped", false, "Copiloto apagado");
             announce("Copiloto apagado.");
             stopSelf();
             return START_NOT_STICKY;
         }
         if (ACTION_DUMP.equals(intent.getAction())) {
             armDump();
-            return START_STICKY;
+            return START_NOT_STICKY;
         }
-        if (!ACTION_START.equals(intent.getAction())) return START_STICKY;
+        if (!ACTION_START.equals(intent.getAction())) return START_NOT_STICKY;
 
         config = CopilotConfig.fromJson(getSharedPreferences(PREFS, MODE_PRIVATE)
             .getString(PREF_CONFIG, "{}"));
@@ -128,12 +149,12 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
             resultData = intent.getParcelableExtra(EXTRA_RESULT_DATA);
         }
         if (resultCode == 0 || resultData == null) {
-            sendStatus(false, "No recibimos permiso de captura.");
+            recordStopped("missing_consent", true, "No recibimos permiso de captura.");
             stopSelf();
             return START_NOT_STICKY;
         }
         startProjection(resultCode, resultData);
-        return START_STICKY;
+        return START_NOT_STICKY;
     }
 
     private void startAsForeground(String title, String body) {
@@ -146,18 +167,25 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     }
 
     private void startProjection(int resultCode, Intent resultData) {
+        explicitShutdown = true;
         stopProjection();
+        explicitShutdown = false;
         MediaProjectionManager manager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
-        projection = manager == null ? null : manager.getMediaProjection(resultCode, resultData);
+        try {
+            projection = manager == null ? null : manager.getMediaProjection(resultCode, resultData);
+        } catch (RuntimeException error) {
+            projection = null;
+        }
         if (projection == null) {
-            sendStatus(false, "No fue posible iniciar la captura.");
+            recordStopped("invalid_consent", true, "No fue posible iniciar la captura. Autorízala nuevamente.");
             stopSelf();
             return;
         }
         projection.registerCallback(new MediaProjection.Callback() {
             @Override
             public void onStop() {
-                sendStatus(false, "Android detuvo la captura de pantalla.");
+                if (explicitShutdown) return;
+                recordStopped("android_stopped_capture", true, "Android detuvo la captura. Toca iniciar para autorizarla otra vez.");
                 stopSelf();
             }
         }, captureHandler);
@@ -170,12 +198,30 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
         captureHeight = height;
         imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2);
         imageReader.setOnImageAvailableListener(this::onImageAvailable, captureHandler);
-        virtualDisplay = projection.createVirtualDisplay(
-            "RutaFlowCopilot", width, height, density,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader.getSurface(), null, captureHandler
-        );
-        sendStatus(true, "Copiloto escuchando ofertas");
+        try {
+            virtualDisplay = projection.createVirtualDisplay(
+                "RutaFlowCopilot", width, height, density,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                imageReader.getSurface(), null, captureHandler
+            );
+        } catch (RuntimeException error) {
+            recordStopped("capture_start_failed", true, "La captura no pudo iniciar. Autorízala nuevamente.");
+            explicitShutdown = true;
+            stopSelf();
+            return;
+        }
+        if (virtualDisplay == null) {
+            recordStopped("capture_start_failed", true, "La captura no pudo iniciar. Autorízala nuevamente.");
+            explicitShutdown = true;
+            stopSelf();
+            return;
+        }
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+            .putBoolean(PREF_CAPTURE_ACTIVE, true)
+            .putBoolean(PREF_NEEDS_CONSENT, false)
+            .putString(PREF_STOP_REASON, "")
+            .apply();
+        sendStatus(true, false, "", "Copiloto escuchando ofertas");
         announce("Copiloto activado. Puedes regresar a tu aplicación de viajes.");
     }
 
@@ -253,7 +299,7 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
 
     private void handleRecognized(Text result) {
         maybeDump(result);
-        handleRecognizedText(result.getText());
+        handleRecognizedText(result);
     }
 
     /**
@@ -278,12 +324,36 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
         updateNotification("Diagnóstico activo", "Guardando pantallas con ofertas durante 3 minutos.", false);
     }
 
-    private void handleRecognizedText(String text) {
+    private void handleRecognizedText(Text textResult) {
+        String text = textResult.getText();
         if (isRutaFlowScreen(text)) return;
         config = CopilotConfig.fromJson(getSharedPreferences(PREFS, MODE_PRIVATE)
             .getString(PREF_CONFIG, "{}"));
         OfferAnalysis offer = OfferParser.parse(text, config);
         if (offer == null || offer.confidence < 0.60) return;
+
+        // Visual HUD: detect bounding box of the offer / accept button / price block
+        if (overlayView != null) {
+            Rect bestBox = null;
+            for (Text.TextBlock block : textResult.getTextBlocks()) {
+                String blockText = block.getText().toLowerCase(Locale.ROOT);
+                if (blockText.contains("aceptar") || blockText.contains("$" + (int)offer.fare) || blockText.contains(String.valueOf((int)offer.fare))) {
+                    bestBox = block.getBoundingBox();
+                    break;
+                }
+            }
+            if (bestBox == null && !textResult.getTextBlocks().isEmpty()) {
+                bestBox = textResult.getTextBlocks().get(0).getBoundingBox();
+            }
+            if (bestBox != null) {
+                int color = "good".equals(offer.verdict) ? 0xFF00C9A7 : "maybe".equals(offer.verdict) ? 0xFFF0A500 : 0xFFFF4055;
+                String label = String.format(Locale.forLanguageTag("es-MX"), "$%.0f · $%.0f/h", offer.fare, offer.hourly);
+                List<CopilotOverlayView.HighlightItem> highlights = new ArrayList<>();
+                highlights.add(new CopilotOverlayView.HighlightItem(bestBox, color, label));
+                overlayView.showHighlights(highlights);
+            }
+        }
+
         long now = System.currentTimeMillis();
         if (offer.signature().equals(lastSignature) && now - lastOfferAt < DUPLICATE_WINDOW_MS) return;
         lastSignature = offer.signature();
@@ -315,12 +385,27 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     }
 
     private void sendStatus(boolean running, String message) {
+        sendStatus(running, false, "", message);
+    }
+
+    private void sendStatus(boolean running, boolean needsConsent, String stopReason, String message) {
         JSONObject json = new JSONObject();
         try {
             json.put("running", running);
+            json.put("needs_consent", needsConsent);
+            json.put("stop_reason", stopReason);
             json.put("message", message);
         } catch (JSONException ignored) {}
         sendEvent("status", json);
+    }
+
+    private void recordStopped(String reason, boolean needsConsent, String message) {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+            .putBoolean(PREF_CAPTURE_ACTIVE, false)
+            .putBoolean(PREF_NEEDS_CONSENT, needsConsent)
+            .putString(PREF_STOP_REASON, reason)
+            .apply();
+        sendStatus(false, needsConsent, reason, message);
     }
 
     private void sendEvent(String event, JSONObject payload) {
@@ -440,12 +525,22 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
 
     @Override
     public void onDestroy() {
-        sendStatus(false, "Copiloto apagado");
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (prefs.getBoolean(PREF_CAPTURE_ACTIVE, false)) {
+            boolean desired = prefs.getBoolean(PREF_DESIRED, false);
+            recordStopped(desired ? "service_destroyed" : "user_stopped", desired,
+                desired ? "La captura terminó. Toca iniciar para autorizarla otra vez." : "Copiloto apagado");
+        }
+        explicitShutdown = true;
         stopProjection();
         if (recognizer != null) recognizer.close();
         if (tts != null) {
             tts.stop();
             tts.shutdown();
+        }
+        if (overlayView != null) {
+            overlayView.clearHighlights();
+            overlayView = null;
         }
         if (captureThread != null) captureThread.quitSafely();
         stopForeground(STOP_FOREGROUND_REMOVE);

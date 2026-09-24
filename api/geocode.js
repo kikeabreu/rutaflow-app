@@ -1,4 +1,25 @@
-const NOMINATIM_URL="https://nominatim.openstreetmap.org/reverse";
+const NOMINATIM_URL=process.env.NOMINATIM_REVERSE_URL||"https://nominatim.openstreetmap.org/reverse";
+
+function normalizePlace(address={}){
+  const neighborhoodFields=["neighbourhood","suburb","residential","quarter"];
+  const neighborhoodType=neighborhoodFields.find(field=>address[field])||"";
+  const neighborhood=neighborhoodType?String(address[neighborhoodType]):"";
+  const cityType=["city","town","village"].find(field=>address[field])||"";
+  const city=cityType?String(address[cityType]):"";
+  const municipality=String(address.municipality||address.county||"");
+  const state=String(address.state||"");
+  const locality=city||municipality;
+  const display_name=neighborhood&&locality&&neighborhood!==locality?`${neighborhood}, ${locality}`:(neighborhood||locality||"");
+  return {
+    zone:neighborhood, // Backwards compatibility for existing checkpoint views.
+    neighborhood,neighborhood_type:neighborhoodType,
+    city,city_type:cityType,municipality,state,
+    display_name,
+    place_status:neighborhood&&city?"resolved":display_name?"partial":"unknown",
+    provider:"nominatim",
+    attribution:"OpenStreetMap contributors",
+  };
+}
 
 const env=(name,fallback)=>process.env[name]||(fallback?process.env[fallback]:"");
 
@@ -31,21 +52,25 @@ module.exports=async function handler(req,res){
     if(!Number.isFinite(lat)||lat< -90||lat>90||!Number.isFinite(lon)||lon< -180||lon>180){
       return res.status(400).json({error:"Coordenadas no validas"});
     }
-    const params=new URLSearchParams({format:"jsonv2",lat:String(lat),lon:String(lon),zoom:"16",addressdetails:"1",layer:"address","accept-language":"es"});
-    const response=await fetch(`${NOMINATIM_URL}?${params}`,{
-      headers:{"User-Agent":"RutaFlow/1.0 (https://github.com/kikeabreu/rutaflow-app)","Accept-Language":"es"},
-    });
+    const params=new URLSearchParams({format:"jsonv2",lat:String(lat),lon:String(lon),zoom:"18",addressdetails:"1",layer:"address","accept-language":"es"});
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),6500);
+    let response;
+    try{
+      response=await fetch(`${NOMINATIM_URL}?${params}`,{
+        headers:{"User-Agent":"RutaFlow/1.0 (https://github.com/kikeabreu/rutaflow-app)","Accept-Language":"es"},
+        signal:controller.signal,
+      });
+    }finally{clearTimeout(timer);}
     if(!response.ok)return res.status(502).json({error:"No se pudo identificar la zona"});
     const data=await response.json();
-    const a=data.address||{};
-    const zone=a.neighbourhood||a.suburb||a.residential||a.quarter||a.city_district||a.borough||a.village||a.town||a.city||"";
-    const city=a.city||a.town||a.municipality||a.county||a.state_district||"";
-    const display_name=zone&&city&&zone!==city?`${zone}, ${city}`:(zone||city||"");
     res.setHeader("Cache-Control","s-maxage=86400, stale-while-revalidate=604800");
-    return res.status(200).json({zone,city,display_name,attribution:"OpenStreetMap contributors"});
+    return res.status(200).json(normalizePlace(data.address||{}));
 
   }catch(error){
     console.error("RutaFlow geocode error",error);
     return res.status(500).json({error:"No se pudo identificar la zona"});
   }
 };
+
+module.exports.normalizePlace=normalizePlace;

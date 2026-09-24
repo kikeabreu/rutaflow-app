@@ -4,9 +4,10 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { supabase } from "./supabaseClient";
 import { callGroq, imageToDataUrl, parseJsonContent } from "./groqClient";
-import { locateDriver } from "./locationClient";
+import { locateDriver, reverseGeocodePoint } from "./locationClient";
 import { copilot } from "./copilotClient";
 import { startSpeechRecognition } from "./speechClient";
+import { nativeTracking } from "./nativeTrackingClient";
 import dateUtils from "./dateUtils";
 import { useSpanishSpeech } from "./voiceClient";
 import { App as CapacitorApp } from "@capacitor/app";
@@ -14,6 +15,11 @@ import { Browser } from "@capacitor/browser";
 import { NativeSettings, AndroidSettings, IOSSettings } from 'capacitor-native-settings';
 import { Capacitor } from "@capacitor/core";
 import { ANDROID_AUTH_CALLBACK, ANDROID_AUTH_CALLBACK_FALLBACK, googleOAuthOptions, restoreOAuthSession } from "./authFlow";
+import { normalizeUiState, readScoped, removeScoped, resolveActiveDay, writeScoped } from "./localState";
+import { acknowledge, enqueue, pendingFor, readSnapshot, saveSnapshot } from "./offlineStore";
+import { FLAGS } from "./constants/contracts";
+import { SupportModal } from "./components/SupportModal";
+import { OnboardingWizard } from "./components/OnboardingWizard";
 
 // ─── PALETA ──────────────────────────────────────────────────────────────────
 const C={bg:"#07080d",card:"#0d0f1a",card2:"#111320",border:"#1a1d2e",bord2:"#242740",accent:"#f0a500",teal:"#00c9a7",danger:"#ff4055",dim:"#3a3d55",muted:"#6b6e8a",text:"#dde0f5"};
@@ -24,7 +30,7 @@ const LS={
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}},
   del:(k)=>{try{localStorage.removeItem(k);}catch{}},
 };
-const K={DRAFT:"rf_draft",DAY:"rf_day",DAYGPS:"rf_daygps",CHATS:"rf_ai_conversations",LOCATIONS:"rf_location_checkpoints",AIVOICE:"rf_ai_voice_auto"};
+const K={DAYGPS:"rf_daygps",CHATS:"rf_ai_conversations",LOCATIONS:"rf_location_checkpoints",AIVOICE:"rf_ai_voice_auto"};
 const FREE_MONTHLY_TRIP_LIMIT=30;
 const isStandaloneApp=()=>typeof window!=="undefined"&&(window.matchMedia?.("(display-mode: standalone)").matches||window.navigator.standalone===true);
 const paymentUrl=()=>process.env.REACT_APP_STRIPE_PAYMENT_LINK||process.env.REACT_APP_MERCADOPAGO_PAYMENT_LINK||"";
@@ -35,10 +41,29 @@ const isProProfile=profile=>{
   const until=profile.pro_until?new Date(profile.pro_until).getTime():0;
   return plan==="pro"||status==="active"||status==="trialing"||until>Date.now();
 };
-const openUpgrade=()=>{
+const openUpgrade=async(user,action='checkout')=>{
+  try {
+    const res = await fetch('/api/stripe/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: user?.id,
+        userEmail: user?.email,
+        action
+      })
+    });
+    const data = await res.json();
+    if (data?.url) {
+      window.location.href = data.url;
+      return;
+    }
+  } catch (e) {
+    console.warn("Dynamic stripe checkout fallback to payment link", e);
+  }
+
   const url=paymentUrl();
   if(url)window.open(url,"_blank","noopener,noreferrer");
-  else alert("Configura REACT_APP_STRIPE_PAYMENT_LINK o REACT_APP_MERCADOPAGO_PAYMENT_LINK para activar cobros.");
+  else alert("Configura STRIPE_SECRET_KEY o REACT_APP_STRIPE_PAYMENT_LINK para activar cobros.");
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -51,6 +76,7 @@ const haversine=(a,b)=>{const R=6371,r=x=>x*Math.PI/180;const dLat=r(b.lat-a.lat
 const dateOf=x=>dateKey(x?.end_time||x?.occurred_at||x?.paid_at||x?.created_at||x?.date||Date.now());
 const inDateRange=(item,range)=>{const d=dateOf(item);return(!range.from||d>=range.from)&&(!range.to||d<=range.to);};
 const locationName=point=>point?.zone||point?.city||(Number.isFinite(Number(point?.latitude??point?.lat))?`${Number(point.latitude??point.lat).toFixed(3)}, ${Number(point.longitude??point.lon).toFixed(3)}`:"");
+const retainCheckpoints=rows=>[...rows.filter(row=>row._pending),...rows.filter(row=>!row._pending).slice(0,500)];
 const openSettings=()=>NativeSettings.open({optionAndroid:AndroidSettings.ApplicationDetails,optionIOS:IOSSettings.App}).catch(()=>{});
 
 const DEFAULT_PLATFORMS=[
@@ -292,9 +318,27 @@ function useWakeLock(isActive){
 }
 
 function useDayGPS(isActive){
-  const[dayKm,setDayKm]=useState(()=>parseFloat(LS.get(K.DAYGPS,{})?.km||0));
+  const[dayKm,setDayKm]=useState(0);
+  const[isLoaded,setIsLoaded]=useState(false);
   const lastRef=useRef(null);
-  const distRef=useRef(parseFloat(LS.get(K.DAYGPS,{})?.km||0));
+  const distRef=useRef(0);
+
+  useEffect(() => {
+    (async () => {
+      let data = {};
+      if (FLAGS.offline_v2) {
+        const DexieDB = await import('./storage/db');
+        data = await DexieDB.UIStateStore.get(K.DAYGPS, {});
+      } else {
+        data = LS.get(K.DAYGPS, {});
+      }
+      const initialKm = parseFloat(data?.km || 0);
+      setDayKm(initialKm);
+      distRef.current = initialKm;
+      setIsLoaded(true);
+    })();
+  }, []);
+
   useWakeLock(isActive);
   const start=useCallback(()=>{
     if(!navigator.geolocation)return;
@@ -302,7 +346,16 @@ function useDayGPS(isActive){
       ({coords:{latitude:lat,longitude:lon}})=>{
         if(lastRef.current){
           const d=haversine(lastRef.current,{lat,lon});
-          if(d>0.01){distRef.current+=d;setDayKm(distRef.current);LS.set(K.DAYGPS,{km:distRef.current,ts:Date.now()});}
+          if(d>0.01){
+            distRef.current+=d;
+            setDayKm(distRef.current);
+            const dataToSave = {km:distRef.current,ts:Date.now()};
+            if (FLAGS.offline_v2) {
+              import('./storage/db').then(DexieDB => DexieDB.UIStateStore.set(K.DAYGPS, dataToSave));
+            } else {
+              LS.set(K.DAYGPS, dataToSave);
+            }
+          }
         }
         lastRef.current={lat,lon};
       },
@@ -311,11 +364,20 @@ function useDayGPS(isActive){
     );
   },[]);
   useEffect(()=>{
+    if (!isLoaded) return;
     let watchId;
     if(isActive){watchId=start();}
     return()=>{if(watchId)navigator.geolocation.clearWatch(watchId);};
-  },[isActive,start]);
-  return{dayKm,reset:()=>{distRef.current=0;setDayKm(0);LS.del(K.DAYGPS);}};
+  },[isActive,start,isLoaded]);
+  return{dayKm,reset:()=>{
+    distRef.current=0;
+    setDayKm(0);
+    if (FLAGS.offline_v2) {
+      import('./storage/db').then(DexieDB => DexieDB.UIStateStore.set(K.DAYGPS, null));
+    } else {
+      LS.del(K.DAYGPS);
+    }
+  }};
 }
 
 function useInstallApp(){
@@ -540,49 +602,81 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
 // ─── MODAL: NUEVO VIAJE ───────────────────────────────────────────────────────
 const DRAFT0={fare:"",pickup_km:"",pickup_min:"",dest_km:"",dest_min:"",platform:"uber",gps_km:null,gps_min:null,mode:"manual",phase:0,gpsOn:false,gpsStartMs:null,gpsDistKm:0,start_location:null};
 
-function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgrade=openUpgrade,copilotState={}}){
+function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgrade=openUpgrade,copilotState={},userId}){
   const platforms=enabledPlatforms(cfg);
-  const storedDraft=LS.get(K.DRAFT,DRAFT0);
-  const draft={...storedDraft,platform:platforms.some(p=>p.id===storedDraft.platform)?storedDraft.platform:(platforms[0]?.id||"")};
-  const[trip,setTrip]=useState(draft);
-  const[mode,setMode]=useState(draft.mode||"manual");
-  const[phase,setPhase]=useState(draft.phase||0);
-  const[gpsOn,setGpsOn]=useState(false);
-  const[gpsMs,setGpsMs]=useState(draft.gpsOn&&draft.gpsStartMs?Date.now()-draft.gpsStartMs:0);
-  const[gpsStatus,setGpsStatus]=useState(draft.gps_km?`✅ ${fmt(draft.gps_km,2)} km · ${fmt(draft.gps_min,0)} min`:"");
-  const[startLocation,setStartLocation]=useState(draft.start_location||null);
-  const[proc,setProc]=useState(false);
-  const[saving,setSaving]=useState(false);
-  const[toast,setToast]=useState(null);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [trip, setTrip] = useState(DRAFT0);
+  const [mode, setMode] = useState("manual");
+  const [phase, setPhase] = useState(0);
+  const [gpsOn, setGpsOn] = useState(false);
+  const [gpsMs, setGpsMs] = useState(0);
+  const [gpsStatus, setGpsStatus] = useState("");
+  const [startLocation, setStartLocation] = useState(null);
+  
+  useEffect(() => {
+    (async () => {
+      let storedDraft;
+      if (FLAGS.offline_v2) {
+        const DexieDB = await import('./storage/db');
+        storedDraft = await DexieDB.UIStateStore.get(`${userId}:trip-draft`, DRAFT0);
+      } else {
+        storedDraft = readScoped(window.localStorage,userId,"trip-draft",DRAFT0);
+      }
+      const draft={...storedDraft,platform:platforms.some(p=>p.id===storedDraft.platform)?storedDraft.platform:(platforms[0]?.id||"")};
+      setTrip(draft);
+      setMode(draft.mode||"manual");
+      setPhase(draft.phase||0);
+      if(draft.gpsOn&&draft.gpsStartMs){
+        setGpsMs(Date.now()-draft.gpsStartMs);
+      }
+      if(draft.gps_km) setGpsStatus(`✅ ${fmt(draft.gps_km,2)} km · ${fmt(draft.gps_min,0)} min`);
+      setStartLocation(draft.start_location||null);
+      setDraftLoaded(true);
+    })();
+  }, [userId]);
+
+  const [proc,setProc]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [toast,setToast]=useState(null);
 
   const watchRef=useRef(null),timerRef=useRef(null),startRef=useRef(null);
-  const distRef=useRef(parseFloat(draft.gpsDistKm)||0),lastRef=useRef(null);
-  const startLocationRef=useRef(draft.start_location||null);
+  const distRef=useRef(0),lastRef=useRef(null);
+  const startLocationRef=useRef(null);
   const fileRef=useRef();
 
   useEffect(()=>{
-    if(draft.gpsOn&&draft.gpsStartMs){
-      startRef.current=draft.gpsStartMs;
-      distRef.current=parseFloat(draft.gpsDistKm)||0;
+    if (!draftLoaded) return;
+    if(trip.gpsOn&&trip.gpsStartMs){
+      startRef.current=trip.gpsStartMs;
+      distRef.current=parseFloat(trip.gpsDistKm)||0;
       _activateGPS(false);
     }
-    if(!draft.gpsOn){
+    if(!trip.gpsOn){
       locateDriver({timeout:8000}).then(point=>{
         startLocationRef.current=point;setStartLocation(point);persist({start_location:point});
       }).catch(()=>{});
     }
-  },[]);
+  },[draftLoaded]);
 
   useEffect(()=>()=>{
     if(watchRef.current)navigator.geolocation.clearWatch(watchRef.current);
     clearInterval(timerRef.current);
   },[]);
 
-  const persist=(updates)=>{const m={...LS.get(K.DRAFT,DRAFT0),...updates};LS.set(K.DRAFT,m);};
+  const persist=(updates)=>{
+    const m={...trip,...updates};
+    if (FLAGS.offline_v2) {
+      import('./storage/db').then(DexieDB => DexieDB.UIStateStore.set(`${userId}:trip-draft`, m));
+    } else {
+      writeScoped(window.localStorage,userId,"trip-draft",m);
+    }
+  };
   const setF=(k,v)=>setTrip(p=>{const n={...p,[k]:v};persist(n);return n;});
   const setModeP=m=>{setMode(m);persist({mode:m});};
   const setPhaseP=p=>{setPhase(p);persist({phase:p});};
   const toast_=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
+
+  if (!draftLoaded) return <div className="p-4 text-center text-muted">Cargando...</div>;
 
   const _activateGPS=(isNew=true)=>{
     if(!navigator.geolocation){setGpsStatus("GPS no disponible");return;}
@@ -656,7 +750,14 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
       start_location:startLocationRef.current||startLocation||trip.start_location||null,end_location:endLocation,
     });
     setSaving(false);
-    if(ok){LS.del(K.DRAFT);onClose();}
+    if(ok){
+      if (FLAGS.offline_v2) {
+        import('./storage/db').then(DexieDB => DexieDB.UIStateStore.set(`${userId}:trip-draft`, null));
+      } else {
+        removeScoped(window.localStorage,userId,"trip-draft");
+      }
+      onClose();
+    }
     else toast_("Error al guardar. Intenta de nuevo.","err");
   };
 
@@ -674,22 +775,30 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
       <div className="su" style={{background:C.card,border:`1px solid ${C.bord2}`,borderRadius:"24px",maxHeight:"calc(100vh - 160px)",display:"flex",flexDirection:"column",width:"100%",overflow:"hidden",boxShadow:"0px -4px 20px rgba(0,0,0,0.2)"}}>
         <div style={{padding:"16px 18px 0",flexShrink:0}}>
           <div style={{width:30,height:3,background:C.bord2,borderRadius:4,margin:"0 auto 13px"}}/>
-          {copilotState?.lastOffer&&mode==="manual"&&!trip.fare&&(
-            <button onClick={()=>{
-              const o=copilotState.lastOffer;
-              setTrip(p=>({
-                ...p,
-                fare:String(o.fare||""),
-                pickup_km:String(o.pickupKm||""),
-                pickup_min:String(o.pickupMin||""),
-                dest_km:String(o.tripKm||""),
-                dest_min:String(o.tripMin||""),
-                platform:o.platform||p.platform
-              }));
-            }} style={{width:"100%",padding:"8px 10px",borderRadius:8,background:`${C.teal}12`,border:`1px solid ${C.teal}`,color:C.teal,fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justify:"center",gap:6,marginBottom:10}}>
-              <SVG d={IC.plus} size={12} color={C.teal}/> Cargar datos del Copiloto (${copilotState.lastOffer.fare||0} · {((copilotState.lastOffer.pickupKm||0)+(copilotState.lastOffer.tripKm||0)).toFixed(1)}km · {String(copilotState.lastOffer.platform||"uber").toUpperCase()})
-            </button>
-          )}
+          {(() => {
+            const history = copilotState?.offerHistory || (copilotState?.lastOffer ? [copilotState.lastOffer] : []);
+            if (!history.length || mode !== "manual" || trip.fare) return null;
+            return (
+              <div style={{marginBottom:10}}>
+                {history.map((o, idx) => (
+                  <button key={idx} onClick={()=>{
+                    setTrip(p=>({
+                      ...p,
+                      fare:String(o.fare||""),
+                      pickup_km:String(o.pickupKm||""),
+                      pickup_min:String(o.pickupMin||""),
+                      dest_km:String(o.tripKm||""),
+                      dest_min:String(o.tripMin||""),
+                      platform:o.platform||p.platform
+                    }));
+                  }} style={{width:"100%",padding:"6px 10px",borderRadius:8,background:`${C.teal}12`,border:`1px solid ${C.teal}66`,color:C.teal,fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4,cursor:"pointer"}}>
+                    <span><SVG d={IC.plus} size={11} color={C.teal}/> Oferta #{idx + 1}: ${o.fare||0} ({String(o.platform||"uber").toUpperCase()})</span>
+                    <span style={{fontSize:9,opacity:0.8}}>{((o.pickupKm||0)+(o.tripKm||0)).toFixed(1)} km · {((o.pickupMin||0)+(o.tripMin||0)).toFixed(0)} min</span>
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
 
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <Big size={19} color={C.accent} s={{letterSpacing:1}}>NUEVO VIAJE</Big>
@@ -814,11 +923,16 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
   const[deadGpsMs,setDeadGpsMs]=useState(0);
   const recRef=useRef(null);
   const deadWatchRef=useRef(null),deadTimerRef=useRef(null),deadStartRef=useRef(null);
+  const deadStartLocationRef=useRef(null);
+  const deadEndLocationPromiseRef=useRef(null);
   const deadDistRef=useRef(0),deadLastRef=useRef(null);
 
   const startDeadGps=()=>{
     if(!navigator.geolocation)return;
     deadDistRef.current=0;deadLastRef.current=null;deadStartRef.current=Date.now();
+    deadStartLocationRef.current=null;
+    deadEndLocationPromiseRef.current=null;
+    locateDriver({timeout:6000,includePlace:false}).then(point=>{deadStartLocationRef.current=point;}).catch(()=>{});
     setDeadGpsOn(true);
     clearInterval(deadTimerRef.current);
     deadTimerRef.current=setInterval(()=>setDeadGpsMs(Date.now()-deadStartRef.current),1000);
@@ -833,6 +947,7 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
     );
   };
   const stopDeadGps=()=>{
+    deadEndLocationPromiseRef.current=locateDriver({timeout:6000,includePlace:false}).catch(()=>null);
     if(deadWatchRef.current)navigator.geolocation.clearWatch(deadWatchRef.current);
     clearInterval(deadTimerRef.current);
     deadWatchRef.current=null;
@@ -908,7 +1023,7 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
       ok=initial&&initialKind==="bonus"?await onUpdateBonus(initial.id,payload):await onSaveBonus(payload);
     }
     else{
-      const payload={type:form.type,km:Number(form.km)||0,amount:Number(form.amount)||0,liters:Number(form.liters)||0,tank_liters:Number(form.tank_liters)||0,odometer:Number(form.odometer)||0,platform:form.platform||"",note:form.note||"",occurred_at:occurredAt,date:dateKey(form.occurred_at)};
+      const payload={type:form.type,km:Number(form.km)||0,amount:Number(form.amount)||0,liters:Number(form.liters)||0,tank_liters:Number(form.tank_liters)||0,odometer:Number(form.odometer)||0,platform:form.platform||"",note:form.note||"",occurred_at:occurredAt,date:dateKey(form.occurred_at),start_location:form.type==="dead_km"?deadStartLocationRef.current:null,end_location_promise:form.type==="dead_km"?deadEndLocationPromiseRef.current:null};
       ok=initial?await onUpdateOperation(initial.id,payload):await onSaveOperation(payload);
     }
     setSaving(false);if(ok)onClose();
@@ -1080,7 +1195,7 @@ function BonusTripAdvice({bonus,insight}){
 }
 
 // ─── HOME TAB ─────────────────────────────────────────────────────────────────
-function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,onNew,onQuick,dayKm:propDayKm,onSelect,onDeleteEvent,onEditEvent,onSelectClosure,onUpdateBonus,isPro,monthlyTripsCount,onUpgrade,copilotState,onToggleCopilot,copilotPlatform,onCopilotPlatform,onRegisterCopilotOffer}){
+function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,onNew,onQuick,dayKm:propDayKm,onSelect,onDeleteEvent,onEditEvent,onSelectClosure,onUpdateBonus,isPro,monthlyTripsCount,onUpgrade,copilotState,onToggleCopilot,copilotPlatform,onCopilotPlatform,onRegisterCopilotOffer,onSelectCopilotOfferIndex}){
   const[elapsed,setElapsed]=useState(0);
   const[showAll,setShowAll]=useState(false);
   const timerRef=useRef(null);
@@ -1135,18 +1250,66 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
             {copilotState.busy?"ESPERA":copilotState.running?"APAGAR":"ACTIVAR"}
           </button>
         </div>
-        {copilotState.lastOffer&&<div style={{marginTop:11,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:10,alignItems:"center"}}>
-            <div>
-              <div style={{fontSize:11,color:copilotState.lastOffer.verdict==="good"?C.teal:copilotState.lastOffer.verdict==="maybe"?C.accent:C.danger,fontWeight:800}}>{copilotState.lastOffer.verdict==="good"?"BUEN VIAJE":copilotState.lastOffer.verdict==="maybe"?"ACEPTABLE":"NO CONVIENE"} · {String(copilotState.lastOffer.platform||"otra").toUpperCase()}</div>
-              <div style={{fontSize:9,color:C.muted,marginTop:3,lineHeight:1.45}}>{copilotState.lastOffer.explanation}</div>
+        {(() => {
+          const history = copilotState.offerHistory || (copilotState.lastOffer ? [copilotState.lastOffer] : []);
+          if (!history.length) return null;
+          const currentIdx = Math.min(copilotState.selectedOfferIndex || 0, history.length - 1);
+          const currentOffer = history[currentIdx] || copilotState.lastOffer;
+          if (!currentOffer) return null;
+
+          return (
+            <div style={{marginTop:11,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+              {history.length > 1 && (
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                  <div style={{fontSize:9,color:C.accent,fontWeight:700}}>
+                    Lectura {currentIdx + 1} de {history.length}
+                  </div>
+                  <div style={{display:"flex",gap:4}}>
+                    <button 
+                      disabled={currentIdx >= history.length - 1} 
+                      onClick={() => onSelectCopilotOfferIndex?.(currentIdx + 1)}
+                      style={{padding:"3px 8px",borderRadius:5,background:C.card2,border:`1px solid ${C.border}`,color:currentIdx >= history.length - 1 ? C.dim : C.text,fontSize:9,cursor:"pointer"}}
+                    >
+                      ◀ Anterior
+                    </button>
+                    <button 
+                      disabled={currentIdx <= 0} 
+                      onClick={() => onSelectCopilotOfferIndex?.(currentIdx - 1)}
+                      style={{padding:"3px 8px",borderRadius:5,background:C.card2,border:`1px solid ${C.border}`,color:currentIdx <= 0 ? C.dim : C.text,fontSize:9,cursor:"pointer"}}
+                    >
+                      Siguiente ▶
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:10,alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:11,color:currentOffer.verdict==="good"?C.teal:currentOffer.verdict==="maybe"?C.accent:C.danger,fontWeight:800}}>
+                    {currentOffer.verdict==="good"?"BUEN VIAJE":currentOffer.verdict==="maybe"?"ACEPTABLE":"NO CONVIENE"} · {String(currentOffer.platform||"otra").toUpperCase()}
+                  </div>
+                  <div style={{fontSize:9,color:C.muted,marginTop:3,lineHeight:1.45}}>{currentOffer.explanation}</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <Big size={19} color={currentOffer.verdict==="good"?C.teal:C.accent}>{fmtMXN(currentOffer.hourly)}/h</Big>
+                  <div style={{fontSize:8,color:C.muted,marginTop:2}}>{fmtMXN(currentOffer.net)} netos</div>
+                </div>
+              </div>
+              <button onClick={()=>onRegisterCopilotOffer(currentOffer)} style={{marginTop:9,width:"100%",padding:"8px 10px",borderRadius:7,background:`${C.teal}18`,border:`1px solid ${C.teal}`,color:C.teal,fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",gap:6,cursor:"pointer"}}>
+                <SVG d={IC.plus} size={13} color={C.teal}/> Registrar este viaje fácil (${currentOffer.fare||currentOffer.gross||0})
+              </button>
             </div>
-            <div style={{textAlign:"right"}}><Big size={19} color={copilotState.lastOffer.verdict==="good"?C.teal:C.accent}>{fmtMXN(copilotState.lastOffer.hourly)}/h</Big><div style={{fontSize:8,color:C.muted,marginTop:2}}>{fmtMXN(copilotState.lastOffer.net)} netos</div></div>
+          );
+        })()}
+        {copilotState.supported&&copilotState.canDrawOverlays===false&&(
+          <div style={{marginTop:9,padding:"8px 10px",background:`${C.accent}14`,border:`1px solid ${C.accent}44`,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+            <div style={{fontSize:9,color:C.accent,lineHeight:1.35}}>
+              ✨ Activa "Mostrar sobre otras apps" para resaltar viajes en la pantalla.
+            </div>
+            <button onClick={()=>copilot.requestOverlayPermission()} style={{padding:"4px 8px",borderRadius:6,background:C.accent,color:"#000",fontSize:9,fontWeight:800,border:"none",cursor:"pointer",flexShrink:0}}>
+              ACTIVAR
+            </button>
           </div>
-          <button onClick={()=>onRegisterCopilotOffer(copilotState.lastOffer)} style={{marginTop:9,width:"100%",padding:"8px 10px",borderRadius:7,background:`${C.teal}18`,border:`1px solid ${C.teal}`,color:C.teal,fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",gap:6,cursor:"pointer"}}>
-            <SVG d={IC.plus} size={13} color={C.teal}/> Registrar este viaje fácil (${copilotState.lastOffer.fare||copilotState.lastOffer.gross||0})
-          </button>
-        </div>}
+        )}
         {copilotState.supported&&!copilotState.running&&<div style={{fontSize:8,color:C.dim,lineHeight:1.45,marginTop:9}}>Android mostrará el permiso de captura. RutaFlow procesa el texto en el teléfono y no guarda imágenes.</div>}
       </Card>
       <div style={{marginBottom:14}}>
@@ -1284,10 +1447,8 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
 }
 
 // ─── TRIPS TAB ────────────────────────────────────────────────────────────────
-function TripsTab({cfg,trips,events,bonuses,closures,onSelect,onNew,onQuick,onSelectRecord,onEditRecord,onDeleteEvent,onDeleteBonus,onSelectClosure}){
+function TripsTab({cfg,trips,events,bonuses,closures,onSelect,onNew,onQuick,onSelectRecord,onEditRecord,onDeleteEvent,onDeleteBonus,onSelectClosure,section,setSection,extraType,setExtraType}){
   const[range,setRange]=useState({preset:"all",from:"",to:""});
-  const[section,setSection]=useState("trips");
-  const[extraType,setExtraType]=useState("all");
   const filtered=trips.filter(t=>inDateRange(t,range)).sort((a,b)=>new Date(b.end_time||b.created_at||0)-new Date(a.end_time||a.created_at||0));
   const extraRows=[
     ...events.map(e=>({kind:"event",type:e.type,time:e.occurred_at||e.created_at,data:e})),
@@ -1500,7 +1661,9 @@ function AITab({cfg,trips,events=[],bonuses,closures=[],locations=[],isPro,month
     setActiveId(row.id);rememberLocal([row,...conversations]);return row.id;
   };
   const stopListening=useCallback(()=>{
-    if(recRef.current){try{recRef.current.abort();}catch{}recRef.current=null;}
+    const recognition=recRef.current;
+    recRef.current=null;
+    if(recognition){try{Promise.resolve(recognition.stop()).catch(()=>{});}catch{} }
     setListening(false);
   },[]);
   const resetVoice=()=>{stopListening();stopSpeaking();setVoiceError("");};
@@ -1606,19 +1769,23 @@ function AITab({cfg,trips,events=[],bonuses,closures=[],locations=[],isPro,month
     });
     const zoneBuckets={};
     all.forEach(t=>{
-      const point=tripLocations[String(t.id)]?.start;
-      const zone=locationName(point);
-      if(!zone)return;
-      if(!zoneBuckets[zone])zoneBuckets[zone]={n:0,net:0,min:0};
-      const c=calcTrip(t,cfg);zoneBuckets[zone].n++;zoneBuckets[zone].net+=c.net;zoneBuckets[zone].min+=c.min;
+      const startPoint=tripLocations[String(t.id)]?.start;
+      const endPoint=tripLocations[String(t.id)]?.end;
+      const startZone=locationName(startPoint);
+      const endZone=locationName(endPoint);
+      const zoneKey = startZone ? (endZone ? `${startZone} ➔ ${endZone}` : startZone) : (endZone ? `Destino: ${endZone}` : "");
+      if(!zoneKey)return;
+      if(!zoneBuckets[zoneKey])zoneBuckets[zoneKey]={n:0,net:0,min:0,colonia:startPoint?.neighborhood||startPoint?.zone||"",ciudad:startPoint?.city||""};
+      const c=calcTrip(t,cfg);zoneBuckets[zoneKey].n++;zoneBuckets[zoneKey].net+=c.net;zoneBuckets[zoneKey].min+=c.min;
     });
     const zoneCtx=Object.entries(zoneBuckets)
       .sort((a,b)=>(b[1].net/b[1].n)-(a[1].net/a[1].n))
-      .slice(0,6)
-      .map(([zone,d])=>`${zone}: ${d.n} viajes, ${fmtMXN(d.net/d.n)}/viaje, ${fmtMXN(d.min>0?d.net/(d.min/60):0)}/hr`)
+      .slice(0,8)
+      .map(([zone,d])=>`[${zone}]: ${d.n} viajes, prom ${fmtMXN(d.net/d.n)}, ${fmtMXN(d.min>0?d.net/(d.min/60):0)}/h`)
       .join(" | ");
-    const locatedTrips=all.filter(t=>tripLocations[String(t.id)]?.start).length;
+    const locatedTrips=all.filter(t=>tripLocations[String(t.id)]?.start||tripLocations[String(t.id)]?.end).length;
     const latestPoint=[...locations].sort((a,b)=>new Date(b.captured_at||0)-new Date(a.captured_at||0))[0];
+    const geoSummaryLatest = latestPoint ? `${locationName(latestPoint)} (${latestPoint.neighborhood||""} ${latestPoint.city||""}) [coords: ${Number(latestPoint.latitude||latestPoint.lat).toFixed(4)}, ${Number(latestPoint.longitude||latestPoint.lon).toFixed(4)}]` : "sin dato";
     const lastRefuel=refuels[0]?describeEvent(refuels[0]):"ninguna";
     const lastTank=tanks[0]?describeEvent(tanks[0]):"ninguno";
     const lastTip=tips[0]?describeEvent(tips[0]):"ninguna";
@@ -1637,8 +1804,8 @@ GASOLINA TOTAL REGISTRADA: ${fmt(loadedAll.liters,2)}L por ${fmtMXN(loadedAll.am
 ULTIMO TANQUE: ${lastTank} | ULTIMA PROPINA: ${lastTip}
 BONOS cobrados ${paidBonuses.length}: ${fmtMXN(bonusNet)} | activos: ${bonusCtx||"ninguno"}
 SEÑALES tendencia ${tendencia}; mejores ${bestH||"s/d"}; peores ${worstH||"s/d"}; dias ${diaS||"s/d"}; plataformas ${platS||"s/d"}
-ZONAS ORIGEN (${locatedTrips}/${all.length} viajes con GPS): ${zoneCtx||"aun sin viajes geolocalizados"}
-UBICACION RECIENTE: ${locationName(latestPoint)||"sin dato"}
+ZONAS ORIGEN Y TRAYECTOS (${locatedTrips}/${all.length} viajes con GPS): ${zoneCtx||"aun sin viajes geolocalizados"}
+UBICACION RECIENTE Y ZONA: ${geoSummaryLatest}
 ULTIMO CIERRE: ${closureCtx}
 MOVIMIENTOS RECIENTES: ${recentOps||"ninguno"}
 ULTIMOS ${last3||"s/d"}`;
@@ -1701,7 +1868,7 @@ ULTIMOS ${last3||"s/d"}`;
 }
 
 // ─── CONFIG TAB ───────────────────────────────────────────────────────────────
-function ConfigTab({cfg,saveConfig,onLogout,installApp}){
+function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboarding}){
   const[local,setLocal]=useState(cfg);
   const[saved,setSaved]=useState(false);
   useEffect(()=>setLocal(cfg),[cfg]);
@@ -1749,6 +1916,10 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp}){
       <FCRow ek="llantasEnabled" mk="llantasMonto" xk="llantasKmVida" xl="Vida (km)" label="🔧 Desgaste de llantas"/>
       <FCRow ek="mantenimientoEnabled" mk="mantenimientoMonto" xk="mantenimientoKmVida" xl="Cada (km)" label="🔩 Mantenimiento"/>
       <Btn full onClick={save} color={saved?C.teal:C.accent} s={{marginTop:6,marginBottom:9}}><SVG d={IC.check} size={13} color={saved?C.teal:C.accent}/>{saved?"¡Guardado!":"Guardar cambios"}</Btn>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:9}}>
+        <Btn full onClick={onOpenSupport} color={C.teal} outline>❓ Ayuda & Soporte</Btn>
+        <Btn full onClick={onOpenOnboarding} color={C.accent} outline>📖 Ver Tutorial</Btn>
+      </div>
       <Btn full onClick={onLogout} color={C.danger} outline><SVG d={IC.out} size={13} color={C.danger}/>Cerrar sesión</Btn>
       <div style={{fontSize:8,color:C.dim,textAlign:"center",marginTop:12}}>Zonas por OpenStreetMap contributors</div>
     </div>
@@ -1828,6 +1999,8 @@ const DCFG={gasPricePerLiter:24,kmPerLiter:12,targetHourlyRate:200,platformCut:1
 
 export default function RutaFlow(){
   const[tab,setTab]=useState("home");
+  const[tripsSection,setTripsSection]=useState("trips");
+  const[tripsExtraType,setTripsExtraType]=useState("all");
   const[cfg,setCfg]=useState(DCFG);
   const[trips,setTrips]=useState([]);
   const[events,setEvents]=useState([]);
@@ -1839,6 +2012,8 @@ export default function RutaFlow(){
   const[session,setSession]=useState(null);
   const[profile,setProfile]=useState(null);
   const[loading,setLoading]=useState(true);
+  const[pendingCount,setPendingCount]=useState(0);
+  const[syncError,setSyncError]=useState("");
   const[toast,setToast]=useState(null);
   const[selTrip,setSelTrip]=useState(null);
   const[showNew,setShowNew]=useState(false);
@@ -1847,10 +2022,26 @@ export default function RutaFlow(){
   const[editingKind,setEditingKind]=useState("event");
   const[selectedRecord,setSelectedRecord]=useState(null);
   const[selectedClosure,setSelectedClosure]=useState(null);
-  const[copilotState,setCopilotState]=useState({supported:false,running:false,busy:false,message:"",lastOffer:null});
+  const[showSupport,setShowSupport]=useState(false);
+  const[showOnboarding,setShowOnboarding]=useState(()=>LS.get("rf_onboarding_dismissed",false)!==true);
+  const[copilotState,setCopilotState]=useState({supported:false,running:false,busy:false,message:"",lastOffer:null,offerHistory:[],selectedOfferIndex:0});
   const[copilotPlatform,setCopilotPlatform]=useState(()=>LS.get("rf_copilot_platform","didi"));
   const authUserRef=useRef(null);
+  const syncingRef=useRef(false);
+  const syncRequestedRef=useRef(false);
   const installApp=useInstallApp();
+
+  useEffect(()=>{
+    const uid=session?.user?.id;
+    if(!uid)return;
+    if (FLAGS.offline_v2) {
+      import('./storage/db').then(DexieDB => {
+        DexieDB.UIStateStore.set(`${uid}:ui`, {tab,tripsSection,extraType:tripsExtraType});
+      });
+    } else {
+      writeScoped(window.localStorage,uid,"ui",{tab,tripsSection,extraType:tripsExtraType});
+    }
+  },[session?.user?.id,tab,tripsSection,tripsExtraType]);
 
   const showToast=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
   const{dayKm,reset:resetDayGPS}=useDayGPS(!!activeDay?.running);
@@ -1869,7 +2060,19 @@ export default function RutaFlow(){
     };
     (async()=>{
       try{
-        handles.push(await copilot.onOffer(offer=>mounted&&setCopilotState(p=>({...p,lastOffer:offer,message:"Oferta analizada"}))));
+        handles.push(await copilot.onOffer(offer => {
+          if (!mounted) return;
+          setCopilotState(p => {
+            const history = [offer, ...(p.offerHistory || []).filter(o => o.signature !== offer.signature)].slice(0, 10);
+            return {
+              ...p,
+              lastOffer: offer,
+              offerHistory: history,
+              selectedOfferIndex: 0,
+              message: "Oferta analizada"
+            };
+          });
+        }));
         handles.push(await copilot.onStatus(status=>mounted&&setCopilotState(p=>({...p,...status}))));
       }catch{}
       await refresh();
@@ -1905,7 +2108,25 @@ export default function RutaFlow(){
       const uid=nextSession?.user?.id||null;
       const oauthReturn=new URLSearchParams(window.location.search).get("oauth_return")==="google";
       if(oauthReturn)window.history.replaceState({},"",`${window.location.pathname}${window.location.hash}`);
-      if(uid){if(authUserRef.current!==uid){authUserRef.current=uid;loadCloud(uid);}}
+      if(uid){if(authUserRef.current!==uid){
+        authUserRef.current=uid;
+        (async () => {
+          let ui, cachedDay;
+          if (FLAGS.offline_v2) {
+            const DexieDB = await import('./storage/db');
+            ui = normalizeUiState(await DexieDB.UIStateStore.get(`${uid}:ui`, {}));
+            cachedDay = await DexieDB.UIStateStore.get(`${uid}:active-day`, null);
+          } else {
+            ui = normalizeUiState(readScoped(window.localStorage,uid,"ui",{}));
+            cachedDay = readScoped(window.localStorage,uid,"active-day",null);
+          }
+          if (active) {
+            setTab(ui.tab);setTripsSection(ui.tripsSection);setTripsExtraType(ui.extraType);
+            setActiveDay(cachedDay);
+            loadCloud(uid);
+          }
+        })();
+      }}
       else{authUserRef.current=null;setProfile(null);setLoading(false);}
     };
     const acceptOAuthUrl=async url=>{
@@ -1935,7 +2156,18 @@ export default function RutaFlow(){
   const loadCloud=useCallback(async uid=>{
     setLoading(true);
     try{
-      const[{data:tr},{data:pr},{data:dy},{data:ad},{data:oe,error:oeError},{data:cl,error:clError},{data:bn,error:bnError},{data:lc,error:lcError}]=await Promise.all([
+      const [cachedTrips,cachedEvents,cachedBonuses,cachedDays,cachedClosures,queued]=await Promise.all([
+        readSnapshot(uid,"trips"),readSnapshot(uid,"events"),readSnapshot(uid,"bonuses"),
+        readSnapshot(uid,"days"),readSnapshot(uid,"closures"),pendingFor(uid),
+      ]);
+      if(authUserRef.current!==uid)return;
+      setTrips([...queued.filter(item=>item.kind==="trip").map(item=>({...item.payload,id:`local-${item.id}`,_pending:true})),...cachedTrips]);
+      setEvents([...queued.filter(item=>item.kind==="operation").map(item=>({...item.payload,id:`local-${item.id}`,_pending:true})),...cachedEvents]);
+      setBonuses(cachedBonuses);setDays(cachedDays);setClosures(cachedClosures);
+    }catch(error){console.warn("Local history",error?.message||error);}
+    setLoading(false);
+    try{
+      const[{data:tr},{data:pr},{data:dy},{data:ad,error:adError},{data:oe,error:oeError},{data:cl,error:clError},{data:bn,error:bnError},{data:lc,error:lcError}]=await Promise.all([
         supabase.from("trips").select("*").eq("user_id",uid).order("created_at",{ascending:false}),
         supabase.from("profiles").select("*").eq("id",uid).single(),
         supabase.from("days").select("*").eq("user_id",uid).order("date",{ascending:false}),
@@ -1945,50 +2177,175 @@ export default function RutaFlow(){
         supabase.from("bonuses").select("*").eq("user_id",uid).order("created_at",{ascending:false}),
         supabase.from("location_checkpoints").select("*").eq("user_id",uid).order("captured_at",{ascending:false}).limit(500),
       ]);
-      if(tr)setTrips(tr);
-      if(oe)setEvents(oe);
+      if(authUserRef.current!==uid)return;
+      const queued=await pendingFor(uid).catch(()=>[]);
+      if(tr){
+        setTrips([...queued.filter(item=>item.kind==="trip"&&!tr.some(row=>row.client_mutation_id===item.id)).map(item=>({...item.payload,id:`local-${item.id}`,_pending:true})),...tr]);
+        saveSnapshot(uid,"trips",tr).catch(()=>{});
+      }
+      if(oe){
+        setEvents([...queued.filter(item=>item.kind==="operation"&&!oe.some(row=>row.client_mutation_id===item.id)).map(item=>({...item.payload,id:`local-${item.id}`,_pending:true})),...oe]);
+        saveSnapshot(uid,"events",oe).catch(()=>{});
+      }
       if(oeError&&oeError.code!=="42P01")console.warn("Operational events",oeError.message);
-      if(bn)setBonuses(bn);
+      if(bn){setBonuses(bn);saveSnapshot(uid,"bonuses",bn).catch(()=>{});}
       if(bnError&&bnError.code!=="42P01")console.warn("Bonuses",bnError.message);
       const localLocations=LS.get(`${K.LOCATIONS}_${uid}`,[]);
       if(lc){
         const cloudIds=new Set(lc.map(x=>x.id));
-        setLocations([...lc,...localLocations.filter(x=>String(x.id).startsWith("local-")&&!cloudIds.has(x.id))].slice(0,500));
+        const unsynced=localLocations.filter(x=>x._pending||(String(x.id).startsWith("local-")&&!cloudIds.has(x.id)));
+        const unsyncedIds=new Set(unsynced.map(x=>x.id));
+        setLocations(retainCheckpoints([...unsynced,...lc.filter(x=>!unsyncedIds.has(x.id))]));
       }else setLocations(localLocations);
       if(lcError&&lcError.code!=="42P01")console.warn("Location checkpoints",lcError.message);
-      if(dy)setDays(dy);
-      if(cl)setClosures(cl);
+      if(dy){setDays(dy);saveSnapshot(uid,"days",dy).catch(()=>{});}
+      if(cl){setClosures(cl);saveSnapshot(uid,"closures",cl).catch(()=>{});}
       if(clError&&clError.code!=="42P01")console.warn("Shift closures",clError.message);
       if(pr)setProfile(pr);
       if(pr?.config&&Object.keys(pr.config).length>0)setCfg(normalizeConfig(pr.config));
-      if(ad){const obj={id:ad.id,date:ad.date,startTime:new Date(ad.start_time).getTime(),running:true};setActiveDay(obj);LS.set(K.DAY,obj);}
-      else{LS.del(K.DAY);setActiveDay(null);}
+      const localDay=readScoped(window.localStorage,uid,"active-day",null);
+      const resolvedDay=resolveActiveDay({localDay,cloudDay:ad,cloudError:adError});
+      setActiveDay(resolvedDay);
+      if(resolvedDay){
+        if (FLAGS.offline_v2) {
+          import('./storage/db').then(DexieDB => DexieDB.UIStateStore.set(`${uid}:active-day`, resolvedDay));
+        } else {
+          writeScoped(window.localStorage,uid,"active-day",resolvedDay);
+        }
+      }
+      else if(!adError){
+        if (FLAGS.offline_v2) {
+          import('./storage/db').then(DexieDB => DexieDB.UIStateStore.set(`${uid}:active-day`, null));
+        } else {
+          removeScoped(window.localStorage,uid,"active-day");
+        }
+      }
+      if(adError)console.warn("Active day",adError.message||adError);
     }catch(e){console.error(e);}
     setLoading(false);
   },[]);
 
   const saveCheckpoints=async points=>{
     if(!session||!points.length)return;
-    const rows=points.filter(p=>p&&Number.isFinite(Number(p.lat))).map(p=>({
-      user_id:session.user.id,event_type:p.event_type,trip_id:p.trip_id?String(p.trip_id):null,day_id:p.day_id?String(p.day_id):null,
+    const uid=session.user.id;
+    const rows=points.filter(p=>p&&Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lon))).map(p=>({
+      id:p.id||crypto.randomUUID(),user_id:uid,event_type:p.event_type,trip_id:p.trip_id?String(p.trip_id):null,day_id:p.day_id?String(p.day_id):null,
+      operational_event_id:p.operational_event_id||null,
       latitude:Number(p.lat),longitude:Number(p.lon),accuracy_m:p.accuracy_m!==null&&p.accuracy_m!==undefined&&Number.isFinite(Number(p.accuracy_m))?Number(p.accuracy_m):null,
-      zone:p.zone||"",city:p.city||"",captured_at:p.captured_at||new Date().toISOString(),
+      zone:p.zone||p.neighborhood||"",neighborhood:p.neighborhood||p.zone||"",neighborhood_type:p.neighborhood_type||"",
+      city:p.city||"",city_type:p.city_type||"",municipality:p.municipality||"",state:p.state||"",
+      place_status:p.place_status||((p.neighborhood||p.zone)&&p.city?"resolved":"pending"),geocode_provider:p.geocode_provider||"",
+      captured_at:p.captured_at||new Date().toISOString(),
     }));
     if(!rows.length)return;
-    const localRows=rows.map((row,i)=>({...row,id:`local-${Date.now()}-${i}`}));
+    const localRows=rows.map(row=>({...row,_pending:true}));
     setLocations(prev=>{
-      const next=[...localRows,...prev].slice(0,500);
-      LS.set(`${K.LOCATIONS}_${session.user.id}`,next);return next;
+      const ids=new Set(localRows.map(row=>row.id));
+      const next=retainCheckpoints([...localRows,...prev.filter(row=>!ids.has(row.id))]);
+      LS.set(`${K.LOCATIONS}_${uid}`,next);return next;
     });
-    const{data,error}=await supabase.from("location_checkpoints").insert(rows).select();
-    if(!error&&data){
-      setLocations(prev=>{
-        const localIds=new Set(localRows.map(x=>x.id));
-        const next=[...data,...prev.filter(x=>!localIds.has(x.id))].slice(0,500);
-        LS.set(`${K.LOCATIONS}_${session.user.id}`,next);return next;
-      });
-    }else if(error&&error.code!=="42P01")console.warn("Save location checkpoint",error.message);
+    try{
+      const{data,error}=await supabase.from("location_checkpoints").upsert(rows,{onConflict:"id"}).select();
+      if(error)throw error;
+      if(data&&authUserRef.current===uid){
+        const savedById=new Map(data.map(row=>[row.id,row]));
+        setLocations(prev=>{
+          const next=prev.map(row=>savedById.has(row.id)?savedById.get(row.id):row);
+          LS.set(`${K.LOCATIONS}_${uid}`,next);return next;
+        });
+      }
+    }catch(error){if(error?.code!=="42P01")console.warn("Save location checkpoint",error?.message||error);}
+    for(const row of rows.filter(item=>item.place_status==="pending")){
+      reverseGeocodePoint({lat:row.latitude,lon:row.longitude}).then(async place=>{
+        if(!place||place.place_status==="pending")return;
+        const patch={zone:place.zone||"",neighborhood:place.neighborhood||"",neighborhood_type:place.neighborhood_type||"",
+          city:place.city||"",city_type:place.city_type||"",municipality:place.municipality||"",state:place.state||"",
+          place_status:place.place_status||"partial",geocode_provider:place.geocode_provider||""};
+        const{error}=await supabase.from("location_checkpoints").update(patch).eq("id",row.id).eq("user_id",uid);
+        if(authUserRef.current!==uid)return;
+        setLocations(prev=>{
+          const next=prev.map(item=>item.id===row.id?{...item,...patch,_pending:Boolean(error)}:item);
+          LS.set(`${K.LOCATIONS}_${uid}`,next);return next;
+        });
+      }).catch(()=>{});
+    }
   };
+
+  useEffect(()=>{
+    const uid=session?.user?.id;
+    if(!uid)return;
+    let busy=false;
+    const retry=async()=>{
+      if(busy||!navigator.onLine)return;
+      const cached=LS.get(`${K.LOCATIONS}_${uid}`,[]);
+      const pending=cached.filter(row=>row._pending&&/^[0-9a-f-]{36}$/i.test(String(row.id))).slice(0,100);
+      if(!pending.length)return;
+      busy=true;
+      try{
+        const clean=pending.map(({_pending,...row})=>row);
+        const{data,error}=await supabase.from("location_checkpoints").upsert(clean,{onConflict:"id"}).select();
+        if(error||!data||authUserRef.current!==uid)return;
+        const savedById=new Map(data.map(row=>[row.id,row]));
+        setLocations(prev=>{
+          const next=prev.map(row=>savedById.has(row.id)?savedById.get(row.id):row);
+          LS.set(`${K.LOCATIONS}_${uid}`,next);return next;
+        });
+      }catch(error){console.warn("Retry location checkpoints",error?.message||error);}
+      finally{busy=false;}
+    };
+    const visible=()=>{if(document.visibilityState==="visible")retry();};
+    retry();
+    window.addEventListener("online",retry);
+    document.addEventListener("visibilitychange",visible);
+    return()=>{window.removeEventListener("online",retry);document.removeEventListener("visibilitychange",visible);};
+  },[session?.user?.id]);
+
+  const syncPendingFor=async uid=>{
+    if(authUserRef.current!==uid)return;
+    if(syncingRef.current){syncRequestedRef.current=true;return;}
+    syncingRef.current=true;
+    try{
+      const pending=await pendingFor(uid);
+      setPendingCount(pending.length);
+      if(!navigator.onLine)return;
+      for(const item of pending){
+        if(authUserRef.current!==uid)break;
+        const table=item.kind==="trip"?"trips":item.kind==="operation"?"operational_events":null;
+        if(!table)continue;
+        const{data:saved,error}=await supabase.from(table).upsert(item.payload,{onConflict:"user_id,client_mutation_id"}).select().single();
+        if(error||!saved){
+          setSyncError(error?.message||"No se pudo sincronizar un registro.");
+          break;
+        }
+        if(item.points?.length){
+          const points=item.points.map(point=>({...point,[item.kind==="trip"?"trip_id":"operational_event_id"]:saved.id}));
+          await saveCheckpoints(points);
+        }
+        const snapshotKind=item.kind==="trip"?"trips":"events";
+        const cached=await readSnapshot(uid,snapshotKind);
+        await saveSnapshot(uid,snapshotKind,[saved,...cached.filter(row=>row.id!==saved.id)]);
+        await acknowledge(item.id);
+        if(item.kind==="trip")setTrips(prev=>[saved,...prev.filter(row=>row.id!==`local-${item.id}`&&row.id!==saved.id)]);
+        else setEvents(prev=>[saved,...prev.filter(row=>row.id!==`local-${item.id}`&&row.id!==saved.id)]);
+        setPendingCount(count=>Math.max(0,count-1));
+        setSyncError("");
+      }
+    }catch(error){setSyncError(error?.message||"No se pudo sincronizar. Se reintentará al volver la conexión.");}
+    finally{
+      syncingRef.current=false;
+      if(syncRequestedRef.current){syncRequestedRef.current=false;setTimeout(()=>syncPendingFor(uid),0);}
+    }
+  };
+
+  useEffect(()=>{
+    const uid=session?.user?.id;
+    if(!uid)return;
+    const resume=()=>{if(document.visibilityState==="visible")syncPendingFor(uid);};
+    syncPendingFor(uid);
+    window.addEventListener("online",resume);
+    document.addEventListener("visibilitychange",resume);
+    return()=>{window.removeEventListener("online",resume);document.removeEventListener("visibilitychange",resume);};
+  },[session?.user?.id]);
 
   const saveTrip=async data=>{
     if(!session)return false;
@@ -2000,25 +2357,28 @@ export default function RutaFlow(){
     }
     try{
       const endTime=data.end_time||toStorageInstant();
-      const{data:saved,error}=await supabase.from("trips").insert([{
-        user_id:session.user.id,fare:Number(data.fare)||0,platform:data.platform||"uber",
+      let endLocation=data.end_location||null;
+      if(!endLocation){try{endLocation=await locateDriver({timeout:6000,includePlace:false});}catch{}}
+      const uid=session.user.id;
+      const mutationId=crypto.randomUUID();
+      const payload={
+        user_id:uid,client_mutation_id:mutationId,fare:Number(data.fare)||0,platform:data.platform||"uber",
         pickup_km:Number(data.pickup_km)||0,pickup_min:Number(data.pickup_min)||0,
         dest_km:Number(data.dest_km)||0,dest_min:Number(data.dest_min)||0,
         gps_km:Number(data.gps_km)||0,gps_min:Number(data.gps_min)||0,
         date:dateKey(endTime)||data.date||today(),end_time:endTime,day_id:data.day_id||null,
-      }]).select().single();
-      if(error){showToast("Error: "+error.message,"err");return false;}
-      if(saved){
-        setTrips(p=>[saved,...p]);
-        let endLocation=data.end_location||null;
-        if(!endLocation){try{endLocation=await locateDriver({timeout:6000});}catch{}}
-        await saveCheckpoints([
-          data.start_location&&{...data.start_location,event_type:"trip_start",trip_id:saved.id,day_id:data.day_id},
-          endLocation&&{...endLocation,event_type:"trip_end",trip_id:saved.id,day_id:data.day_id},
-        ].filter(Boolean));
-        showToast("Viaje guardado ✓");return true;
-      }
-    }catch(e){console.error(e);showToast("Error de conexión","err");}
+      };
+      const points=[
+        data.start_location&&{...data.start_location,id:crypto.randomUUID(),event_type:"trip_start",day_id:data.day_id},
+        endLocation&&{...endLocation,id:crypto.randomUUID(),event_type:"trip_end",day_id:data.day_id},
+      ].filter(Boolean);
+      await enqueue({id:mutationId,user_id:uid,kind:"trip",payload,points,created_at:new Date().toISOString()});
+      setTrips(prev=>[{...payload,id:`local-${mutationId}`,_pending:true},...prev]);
+      setPendingCount(count=>count+1);
+      syncPendingFor(uid);
+      showToast(navigator.onLine?"Viaje guardado; sincronizando":"Viaje guardado en este dispositivo; se sincronizará al volver la conexión");
+      return true;
+    }catch(e){console.error(e);showToast("No se pudo guardar en este dispositivo. Conserva el formulario y libera espacio.","err");}
     return false;
   };
 
@@ -2041,17 +2401,28 @@ export default function RutaFlow(){
     if(!session)return false;
     try{
       const occurredAt=data.occurred_at||toStorageInstant();
-      const{data:saved,error}=await supabase.from("operational_events").insert([{
-        user_id:session.user.id,type:data.type,km:Number(data.km)||0,amount:Number(data.amount)||0,
+      const isCurrent=Boolean(data.start_location||data.end_location_promise)||Math.abs(new Date(occurredAt).getTime()-Date.now())<=10*60*1000;
+      const endLocationPromise=isCurrent?(data.end_location_promise||locateDriver({timeout:6000,includePlace:false}).catch(()=>null)):Promise.resolve(null);
+      const endLocation=await endLocationPromise;
+      const uid=session.user.id;
+      const mutationId=crypto.randomUUID();
+      const points=[
+        data.type==="dead_km"&&data.start_location&&{...data.start_location,id:crypto.randomUUID(),event_type:"dead_km_start"},
+        endLocation&&{...endLocation,id:crypto.randomUUID(),event_type:data.type==="dead_km"?"dead_km_end":data.type},
+      ].filter(Boolean);
+      const payload={
+        user_id:uid,client_mutation_id:mutationId,type:data.type,km:Number(data.km)||0,amount:Number(data.amount)||0,
         liters:Number(data.liters)||0,tank_liters:Number(data.tank_liters)||0,odometer:Number(data.odometer)||0,
         platform:data.platform||"",note:data.note||"",date:dateKey(occurredAt)||data.date||today(),occurred_at:occurredAt,
-      }]).select().single();
-      if(error){
-        const msg=error.code==="42P01"?"Falta instalar la tabla de Jornada Inteligente en Supabase.":error.message;
-        showToast(msg,"err");return false;
-      }
-      setEvents(p=>[saved,...p]);showToast("Movimiento guardado");return true;
-    }catch(e){showToast("Error de conexion","err");return false;}
+        location_status:!isCurrent?"historical_no_location":points.length?"captured":"unavailable",
+      };
+      await enqueue({id:mutationId,user_id:uid,kind:"operation",payload,points,created_at:new Date().toISOString()});
+      setEvents(prev=>[{...payload,id:`local-${mutationId}`,_pending:true},...prev]);
+      setPendingCount(count=>count+1);
+      syncPendingFor(uid);
+      showToast(!isCurrent?"Movimiento histórico guardado sin ubicación actual":points.length?"Movimiento guardado; sincronizando":"Movimiento guardado; GPS no disponible",points.length||!isCurrent?"ok":"err");
+      return true;
+    }catch(e){console.warn("Save movement locally",e);showToast("No se pudo guardar en este dispositivo. Conserva el formulario y libera espacio.","err");return false;}
   };
 
   const saveBonus=async data=>{
@@ -2107,9 +2478,16 @@ export default function RutaFlow(){
     const startedAt=toStorageInstant();
     const{data,error}=await supabase.from("active_days").upsert({user_id:session.user.id,date:dateKey(startedAt),start_time:startedAt},{onConflict:"user_id"}).select().single();
     if(!error&&data){
-      const obj={id:data.id,date:data.date,startTime:new Date(data.start_time).getTime(),running:true};setActiveDay(obj);LS.set(K.DAY,obj);
+      const obj={id:data.id,date:data.date,startTime:new Date(data.start_time).getTime(),running:true};
+      setActiveDay(obj);
+      if (FLAGS.offline_v2) {
+        import('./storage/db').then(DexieDB => DexieDB.UIStateStore.set(`${session.user.id}:active-day`, obj));
+      } else {
+        writeScoped(window.localStorage,session.user.id,"active-day",obj);
+      }
       const point=await locationPromise;
       if(point)await saveCheckpoints([{...point,event_type:"shift_start",day_id:data.id}]);
+      nativeTracking.startSession({userId:session.user.id,sessionId:data.id}).catch(()=>{});
       showToast(point?`Jornada iniciada en ${locationName(point)}`:"Jornada iniciada; GPS sin ubicacion","ok");
     }
   };
@@ -2120,24 +2498,43 @@ export default function RutaFlow(){
     const dayTrips=trips.filter(t=>dateOf(t)===activeDay.date);
     const tots=operationalSummary(trips,events,cfg,activeDay.date,dayKm,bonuses);
     const totalMs=Date.now()-activeDay.startTime;
-    await supabase.from("active_days").delete().eq("user_id",session.user.id);
-    await supabase.from("days").insert([{
-      user_id:session.user.id,date:activeDay.date,
-      total_net:tots.net,total_km:tots.totalKm,
-      total_min:tots.min,total_ms:totalMs,trip_count:dayTrips.length,
-    }]);
-    const closurePayload={
-      user_id:session.user.id,date:activeDay.date,start_time:new Date(activeDay.startTime).toISOString(),end_time:new Date().toISOString(),total_ms:totalMs,trip_count:dayTrips.length,
-      total_net:tots.net,total_km:tots.totalKm,dead_km:tots.deadKm,productive_pct:tots.productivePct,snapshot:tots,
-    };
-    const{data:closed,error:closeError}=await supabase.from("shift_closures").insert(closurePayload).select().single();
-    if(closed){setClosures(p=>[closed,...p]);setSelectedClosure(closed);}
-    if(closeError)showToast(closeError.code==="42P01"?"Falta instalar la migracion de cierres en Supabase":closeError.message,"err");
+    const closeId=activeDay.closeId||crypto.randomUUID();
+    if(!activeDay.closeId){
+      const pendingDay={...activeDay,closeId};
+      setActiveDay(pendingDay);
+      if (FLAGS.offline_v2) {
+        import('./storage/db').then(DexieDB => DexieDB.UIStateStore.set(`${session.user.id}:active-day`, pendingDay));
+      } else {
+        writeScoped(window.localStorage,session.user.id,"active-day",pendingDay);
+      }
+    }
+    let closed,closeError;
+    try{
+      const response=await supabase.rpc("close_shift_atomic",{
+        p_close_id:closeId,p_active_day_id:String(activeDay.id),p_date:activeDay.date,
+        p_start_time:new Date(activeDay.startTime).toISOString(),p_end_time:new Date().toISOString(),
+        p_total_ms:totalMs,p_trip_count:dayTrips.length,p_total_net:tots.net,
+        p_total_km:tots.totalKm,p_dead_km:tots.deadKm,p_productive_pct:tots.productivePct,p_snapshot:tots,
+      });
+      closed=response.data;closeError=response.error;
+    }catch(error){closeError=error;}
+    if(closeError||!closed){
+      showToast(closeError?.code==="PGRST202"?"Falta actualizar la base de datos para cerrar jornadas.":"No se cerró la jornada. Tus datos siguen guardados; intenta de nuevo con conexión.","err");
+      return;
+    }
+    setClosures(p=>[closed,...p.filter(item=>item.id!==closed.id)]);
+    setSelectedClosure(closed);
     const endLocation=await locationPromise;
-    if(endLocation)await saveCheckpoints([{...endLocation,event_type:"shift_end",day_id:activeDay.id}]);
+    if(endLocation)await saveCheckpoints([{...endLocation,event_type:"shift_end",day_id:activeDay.id}]).catch(error=>console.warn("Shift end location",error));
     resetDayGPS();
-    LS.del(K.DAY);setActiveDay(null);
-    if(!closeError)showToast("Jornada cerrada y guardada");
+    nativeTracking.stopSession().catch(()=>{});
+    if (FLAGS.offline_v2) {
+      import('./storage/db').then(DexieDB => DexieDB.UIStateStore.set(`${session?.user?.id}:active-day`, null));
+    } else {
+      removeScoped(window.localStorage,session.user.id,"active-day");
+    }
+    setActiveDay(null);
+    showToast("Jornada cerrada y guardada");
   };
 
   const saveConfig=async newCfg=>{
@@ -2158,7 +2555,11 @@ export default function RutaFlow(){
       platform:offer.platform||"uber",
       mode:"manual"
     };
-    LS.set(K.DRAFT,draft);
+    if (FLAGS.offline_v2) {
+      import('./storage/db').then(DexieDB => DexieDB.UIStateStore.set(`${session?.user?.id}:trip-draft`, draft));
+    } else {
+      writeScoped(window.localStorage,session?.user?.id,"trip-draft",draft);
+    }
     setShowNew(true);
   };
 
@@ -2191,6 +2592,7 @@ export default function RutaFlow(){
           <div>
             <div className="B" style={{fontSize:19,fontWeight:900,color:C.accent,letterSpacing:1.5}}>RUTAFLOW</div>
             <div style={{fontSize:9,color:C.dim,letterSpacing:"0.18em"}}>{uname.toUpperCase()}</div>
+            {pendingCount>0&&<button onClick={()=>syncPendingFor(session.user.id)} style={{fontSize:9,color:syncError?C.danger:C.accent,marginTop:4,textAlign:"left"}} title={syncError||"Toca para sincronizar"}>{pendingCount} registro{pendingCount===1?"":"s"} pendiente{pendingCount===1?"":"s"} · {syncError?"reintentar":"sincronizando"}</button>}
           </div>
           <div style={{textAlign:"right"}}>
             <div style={{fontSize:10,color:C.muted}}>hoy neto</div>
@@ -2198,11 +2600,11 @@ export default function RutaFlow(){
           </div>
         </div>
 
-        {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer}/>}
-        {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure}/>}
+        {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer} onSelectCopilotOfferIndex={idx=>setCopilotState(p=>({...p,selectedOfferIndex:idx}))}/>}
+        {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>setShowNew(true)} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses}/>}
         {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} userId={session.user.id}/>}
-        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp}/>}
+        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)}/>}
 
         {/* NAVEGACIÓN FIJA */}
         <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100,paddingBottom:"calc(10px + env(safe-area-inset-bottom))",paddingTop:"10px"}}>
@@ -2217,14 +2619,15 @@ export default function RutaFlow(){
       </div>{/* ← CIERRE DEL DIV PRINCIPAL */}
 
       {/* MODALES FUERA DEL DIV — flotan sobre todo incluyendo la NAV */}
-      {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} activeBonuses={bonuses.filter(b=>String(b.status||"")==="active")} onClose={()=>setShowNew(false)} isPro={isPro} onUpgrade={openUpgrade} copilotState={copilotState}/>}
+      {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} activeBonuses={bonuses.filter(b=>String(b.status||"")==="active")} onClose={()=>setShowNew(false)} isPro={isPro} onUpgrade={openUpgrade} copilotState={copilotState} userId={session.user.id}/>}
       {showOperation&&<OperationModal cfg={cfg} initial={editingEvent} initialKind={editingKind} onClose={()=>{setShowOperation(false);setEditingEvent(null);setEditingKind("event");}} onSaveOperation={saveOperation} onUpdateOperation={updateOperation} onSaveTrip={saveTrip} onSaveBonus={saveBonus} onUpdateBonus={updateBonus}/>}
       {selectedRecord&&<RecordDetail kind={selectedRecord.kind} record={selectedRecord.record} cfg={cfg} onClose={()=>setSelectedRecord(null)} onEdit={()=>{setEditingEvent(selectedRecord.record);setEditingKind(selectedRecord.kind);setSelectedRecord(null);setShowOperation(true);}} onDelete={async()=>{const deleted=selectedRecord.kind==="bonus"?await deleteBonus(selectedRecord.record.id):await deleteOperation(selectedRecord.record.id);if(deleted)setSelectedRecord(null);}}/>}
       {selectedClosure&&<ClosureModal closure={selectedClosure} cfg={cfg} trips={trips} events={events} bonuses={bonuses} onClose={()=>setSelectedClosure(null)} onSelectTrip={trip=>{setSelectedClosure(null);setSelTrip(trip);}} onSelectRecord={(kind,record)=>{setSelectedClosure(null);setSelectedRecord({kind,record});}}/>}
       {selTrip&&<TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)}
         onSave={async(id,d)=>{await updateTrip(id,d);setSelTrip(null);}}
         onDelete={async id=>{await deleteTrip(id);setSelTrip(null);}}/>}
+      {showSupport&&<SupportModal isOpen={showSupport} onClose={()=>setShowSupport(false)} userId={session?.user?.id} userEmail={session?.user?.email} onReportSent={()=>showToast("Reporte enviado con éxito")}/>}
+      {showOnboarding&&<OnboardingWizard isOpen={showOnboarding} onComplete={()=>setShowOnboarding(false)} onDismissNever={()=>{setShowOnboarding(false);LS.set("rf_onboarding_dismissed",true);}}/>}
     </>
   );
 }
-

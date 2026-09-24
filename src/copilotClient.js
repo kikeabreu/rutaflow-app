@@ -49,6 +49,10 @@ export const copilot = {
     if (!isAndroidApp()) return;
     return NativeCopilot.updateConfig({ config: copilotConfig(cfg) });
   },
+  async requestOverlayPermission() {
+    if (!isAndroidApp()) return { granted: false };
+    return NativeCopilot.requestOverlayPermission();
+  },
   async onOffer(listener) {
     if (!isAndroidApp()) return { remove() {} };
     return NativeCopilot.addListener("offer", listener);

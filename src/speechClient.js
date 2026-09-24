@@ -13,106 +13,128 @@ export async function checkSpeechPermissions() {
   }
 }
 
-export function startSpeechRecognition(options, onResult, onError, onEnd) {
-  if (Capacitor.isNativePlatform()) {
-    let partialListener = null;
-    let stateListener = null;
-    let isStopped = false;
-    let hasEnded = false;
+// On Android, a short pause ends one utterance. A continuous dictation session
+// joins final utterances and restarts until the user stops it explicitly.
+function startNativeRecognition(options, onResult, onError, onEnd) {
+  let stopped = false;
+  let stopRequested = false;
+  let ended = false;
+  let starting = false;
+  let utterance = 0;
+  let committed = "";
+  let restartTimer = null;
+  let stopTimer = null;
 
-    const endOnce = () => {
-      if (!hasEnded) {
-        hasEnded = true;
-        onEnd();
-      }
-    };
+  const finish = () => {
+    if (ended) return;
+    stopped = true;
+    utterance += 1;
+    if (restartTimer) clearTimeout(restartTimer);
+    if (stopTimer) clearTimeout(stopTimer);
+    ended = true;
+    onEnd();
+  };
 
-    const stop = async () => {
-      if (isStopped) {
-        endOnce();
-        return;
-      }
-      isStopped = true;
-      try {
-        if (partialListener) {
-          const handle = await partialListener;
-          if (handle && handle.remove) handle.remove();
-          partialListener = null;
-        }
-        if (stateListener) {
-          const handle = await stateListener;
-          if (handle && handle.remove) handle.remove();
-          stateListener = null;
-        }
-        await SpeechRecognition.stop();
-      } catch (e) {}
-      endOnce();
-    };
-
-    checkSpeechPermissions().then(async (granted) => {
-      if (!granted) {
-        onError({ error: 'not-allowed', message: "Activa el permiso del micrófono." });
-        endOnce();
-        return;
-      }
-
-      try {
-        partialListener = SpeechRecognition.addListener('partialResults', (data) => {
-          if (data && data.matches && data.matches.length > 0) {
-            onResult(data.matches[0]);
-          }
-        });
-
-        stateListener = SpeechRecognition.addListener('listeningState', (data) => {
-          if (data && data.status === 'stopped') {
-            stop();
-          }
-        });
-
-        const startRes = await SpeechRecognition.start({
-          language: options.lang || "es-MX",
-          partialResults: true,
-          popup: false,
-          maxResults: 1
-        });
-
-        if (startRes && startRes.matches && startRes.matches.length > 0) {
-          onResult(startRes.matches[0]);
-        }
-      } catch (err) {
-        const msg = String(err?.message || err || "");
-        if (msg.toLowerCase().includes("permission") || msg.toLowerCase().includes("permiso")) {
-          onError({ error: 'not-allowed', message: "Activa el permiso del micrófono." });
-        } else {
-          onError({ error: 'plugin-error', message: msg || "Error al iniciar el dictado por voz." });
-        }
-        stop();
-      }
-    });
-
-    return { stop };
-  } else {
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Recognition) {
-      onError({ error: 'not-supported', message: "Dictado no soportado en este navegador." });
-      onEnd();
-      return { stop: () => {} };
+  const stop = () => {
+    if (stopped || stopRequested) return Promise.resolve();
+    stopRequested = true;
+    if (restartTimer) clearTimeout(restartTimer);
+    if (!starting) {
+      finish();
+      return Promise.resolve();
     }
-    const rec = new Recognition();
-    rec.lang = options.lang || "es-MX";
-    rec.interimResults = true;
-    rec.continuous = options.continuous || false;
-    rec.maxAlternatives = 1;
-    
-    rec.onend = onEnd;
-    rec.onerror = onError;
-    rec.onresult = e => {
-      let heard = "";
-      for (let i = 0; i < e.results.length; i++) heard += `${e.results[i][0].transcript} `;
-      onResult(heard.trim());
-    };
-    rec.start();
-    return { stop: () => rec.stop() };
-  }
+    // Version 7.0.1 posts the native stop action but leaves its PluginCall open.
+    // Do not await that unresolved promise in the UI.
+    try { Promise.resolve(SpeechRecognition.stop()).catch(() => {}); } catch {}
+    // Give Android time to deliver the final result after the user presses stop.
+    stopTimer = setTimeout(finish, 1500);
+    return Promise.resolve();
+  };
+
+  const abort = () => {
+    if (!stopped && starting) {
+      try { Promise.resolve(SpeechRecognition.stop()).catch(() => {}); } catch {}
+    }
+    finish();
+    return Promise.resolve();
+  };
+
+  const listen = async () => {
+    if (stopped || starting) return;
+    starting = true;
+    const current = ++utterance;
+    try {
+      const result = await SpeechRecognition.start({
+        language: options.lang || "es-MX",
+        partialResults: false,
+        popup: false,
+        maxResults: 3,
+      });
+      if (stopped || current !== utterance) return;
+      const heard = String(result?.matches?.[0] || "").trim();
+      if (heard) {
+        committed = `${committed}${committed ? " " : ""}${heard}`;
+        onResult(committed);
+      }
+      if (!options.continuous || stopRequested) {
+        finish();
+        return;
+      }
+    } catch (error) {
+      if (stopped || current !== utterance) return;
+      if (stopRequested) {
+        finish();
+        return;
+      }
+      const message = String(error?.message || error || "");
+      const lower = message.toLowerCase();
+      const permission = lower.includes("permission") || lower.includes("permiso");
+      const silence = lower.includes("no match") || lower.includes("no speech") || lower.includes("no_speech") || lower.includes("speech timeout");
+      if (!options.continuous || !silence) {
+        onError({ error: permission ? "not-allowed" : "plugin-error", message: permission ? "Activa el permiso del micrófono." : message || "Error al iniciar el dictado por voz." });
+        finish();
+        return;
+      }
+    } finally {
+      starting = false;
+    }
+    if (!stopped && !stopRequested && options.continuous) restartTimer = setTimeout(listen, 200);
+  };
+
+  checkSpeechPermissions().then(granted => {
+    if (stopped) return;
+    if (!granted) {
+      onError({ error: "not-allowed", message: "Activa el permiso del micrófono." });
+      finish();
+      return;
+    }
+    listen();
+  });
+
+  return { stop, abort };
 }
 
+export function startSpeechRecognition(options, onResult, onError, onEnd) {
+  if (Capacitor.isNativePlatform()) return startNativeRecognition(options, onResult, onError, onEnd);
+
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) {
+    onError({ error: "not-supported", message: "Dictado no soportado en este navegador." });
+    onEnd();
+    return { stop: () => {}, abort: () => {} };
+  }
+  const rec = new Recognition();
+  rec.lang = options.lang || "es-MX";
+  rec.interimResults = true;
+  rec.continuous = Boolean(options.continuous);
+  rec.maxAlternatives = 3;
+  rec.onend = onEnd;
+  rec.onerror = onError;
+  rec.onresult = event => {
+    let heard = "";
+    for (let index = 0; index < event.results.length; index++) heard += `${event.results[index][0].transcript} `;
+    onResult(heard.trim());
+  };
+  rec.start();
+  return { stop: () => rec.stop(), abort: () => rec.abort() };
+}

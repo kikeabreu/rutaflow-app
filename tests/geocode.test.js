@@ -40,8 +40,28 @@ test("returns a useful neighbourhood from OpenStreetMap",async()=>{
     await handler(req,res);
     assert.equal(res.statusCode,200);
     assert.equal(res.body.zone,"Centro");
+    assert.equal(res.body.neighborhood,"Centro");
+    assert.equal(res.body.neighborhood_type,"neighbourhood");
     assert.equal(res.body.city,"Merida");
+    assert.equal(res.body.place_status,"resolved");
     assert.match(calls[1].options.headers["User-Agent"],/RutaFlow/);
     assert.match(res.headers["Cache-Control"],/s-maxage/);
   }finally{global.fetch=originalFetch;}
+});
+
+test("does not present a municipality as a colonia or as a verified city",()=>{
+  const place=handler.normalizePlace({municipality:"Mérida",state:"Yucatán",city_district:"Centro"});
+  assert.equal(place.neighborhood,"");
+  assert.equal(place.city,"");
+  assert.equal(place.municipality,"Mérida");
+  assert.equal(place.place_status,"partial");
+  assert.equal(place.display_name,"Mérida");
+});
+
+test("keeps fraccionamiento and city as separate place fields",()=>{
+  const place=handler.normalizePlace({residential:"Las Américas",city:"Mérida",municipality:"Mérida"});
+  assert.equal(place.neighborhood,"Las Américas");
+  assert.equal(place.neighborhood_type,"residential");
+  assert.equal(place.city,"Mérida");
+  assert.equal(place.display_name,"Las Américas, Mérida");
 });
