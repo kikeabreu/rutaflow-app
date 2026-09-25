@@ -14,10 +14,10 @@ test("conserva el dominio exacto donde se instaló la PWA", () => {
 
 test("Android abre OAuth manualmente y vuelve por el esquema propio de la app", () => {
   expect(googleOAuthOptions("https://localhost", true)).toEqual({
-    redirectTo: "mx.rutaflow.app://auth/callback",
+    redirectTo: "mx.ruleto.drive://auth/callback",
     skipBrowserRedirect: true,
   });
-  expect(ANDROID_AUTH_CALLBACK).toBe("mx.rutaflow.app://auth/callback");
+  expect(ANDROID_AUTH_CALLBACK).toBe("mx.ruleto.drive://auth/callback");
 });
 
 test("lee los tokens de una devolución OAuth móvil", () => {
@@ -34,7 +34,7 @@ test("también acepta callbacks PKCE", () => {
 });
 
 test("acepta el retorno explícito desde Chrome hacia la app Android", () => {
-  expect(parseOAuthCallback("mx.rutaflow.app://auth/callback?access_token=a&refresh_token=r")).toMatchObject({
+  expect(parseOAuthCallback("mx.ruleto.drive://auth/callback?access_token=a&refresh_token=r")).toMatchObject({
     accessToken: "a",
     refreshToken: "r",
   });

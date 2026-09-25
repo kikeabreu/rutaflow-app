@@ -1,4 +1,4 @@
-package mx.rutaflow.app.copilot;
+package mx.ruleto.drive.copilot;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -51,6 +51,7 @@ final class OfferAnalysis {
             value.put("confidence", round(confidence));
             value.put("verdict", verdict);
             value.put("explanation", explanation);
+            value.put("signature", signature());
         } catch (JSONException ignored) {}
         return value;
     }
@@ -61,20 +62,20 @@ final class OfferAnalysis {
     }
 
     /**
-     * Veredicto primero para que el conductor decida sin esperar el resto, luego el monto
-     * ofrecido para confirmar de oido que hablamos del viaje que tiene en pantalla. La
-     * explicacion queda en la notificacion expandida: al volante, una frase larga se
-     * pierde antes de que termine de sonar.
+     * Frase minima para que quepa completa antes de que llegue la siguiente oferta:
+     * veredicto, tarifa y el rendimiento contra la meta activa (por hora o por km),
+     * sin relleno. El detalle completo queda en la notificacion expandida, no en la voz.
      */
-    String spokenText() {
+    String spokenText(boolean perKmGoal) {
         String lead;
         switch (verdict) {
             case "good": lead = "Buen viaje"; break;
-            case "maybe": lead = "Viaje aceptable"; break;
+            case "maybe": lead = "Aceptable"; break;
             default: lead = "No conviene";
         }
-        return String.format(Locale.forLanguageTag("es-MX"), "%s. Ofrecen %.0f pesos, %.0f por hora.",
-            lead, fare, hourly);
+        return perKmGoal
+            ? String.format(Locale.forLanguageTag("es-MX"), "%s. %.0f pesos. %.1f por kilometro.", lead, fare, perKm)
+            : String.format(Locale.forLanguageTag("es-MX"), "%s. %.0f pesos. %.0f por hora.", lead, fare, hourly);
     }
 
     private static double round(double value) {

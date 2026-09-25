@@ -32,7 +32,7 @@ export const TOUR_EVENTS = {
   QUICK_CLOSED: "quick-closed",
 };
 
-const CHANNEL = "rutaflow-tour";
+const CHANNEL = "ruleto-tour";
 
 export function emitTourEvent(name, value) {
   if (typeof window === "undefined" || !name) return;

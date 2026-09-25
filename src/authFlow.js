@@ -2,7 +2,7 @@
 // app sin depender de la verificación de App Links (que falla en silencio si el
 // dominio no sirve /.well-known/assetlinks.json y deja al usuario atrapado en el
 // navegador). El App Link https sigue aceptado como respaldo.
-export const ANDROID_AUTH_CALLBACK = "mx.rutaflow.app://auth/callback";
+export const ANDROID_AUTH_CALLBACK = "mx.ruleto.drive://auth/callback";
 export const ANDROID_AUTH_CALLBACK_FALLBACK = "https://rutaflow-app.vercel.app/";
 
 export function googleOAuthOptions(origin, native = false) {

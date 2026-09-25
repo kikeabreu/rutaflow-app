@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
-  <title>RutaFlow | Gestor Pro de Conductor</title>
+  <title>Ruleto Drive | Gestor Pro de Conductor</title>
   <meta name="description" content="Calcula ganancias reales descontando gasolina y comisiones. Diseñado para la comunidad de conductores en México." />
   <link rel="manifest" href="/manifest.json" />
-  <meta name="theme-color" content="#f0a500" />
+  <meta name="theme-color" content="#0A1F1A" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="RutaFlow" />
+  <meta name="apple-mobile-web-app-title" content="Ruleto Drive" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
   <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180.png" />
@@ -18,7 +18,7 @@
   <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Barlow+Condensed:wght@700;800;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <script>
     (() => {
       const page = new URL(window.location.href);
@@ -32,7 +32,7 @@
       );
       if (!isAndroid || !hasOAuthResult) return;
 
-      const callback = new URL("mx.rutaflow.app://auth/callback");
+      const callback = new URL("mx.ruleto.drive://auth/callback");
       ["access_token", "refresh_token", "expires_in", "expires_at", "token_type", "type", "code", "error", "error_code", "error_description"].forEach(key => {
         const value = fragment.get(key) || page.searchParams.get(key);
         if (value) callback.searchParams.set(key, value);
@@ -49,18 +49,18 @@
 
       window.addEventListener("DOMContentLoaded", () => {
         const bridge = document.createElement("div");
-        bridge.id = "rutaflow-auth-bridge";
+        bridge.id = "ruleto-auth-bridge";
         bridge.innerHTML = `
-          <main style="position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;background:#07080d;color:#dde0f5;font-family:Arial,sans-serif;padding:24px;text-align:center">
+          <main style="position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;background:#0A1F1A;color:#EAFBF3;font-family:Arial,sans-serif;padding:24px;text-align:center">
             <section style="width:100%;max-width:390px">
-              <img src="/icons/icon-192.png" width="92" height="92" alt="RutaFlow" style="border-radius:22px;margin-bottom:18px" />
-              <h1 style="color:#f0a500;font-size:30px;margin:0 0 10px">RUTAFLOW</h1>
-              <p style="color:#9a9db5;line-height:1.5;margin:0 0 22px">Tu acceso con Google terminó. Toca el botón para regresar a la aplicación.</p>
-              <button id="rutaflow-open-app" style="width:100%;padding:15px;border:2px solid #f0a500;border-radius:12px;background:#2a210d;color:#f0a500;font-size:16px;font-weight:700">VOLVER A RUTAFLOW</button>
+              <img src="/icons/icon-192.png" width="92" height="92" alt="Ruleto Drive" style="border-radius:22px;margin-bottom:18px" />
+              <h1 style="color:#4ADE80;font-size:30px;margin:0 0 10px">RULETO DRIVE</h1>
+              <p style="color:#9fc9bd;line-height:1.5;margin:0 0 22px">Tu acceso con Google terminó. Toca el botón para regresar a la aplicación.</p>
+              <button id="ruleto-open-app" style="width:100%;padding:15px;border:2px solid #4ADE80;border-radius:12px;background:#13352C;color:#4ADE80;font-size:16px;font-weight:700">VOLVER A RULETO</button>
             </section>
           </main>`;
         document.body.appendChild(bridge);
-        document.getElementById("rutaflow-open-app")?.addEventListener("click", openApp);
+        document.getElementById("ruleto-open-app")?.addEventListener("click", openApp);
       }, { once: true });
     })();
   </script>
@@ -73,10 +73,10 @@
         navigator.serviceWorker
           .register("/sw.js")
           .then((reg) => {
-            console.log("[RutaFlow] Service Worker activo:", reg.scope);
+            console.log("[Ruleto] Service Worker activo:", reg.scope);
           })
           .catch((err) => {
-            console.warn("[RutaFlow] Error al registrar Service Worker:", err);
+            console.warn("[Ruleto] Error al registrar Service Worker:", err);
           });
       });
     }

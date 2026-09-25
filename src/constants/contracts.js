@@ -23,7 +23,7 @@ export const CopilotState = {
     DISABLED_BY_USER: 'disabled_by_user',
     STARTING: 'starting',
     ACTIVE: 'active',
-    PAUSED_RUTAFLOW: 'paused_rutaflow',
+    PAUSED_RULETO: 'paused_ruleto',
     NEEDS_CONSENT: 'needs_consent',
     STOPPED_BY_SYSTEM: 'stopped_by_system',
     ERROR: 'error'

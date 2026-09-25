@@ -8,7 +8,7 @@ const{verifyStripeSignature}=require("../api/billing/_shared.cjs");
 function response(){return{statusCode:200,body:null,headers:{},setHeader(k,v){this.headers[k]=v;},status(code){this.statusCode=code;return this;},json(body){this.body=body;return this;}};}
 function configure(){
   process.env.SUPABASE_URL="https://example.supabase.co";process.env.SUPABASE_ANON_KEY="anon";process.env.SUPABASE_SERVICE_ROLE_KEY="service";
-  process.env.STRIPE_SECRET_KEY="sk_test_value";process.env.STRIPE_PRICE_ID="price_real_required";process.env.STRIPE_WEBHOOK_SECRET="whsec_test";process.env.APP_URL="https://rutaflow.example";
+  process.env.STRIPE_SECRET_KEY="sk_test_value";process.env.STRIPE_PRICE_ID="price_real_required";process.env.STRIPE_WEBHOOK_SECRET="whsec_test";process.env.APP_URL="https://ruleto.example";
 }
 
 test("verifies Stripe signature over the exact raw body and rejects tampering",()=>{

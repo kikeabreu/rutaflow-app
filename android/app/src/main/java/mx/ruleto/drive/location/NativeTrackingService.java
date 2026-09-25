@@ -1,4 +1,4 @@
-package mx.rutaflow.app.location;
+package mx.ruleto.drive.location;
 
 import android.Manifest;
 import android.app.Notification;
@@ -24,11 +24,11 @@ import androidx.core.app.NotificationCompat;
 
 import java.util.UUID;
 
-import mx.rutaflow.app.MainActivity;
-import mx.rutaflow.app.R;
+import mx.ruleto.drive.MainActivity;
+import mx.ruleto.drive.R;
 
 public class NativeTrackingService extends Service implements LocationListener {
-    static final String ACTION_START_SESSION="mx.rutaflow.tracking.START_SESSION", ACTION_START_SEGMENT="mx.rutaflow.tracking.START_SEGMENT", ACTION_END_SEGMENT="mx.rutaflow.tracking.END_SEGMENT", ACTION_STOP_SESSION="mx.rutaflow.tracking.STOP_SESSION";
+    static final String ACTION_START_SESSION="mx.ruleto.tracking.START_SESSION", ACTION_START_SEGMENT="mx.ruleto.tracking.START_SEGMENT", ACTION_END_SEGMENT="mx.ruleto.tracking.END_SEGMENT", ACTION_STOP_SESSION="mx.ruleto.tracking.STOP_SESSION";
     static final String EXTRA_USER_ID="userId",EXTRA_SESSION_ID="sessionId", EXTRA_SEGMENT_ID="segmentId", EXTRA_SEGMENT_TYPE="segmentType";
     static final String PREFS="rutaflow_tracking", PREF_RUNNING="running", PREF_USER="userId", PREF_SESSION="sessionId", PREF_SEGMENT="segmentId", PREF_SEGMENT_TYPE="segmentType", PREF_STATE="state", PREF_MESSAGE="message", PREF_STATE_AT="stateAt";
     private static final String CHANNEL="rutaflow_tracking"; private static final int NOTIFICATION_ID=7501;
@@ -81,7 +81,7 @@ public class NativeTrackingService extends Service implements LocationListener {
         Intent open=new Intent(this,MainActivity.class);PendingIntent openIntent=PendingIntent.getActivity(this,10,open,PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
         Intent stop=new Intent(this,NativeTrackingService.class).setAction(ACTION_STOP_SESSION);PendingIntent stopIntent=PendingIntent.getService(this,11,stop,PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
         String text=segmentId.isEmpty()?"Jornada activa · sin tramo":("Registrando "+segmentLabel(segmentType));
-        return new NotificationCompat.Builder(this,CHANNEL).setSmallIcon(R.drawable.ic_stat_copilot).setContentTitle("RutaFlow · ubicación activa").setContentText(text).setContentIntent(openIntent).setOngoing(true).setCategory(NotificationCompat.CATEGORY_SERVICE).addAction(0,"Detener",stopIntent).build();
+        return new NotificationCompat.Builder(this,CHANNEL).setSmallIcon(R.drawable.ic_stat_copilot).setContentTitle("Ruleto · ubicación activa").setContentText(text).setContentIntent(openIntent).setOngoing(true).setCategory(NotificationCompat.CATEGORY_SERVICE).addAction(0,"Detener",stopIntent).build();
     }
     private void updateNotification(){NotificationManager manager=getSystemService(NotificationManager.class);if(manager!=null)manager.notify(NOTIFICATION_ID,notification());}
     private String segmentLabel(String type){if("trip".equals(type))return "viaje";if("dead_km".equals(type))return "sin pasaje";return "jornada";}

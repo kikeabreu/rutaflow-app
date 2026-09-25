@@ -31,7 +31,7 @@ module.exports=async function handler(req,res){
       p_cancel_at_period_end:Boolean(subscription.cancel_at_period_end),p_entitled:active,p_payload:event,
     }});
     return res.status(200).json({received:true});
-  }catch(error){console.error("RutaFlow Stripe webhook error",error?.message||error);return res.status(500).json({error:"No se pudo procesar el webhook"});}
+  }catch(error){console.error("Ruleto Stripe webhook error",error?.message||error);return res.status(500).json({error:"No se pudo procesar el webhook"});}
 };
 
 module.exports.config={api:{bodyParser:false}};

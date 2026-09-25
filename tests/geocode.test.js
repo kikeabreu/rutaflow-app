@@ -44,7 +44,7 @@ test("returns a useful neighbourhood from OpenStreetMap",async()=>{
     assert.equal(res.body.neighborhood_type,"neighbourhood");
     assert.equal(res.body.city,"Merida");
     assert.equal(res.body.place_status,"resolved");
-    assert.match(calls[1].options.headers["User-Agent"],/RutaFlow/);
+    assert.match(calls[1].options.headers["User-Agent"],/Ruleto/);
     assert.match(res.headers["Cache-Control"],/s-maxage/);
   }finally{global.fetch=originalFetch;}
 });

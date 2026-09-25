@@ -41,7 +41,7 @@ test("uses the current Groq model without exposing the API key", async () => {
   global.fetch = originalFetch;
 });
 
-test("rejects requests without a RutaFlow session", async () => {
+test("rejects requests without a Ruleto session", async () => {
   const req = { method: "POST", headers: {}, body: { mode: "advisor", messages: [{ role: "user", content: "Hola" }] } };
   const res = responseRecorder();
   await handler(req, res);

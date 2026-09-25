@@ -1,5 +1,5 @@
 {
-  "name": "rutaflow",
+  "name": "ruleto-drive",
   "version": "1.0.0",
   "dependencies": {
     "@capacitor-community/speech-recognition": "^7.0.1",

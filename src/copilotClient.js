@@ -1,6 +1,6 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
 
-const NativeCopilot = registerPlugin("RutaFlowCopilot");
+const NativeCopilot = registerPlugin("RuletoCopilot");
 
 export const isAndroidApp = () => Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
 
@@ -21,6 +21,8 @@ export const copilotConfig = cfg => {
     gasPricePerLiter:Number(cfg?.gasPricePerLiter) || 24,
     kmPerLiter:Number(cfg?.kmPerLiter) || 12,
     targetHourlyRate:Number(cfg?.targetHourlyRate) || 200,
+    targetKmRate:Number(cfg?.targetKmRate) || 8,
+    earningsMode:cfg?.earningsMode === "km" ? "km" : "hour",
     wearPerKm,
     commissions,
     platformHint:String(cfg?.copilotPlatform||"otra").toLowerCase(),

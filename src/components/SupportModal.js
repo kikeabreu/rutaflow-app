@@ -1,26 +1,14 @@
 import React, { useState } from 'react';
-
-const C = {
-  bg: "#07080d",
-  card: "#0d0f1a",
-  card2: "#111320",
-  border: "#1a1d2e",
-  bord2: "#242740",
-  accent: "#f0a500",
-  teal: "#00c9a7",
-  danger: "#ff4055",
-  muted: "#6b6e8a",
-  text: "#dde0f5"
-};
+import { C, ACCENT_FILL } from '../theme';
 
 const FAQ_ITEMS = [
   {
-    q: "¿Cómo funciona el Copiloto de Ofertas?",
-    a: "El Copiloto lee automáticamente las ofertas entrantes en DiDi, inDrive y Uber cuando aparecen en tu pantalla. Evalúa al instante el kilometraje, tiempo y tarifa contra tus costos de gasolina y comisiones, y te dice por voz y con colores si conviene aceptarlo."
+    q: "¿Cómo funciona Ruleto Copiloto?",
+    a: "Ruleto Copiloto lee automáticamente las ofertas entrantes en DiDi, inDrive y Uber cuando aparecen en tu pantalla. Evalúa al instante el kilometraje, tiempo y tarifa contra tus costos de gasolina y comisiones, y te dice por voz y con colores si conviene aceptarlo."
   },
   {
     q: "¿Por qué pide permiso de superposición?",
-    a: "El permiso 'Mostrar sobre otras aplicaciones' le permite a RutaFlow dibujar un marco de color (Verde, Amarillo o Rojo) directamente sobre la oferta en DiDi o inDrive sin interrumpir tus toques."
+    a: "El permiso 'Mostrar sobre otras aplicaciones' le permite a Ruleto Copiloto dibujar un marco de color (Verde, Amarillo o Rojo) directamente sobre la oferta en DiDi o inDrive sin interrumpir tus toques."
   },
   {
     q: "¿Se guardan mis viajes si no tengo internet?",
@@ -28,7 +16,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "¿Cómo se calculan los kilómetros sin pasaje?",
-    a: "Puedes medirlos directamente con el GPS integrado de RutaFlow. Cuando inicias tu jornada o registras un movimiento de 'Sin Pasaje', la app mide los kilómetros muertos para ayudarte a deducir el gasto real de combustible."
+    a: "Puedes medirlos directamente con el GPS integrado de Ruleto. Cuando inicias tu jornada o registras un movimiento de 'Sin Pasaje', la app mide los kilómetros muertos para ayudarte a deducir el gasto real de combustible."
   }
 ];
 
@@ -171,7 +159,7 @@ export function SupportModal({ isOpen, onClose, userId, userEmail, onReportSent 
                   <button 
                     type="submit" 
                     disabled={sending || !message.trim()} 
-                    style={{marginTop:6,padding:"12px 0",background:C.accent,border:"none",borderRadius:8,color:"#000",fontSize:12,fontWeight:900,cursor:"pointer",opacity:sending?0.6:1}}
+                    style={{marginTop:6,padding:"12px 0",background:ACCENT_FILL,border:"none",borderRadius:8,color:"#000",fontSize:12,fontWeight:900,cursor:"pointer",opacity:sending?0.6:1}}
                   >
                     {sending ? "ENVIANDO..." : "ENVIAR REPORTE"}
                   </button>

@@ -31,7 +31,7 @@ function database() {
       resolve(db);
     };
     request.onerror = () => reject(request.error || new Error("No se pudo abrir el almacenamiento local."));
-    request.onblocked = () => reject(new Error("Cierra las otras pestañas de RutaFlow e inténtalo otra vez."));
+    request.onblocked = () => reject(new Error("Cierra las otras pestañas de Ruleto e inténtalo otra vez."));
   }).catch(error => {
     opening = null;
     throw error;

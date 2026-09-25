@@ -1,6 +1,6 @@
 # Jornada Inteligente
 
-RutaFlow separa tres conceptos que no deben mezclarse:
+Ruleto Drive separa tres conceptos que no deben mezclarse:
 
 - Utilidad operativa: ingreso menos comision, combustible consumido y desgaste configurado.
 - Flujo de efectivo: ingreso despues de comision menos gasolina comprada ese dia.
@@ -34,7 +34,7 @@ Variables necesarias:
 
 Si el proyecto ya tiene `NEXT_PUBLIC_SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY`, el script de construccion los reutiliza automaticamente. No hay que duplicarlos.
 
-La funcion `/api/groq` acepta peticiones unicamente de usuarios autenticados en RutaFlow. La clave de Groq ya no se incluye en el JavaScript del navegador.
+La funcion `/api/groq` acepta peticiones unicamente de usuarios autenticados en Ruleto Drive. La clave de Groq ya no se incluye en el JavaScript del navegador.
 
 Despues de guardar las variables hay que crear un nuevo deployment. Una variable agregada despues de un deployment no modifica ese deployment anterior.
 

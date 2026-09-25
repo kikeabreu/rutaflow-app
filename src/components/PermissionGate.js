@@ -2,11 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { copilot, isAndroidApp } from '../copilotClient';
 import { nativeTracking } from '../nativeTrackingClient';
 import { requestSpeechPermission, speechPermissionState } from '../speechClient';
-
-const C = {
-  bg: "#07080d", card: "#0f1119", card2: "#131620", border: "#1e2230", bord2: "#2a3040",
-  text: "#e8eaf0", muted: "#8b93a7", dim: "#565e73", accent: "#f0a500", teal: "#00c9a7", danger: "#ff4055"
-};
+import { C } from '../theme';
 
 // Qué se le pide al conductor y por qué. El "por qué" no es relleno: si no
 // entiende para qué sirve, niega el permiso y la app queda inservible sin que
@@ -19,7 +15,7 @@ const C = {
 export const PERMISOS = [
   {
     id: "location", icon: "📍", titulo: "Ubicación",
-    porque: "Es con lo que RutaFlow cuenta tus kilómetros: los del viaje y los que haces vacío. Elige «Permitir todo el tiempo» y «Ubicación precisa», si no deja de medir en cuanto te pasas a Uber.",
+    porque: "Es con lo que Ruleto cuenta tus kilómetros: los del viaje y los que haces vacío. Elige «Permitir todo el tiempo» y «Ubicación precisa», si no deja de medir en cuanto te pasas a Uber.",
     required: true,
   },
   {
@@ -139,12 +135,12 @@ export function PermissionGate({ onReady }) {
       padding: "calc(28px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom))",
     }}>
       <div style={{ maxWidth: 440, margin: "0 auto" }}>
-        <div className="B" style={{ fontSize: 22, fontWeight: 900, color: C.accent, letterSpacing: 1.5 }}>RUTAFLOW</div>
+        <div className="B" style={{ fontSize: 22, fontWeight: 900, color: C.accent, letterSpacing: 1.5 }}>RULETO DRIVE</div>
         <div className="B" style={{ fontSize: 19, fontWeight: 800, color: C.text, marginTop: 14, lineHeight: 1.25 }}>
           Antes de empezar, dale estos permisos
         </div>
         <div style={{ fontSize: 12, color: C.muted, marginTop: 7, lineHeight: 1.5 }}>
-          RutaFlow mide tu jornada mientras manejas, con la app cerrada y la pantalla apagada.
+          Ruleto mide tu jornada mientras manejas, con la app cerrada y la pantalla apagada.
           Para eso Android obliga a pedirte esto. Nada de esto sale de tu teléfono sin que tú lo guardes.
         </div>
 
@@ -209,12 +205,12 @@ export function PermissionGate({ onReady }) {
           borderRadius: 10, color: "#04231d", fontSize: 12, fontWeight: 900,
           letterSpacing: "0.1em", cursor: pidiendo ? "wait" : "pointer", opacity: pidiendo ? 0.6 : 1,
         }}>
-          {pidiendo ? "PIDIENDO..." : pendientes.length ? "DAR PERMISOS" : "ENTRAR A RUTAFLOW ▶"}
+          {pidiendo ? "PIDIENDO..." : pendientes.length ? "DAR PERMISOS" : "ENTRAR A RULETO ▶"}
         </button>
 
         <div style={{ fontSize: 10, color: C.dim, marginTop: 14, lineHeight: 1.5, textAlign: "center" }}>
           {pendientes.length
-            ? "Sin ubicación, notificaciones y micrófono, RutaFlow no puede medir tu jornada ni entenderte al dictar."
+            ? "Sin ubicación, notificaciones y micrófono, Ruleto no puede medir tu jornada ni entenderte al dictar."
             : "El copiloto lo puedes activar después desde la pantalla de Hoy."}
         </div>
       </div>

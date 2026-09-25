@@ -1,4 +1,4 @@
-package mx.rutaflow.app.location;
+package mx.ruleto.drive.location;
 
 import android.content.ContentValues;
 import android.content.Context;

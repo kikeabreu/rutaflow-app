@@ -1,11 +1,11 @@
-package mx.rutaflow.app;
+package mx.ruleto.drive;
 
 import android.os.Bundle;
 
 import com.getcapacitor.BridgeActivity;
 
-import mx.rutaflow.app.copilot.CopilotPlugin;
-import mx.rutaflow.app.location.NativeTrackingPlugin;
+import mx.ruleto.drive.copilot.CopilotPlugin;
+import mx.ruleto.drive.location.NativeTrackingPlugin;
 
 public class MainActivity extends BridgeActivity {
     @Override

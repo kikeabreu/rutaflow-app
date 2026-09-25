@@ -1,8 +1,8 @@
-# RutaFlow: plan de capitalizacion inicial
+# Ruleto Drive: plan de capitalizacion inicial
 
 ## Ruta recomendada
 
-RutaFlow ya es una PWA en este repo, asi que la primera version vendible puede salir desde Vercel sin pasar por Play Store o App Store.
+Ruleto Drive ya es una PWA en este repo, asi que la primera version vendible puede salir desde Vercel sin pasar por Play Store o App Store.
 
 - Android: abrir la web en Chrome y tocar "Instalar app".
 - iPhone: abrir la web en Safari, compartir y tocar "Agregar a pantalla de inicio".

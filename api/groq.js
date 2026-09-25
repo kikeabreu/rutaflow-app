@@ -22,7 +22,7 @@ const MODEL_GONE = /does not exist or you do not have access|model_not_found|dec
 const PARSER_SCHEMA = {
   type: "json_schema",
   json_schema: {
-    name: "rutaflow_movement",
+    name: "ruleto_movement",
     strict: true,
     schema: {
       type: "object",
@@ -48,7 +48,7 @@ const PARSER_SCHEMA = {
 const VISION_SCHEMA = {
   type: "json_schema",
   json_schema: {
-    name: "rutaflow_vision_trip",
+    name: "ruleto_vision_trip",
     strict: true,
     schema: {
       type: "object",
@@ -64,7 +64,7 @@ const VISION_SCHEMA = {
 };
 
 const SYSTEM_PROMPTS = {
-  parser: `Convierte mensajes breves de un conductor en un movimiento de RutaFlow.
+  parser: `Convierte mensajes breves de un conductor en un movimiento de Ruleto.
 Responde unicamente JSON valido con esta forma:
 {"type":"trip|dead_km|refuel|tank_checkpoint|tip|bonus|unknown","fare":0,"trip_km":0,"dead_km":0,"amount":0,"liters":0,"tank_liters":0,"odometer":0,"platform":"didi|uber|inDrive|otra","note":"","bonus_mode":"paid|active|","bonus_type":"","required_trips":0,"completed_trips":0,"extra_km":0,"extra_min":0,"expires_at":""}
 No inventes valores. Usa 0 o "" cuando el usuario no los proporcione. "Sin pasaje", "vacio" o "muertos" significa dead_km. Una carga de combustible significa refuel. Una correccion del tanque o lectura actual significa tank_checkpoint. Una propina significa tip y su monto va en amount. Bonos, rachas, desafios, garantias o promociones significan bonus; si menciona meta pendiente usa bonus_mode active; si dice que ya lo cobro usa paid. expires_at debe ir en formato local YYYY-MM-DDTHH:mm solo si el usuario dio fecha/hora clara.`,
@@ -169,7 +169,7 @@ module.exports = async function handler(req, res) {
     // Si GROQ_MODEL_* apunta a un modelo dado de baja, reintentamos con el modelo
     // vivo por defecto en vez de dejar la funcion muerta hasta tocar Vercel.
     if (!response.ok && activeModel !== DEFAULT_MODELS[mode] && MODEL_GONE.test(data?.error?.message || "")) {
-      console.warn(`RutaFlow Groq: modelo "${activeModel}" no disponible, reintentando con "${DEFAULT_MODELS[mode]}".`);
+      console.warn(`Ruleto Groq: modelo "${activeModel}" no disponible, reintentando con "${DEFAULT_MODELS[mode]}".`);
       activeModel = DEFAULT_MODELS[mode];
       response = await requestCompletion(messages);
       data = await response.json().catch(() => ({}));
@@ -201,7 +201,7 @@ module.exports = async function handler(req, res) {
     }
     return res.status(200).json({ content, model: activeModel });
   } catch (error) {
-    console.error("RutaFlow Groq proxy error", error);
+    console.error("Ruleto Groq proxy error", error);
     return res.status(500).json({ error: "No se pudo conectar con la IA. Intenta de nuevo." });
   }
 };

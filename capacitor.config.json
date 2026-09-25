@@ -1,6 +1,6 @@
 {
-  "appId": "mx.rutaflow.app",
-  "appName": "RutaFlow",
+  "appId": "mx.ruleto.drive",
+  "appName": "Ruleto Drive",
   "webDir": "build",
   "backgroundColor": "#07080d",
   "android": {

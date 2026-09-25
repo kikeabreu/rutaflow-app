@@ -1,4 +1,4 @@
-package mx.rutaflow.app.location;
+package mx.ruleto.drive.location;
 
 import android.Manifest;
 import android.app.ActivityManager;
@@ -28,7 +28,7 @@ import java.util.UUID;
 // con notificación visible para seguir leyendo la ubicación con la app cerrada.
 // Sin ese permiso, la jornada deja de contar kilómetros en cuanto el conductor
 // se pasa a Uber, que es justo cuando está manejando.
-@CapacitorPlugin(name="RutaFlowTracking",permissions={
+@CapacitorPlugin(name="RuletoTracking",permissions={
     @Permission(alias="location",strings={Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION}),
     @Permission(alias="notifications",strings={Manifest.permission.POST_NOTIFICATIONS})
 })
@@ -63,7 +63,7 @@ public class NativeTrackingPlugin extends Plugin {
     @PluginMethod public void status(PluginCall call){
         SharedPreferences p=prefs();String state=p.getString(NativeTrackingService.PREF_STATE,"stopped");
         boolean inStartupGrace="starting".equals(state)&&System.currentTimeMillis()-p.getLong(NativeTrackingService.PREF_STATE_AT,0)<10_000L;
-        if(p.getBoolean(NativeTrackingService.PREF_RUNNING,false)&&!inStartupGrace&&!isServiceRunning())p.edit().putBoolean(NativeTrackingService.PREF_RUNNING,false).putString(NativeTrackingService.PREF_SEGMENT,"").putString(NativeTrackingService.PREF_SEGMENT_TYPE,"").putString(NativeTrackingService.PREF_STATE,"interrupted").putString(NativeTrackingService.PREF_MESSAGE,"Android detuvo el rastreo; vuelve a abrir RutaFlow para reanudar la ubicación").putLong(NativeTrackingService.PREF_STATE_AT,System.currentTimeMillis()).commit();
+        if(p.getBoolean(NativeTrackingService.PREF_RUNNING,false)&&!inStartupGrace&&!isServiceRunning())p.edit().putBoolean(NativeTrackingService.PREF_RUNNING,false).putString(NativeTrackingService.PREF_SEGMENT,"").putString(NativeTrackingService.PREF_SEGMENT_TYPE,"").putString(NativeTrackingService.PREF_STATE,"interrupted").putString(NativeTrackingService.PREF_MESSAGE,"Android detuvo el rastreo; vuelve a abrir Ruleto para reanudar la ubicación").putLong(NativeTrackingService.PREF_STATE_AT,System.currentTimeMillis()).commit();
         call.resolve(statusObject());
     }
     @PluginMethod public void readPending(PluginCall call){String userId=call.getString("userId","");if(userId.isEmpty()){call.reject("Falta userId");return;}TrackingStore store=new TrackingStore(getContext());JSObject out=new JSObject();out.put("points",store.readPending(userId,call.getInt("limit",500)));store.close();call.resolve(out);}

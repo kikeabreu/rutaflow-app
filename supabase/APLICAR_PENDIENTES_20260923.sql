@@ -1,5 +1,5 @@
 -- =====================================================================
--- RutaFlow · Migraciones pendientes del 2026-09-23
+-- Ruleto Drive · Migraciones pendientes del 2026-09-23
 -- =====================================================================
 -- Estas 6 migraciones NUNCA se aplicaron al proyecto de producción.
 -- Verificado por PostgREST: PGRST205 "Could not find the table in the

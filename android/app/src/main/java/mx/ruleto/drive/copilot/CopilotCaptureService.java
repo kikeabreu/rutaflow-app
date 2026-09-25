@@ -1,4 +1,4 @@
-package mx.rutaflow.app.copilot;
+package mx.ruleto.drive.copilot;
 
 import android.app.ActivityManager;
 import android.app.Notification;
@@ -44,14 +44,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import mx.rutaflow.app.MainActivity;
-import mx.rutaflow.app.R;
+import mx.ruleto.drive.MainActivity;
+import mx.ruleto.drive.R;
 
 public class CopilotCaptureService extends Service implements TextToSpeech.OnInitListener {
-    public static final String ACTION_START = "mx.rutaflow.app.copilot.START";
-    public static final String ACTION_STOP = "mx.rutaflow.app.copilot.STOP";
-    public static final String ACTION_DUMP = "mx.rutaflow.app.copilot.DUMP";
-    public static final String ACTION_EVENT = "mx.rutaflow.app.copilot.EVENT";
+    public static final String ACTION_START = "mx.ruleto.drive.copilot.START";
+    public static final String ACTION_STOP = "mx.ruleto.drive.copilot.STOP";
+    public static final String ACTION_DUMP = "mx.ruleto.drive.copilot.DUMP";
+    public static final String ACTION_EVENT = "mx.ruleto.drive.copilot.EVENT";
     public static final String EXTRA_EVENT = "event";
     public static final String EXTRA_PAYLOAD = "payload";
     public static final String EXTRA_RESULT_CODE = "resultCode";
@@ -68,7 +68,7 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     private static final String CHANNEL_ALERTS_ID = "rutaflow_copilot_alerts";
     private static final int NOTIFICATION_ID = 7401;
     private static final int ALERT_NOTIFICATION_ID = 7402;
-    private static final long OCR_INTERVAL_MS = 1100;
+    private static final long OCR_INTERVAL_MS = 650;
     private static final long DUPLICATE_WINDOW_MS = 45_000;
     // Ventana de diagnostico: volcamos el OCR crudo con geometria mientras este armado.
     private static final long DUMP_WINDOW_MS = 180_000;
@@ -105,7 +105,7 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
         createNotificationChannel();
         recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         tts = new TextToSpeech(this, this);
-        captureThread = new HandlerThread("RutaFlowCapture");
+        captureThread = new HandlerThread("RuletoCapture");
         captureThread.start();
         captureHandler = new Handler(captureThread.getLooper());
         if (android.provider.Settings.canDrawOverlays(this)) {
@@ -141,7 +141,7 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
         if (overlayView == null && android.provider.Settings.canDrawOverlays(this)) {
             overlayView = new CopilotOverlayView(this);
         }
-        startAsForeground("Escuchando ofertas", "RutaFlow analiza únicamente mientras este aviso esté activo.");
+        startAsForeground("Escuchando ofertas", "Ruleto analiza únicamente mientras este aviso esté activo.");
 
         int resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0);
         Intent resultData;
@@ -203,7 +203,7 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
         imageReader.setOnImageAvailableListener(this::onImageAvailable, captureHandler);
         try {
             virtualDisplay = projection.createVirtualDisplay(
-                "RutaFlowCopilot", width, height, density,
+                "RuletoCopilot", width, height, density,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 imageReader.getSurface(), null, captureHandler
             );
@@ -238,7 +238,7 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
                 image.close();
                 return;
             }
-            if (isRutaFlowForeground()) {
+            if (isRuletoForeground()) {
                 image.close();
                 processing.set(false);
                 return;
@@ -283,10 +283,10 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
         }
     }
 
-    private boolean isRutaFlowScreen(String text) {
+    private boolean isRuletoScreen(String text) {
         if (text == null || text.trim().isEmpty()) return false;
         String lower = text.toLowerCase(Locale.ROOT);
-        return lower.contains("rutaflow")
+        return lower.contains("ruleto")
             || lower.contains("copiloto de ofertas")
             || lower.contains("ganancia estimada")
             || lower.contains("iniciar jornada")
@@ -329,62 +329,94 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
 
     private void handleRecognizedText(Text textResult) {
         String text = textResult.getText();
-        if (isRutaFlowScreen(text)) return;
+        if (isRuletoScreen(text)) return;
         config = CopilotConfig.fromJson(getSharedPreferences(PREFS, MODE_PRIVATE)
             .getString(PREF_CONFIG, "{}"));
-        OfferAnalysis offer = OfferParser.parse(text, config);
-        if (offer == null || offer.confidence < 0.60) return;
 
-        // Visual HUD: detect bounding box of the offer / accept button / price block
+        List<OfferParser.Block> blocks = new ArrayList<>();
+        for (Text.TextBlock block : textResult.getTextBlocks()) {
+            Rect bounds = block.getBoundingBox();
+            blocks.add(bounds != null
+                ? new OfferParser.Block(block.getText(), bounds.left, bounds.top, bounds.right, bounds.bottom)
+                : new OfferParser.Block(block.getText(), 0, 0, 0, 0));
+        }
+        List<OfferParser.DetectedOffer> offers = OfferParser.parseBlocks(blocks, config);
+        if (offers.isEmpty()) return;
+        // Con varias ofertas en pantalla (una lista), solo se sombrean todas: la voz y la
+        // alerta de una por una saturarian al conductor. Con una sola oferta, se anuncia normal.
+        boolean multiple = offers.size() > 1;
+
         if (overlayView != null) {
-            Rect bestBox = null;
-            for (Text.TextBlock block : textResult.getTextBlocks()) {
-                String blockText = block.getText().toLowerCase(Locale.ROOT);
-                if (blockText.contains("aceptar") || blockText.contains("$" + (int)offer.fare) || blockText.contains(String.valueOf((int)offer.fare))) {
-                    bestBox = block.getBoundingBox();
-                    break;
-                }
+            List<CopilotOverlayView.HighlightItem> highlights = new ArrayList<>();
+            for (OfferParser.DetectedOffer detected : offers) {
+                if (!detected.hasBounds()) continue;
+                Rect bounds = new Rect(detected.left, detected.top, detected.right, detected.bottom);
+                String label = String.format(Locale.forLanguageTag("es-MX"),
+                    "$%.0f · %s", detected.offer.fare, metricLabel(detected.offer));
+                highlights.add(new CopilotOverlayView.HighlightItem(bounds, colorFor(detected.offer.verdict), label));
             }
-            if (bestBox == null && !textResult.getTextBlocks().isEmpty()) {
-                bestBox = textResult.getTextBlocks().get(0).getBoundingBox();
-            }
-            if (bestBox != null) {
-                int color = "good".equals(offer.verdict) ? 0xFF00C9A7 : "maybe".equals(offer.verdict) ? 0xFFF0A500 : 0xFFFF4055;
-                String label = String.format(Locale.forLanguageTag("es-MX"), "$%.0f · $%.0f/h", offer.fare, offer.hourly);
-                List<CopilotOverlayView.HighlightItem> highlights = new ArrayList<>();
-                highlights.add(new CopilotOverlayView.HighlightItem(bestBox, color, label));
-                overlayView.showHighlights(highlights);
-            }
+            if (!highlights.isEmpty()) overlayView.showHighlights(highlights);
         }
 
         long now = System.currentTimeMillis();
-        if (offer.signature().equals(lastSignature) && now - lastOfferAt < DUPLICATE_WINDOW_MS) return;
-        lastSignature = offer.signature();
-        lastOfferAt = now;
-        JSONObject json = offer.toJson();
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-            .putString(PREF_LAST_OFFER, json.toString()).apply();
-        sendEvent("offer", json);
-        announce(offer.spokenText());
+        for (OfferParser.DetectedOffer detected : offers) {
+            OfferAnalysis offer = detected.offer;
+            if (offer.signature().equals(lastSignature) && now - lastOfferAt < DUPLICATE_WINDOW_MS) continue;
+            lastSignature = offer.signature();
+            lastOfferAt = now;
 
-        String icon = "good".equals(offer.verdict) ? "🟢" : "maybe".equals(offer.verdict) ? "🟡" : "🔴";
-        String verdictTitle = "good".equals(offer.verdict) ? "BUEN VIAJE"
-            : "maybe".equals(offer.verdict) ? "VIAJE ACEPTABLE" : "NO CONVIENE";
+            JSONObject json = offer.toJson();
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString(PREF_LAST_OFFER, json.toString()).apply();
+            sendEvent("offer", json);
+            if (!multiple) announce(offer.spokenText(config.perKmGoal));
 
-        // Veredicto primero (es la decision), luego la tarifa ofrecida para confirmar que
-        // hablamos del viaje que esta en pantalla, y al final el rendimiento por hora.
-        // Sin la palabra "Ofrecen" en el titulo: cabe entero y no se corta el $/h.
-        String title = String.format(Locale.forLanguageTag("es-MX"),
-            "%s %s · $%.0f · $%.0f/h", icon, verdictTitle, offer.fare, offer.hourly);
-        String body = String.format(Locale.forLanguageTag("es-MX"),
-            "$%.0f netos · %.0f min", offer.net, (offer.pickupMin + offer.tripMin));
-        String detail = String.format(Locale.forLanguageTag("es-MX"),
-            "Ofrecen $%.0f · %s%n$%.0f netos · %.1f km · %.0f min%n%s",
-            offer.fare, String.valueOf(offer.platform).toUpperCase(), offer.net,
-            (offer.pickupKm + offer.tripKm), (offer.pickupMin + offer.tripMin), offer.explanation);
+            String icon = iconFor(offer.verdict);
+            String verdictTitle = verdictTitleFor(offer.verdict);
 
-        sendAlertNotification(title, body, detail);
-        updateNotification(title, body);
+            // Veredicto primero (es la decision), luego la tarifa ofrecida para confirmar que
+            // hablamos del viaje que esta en pantalla, y al final el rendimiento contra la meta
+            // activa (por hora o por km). Sin la palabra "Ofrecen" en el titulo: cabe entero.
+            String title = String.format(Locale.forLanguageTag("es-MX"),
+                "%s %s · $%.0f · %s", icon, verdictTitle, offer.fare, metricLabel(offer));
+            String body = String.format(Locale.forLanguageTag("es-MX"),
+                "$%.0f netos · %.0f min", offer.net, (offer.pickupMin + offer.tripMin));
+
+            if (multiple) {
+                String multiTitle = String.format(Locale.forLanguageTag("es-MX"),
+                    "%d ofertas en pantalla", offers.size());
+                updateNotification(multiTitle, title + " · " + body, false);
+            } else {
+                String detail = String.format(Locale.forLanguageTag("es-MX"),
+                    "Ofrecen $%.0f · %s%n$%.0f netos · %.1f km · %.0f min%n%s",
+                    offer.fare, String.valueOf(offer.platform).toUpperCase(), offer.net,
+                    (offer.pickupKm + offer.tripKm), (offer.pickupMin + offer.tripMin), offer.explanation);
+                sendAlertNotification(title, body, detail);
+                updateNotification(title, body);
+            }
+            // Solo se procesa una oferta nueva por cuadro para no encimar voces/alertas; el
+            // resto ya quedo sombreado arriba y se registrara en el siguiente cuadro (~650ms).
+            break;
+        }
+    }
+
+    private static int colorFor(String verdict) {
+        return "good".equals(verdict) ? 0xFF00C9A7 : "maybe".equals(verdict) ? 0xFFF0A500 : 0xFFFF4055;
+    }
+
+    private static String iconFor(String verdict) {
+        return "good".equals(verdict) ? "🟢" : "maybe".equals(verdict) ? "🟡" : "🔴";
+    }
+
+    private static String verdictTitleFor(String verdict) {
+        return "good".equals(verdict) ? "BUEN VIAJE" : "maybe".equals(verdict) ? "VIAJE ACEPTABLE" : "NO CONVIENE";
+    }
+
+    // Muestra $/h o $/km segun cual de las dos metas eligio el conductor en Config.
+    private String metricLabel(OfferAnalysis offer) {
+        return config.perKmGoal
+            ? String.format(Locale.forLanguageTag("es-MX"), "$%.1f/km", offer.perKm)
+            : String.format(Locale.forLanguageTag("es-MX"), "$%.0f/h", offer.hourly);
     }
 
     private void sendStatus(boolean running, String message) {
@@ -421,7 +453,7 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
 
     private void announce(String message) {
         if (!ttsReady || message == null || message.isEmpty()) return;
-        tts.speak(message, TextToSpeech.QUEUE_FLUSH, null, "rutaflow-copilot");
+        tts.speak(message, TextToSpeech.QUEUE_FLUSH, null, "ruleto-copilot");
     }
 
     @Override
@@ -432,7 +464,7 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                 tts.setLanguage(new Locale("es"));
             }
-            tts.setSpeechRate(1.08f);
+            tts.setSpeechRate(1.45f);
         }
     }
 
@@ -498,7 +530,7 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
 
         NotificationChannel channel = new NotificationChannel(
             CHANNEL_ID, "Copiloto de ofertas", NotificationManager.IMPORTANCE_DEFAULT);
-        channel.setDescription("Muestra el estado del copiloto RutaFlow.");
+        channel.setDescription("Muestra el estado de Ruleto IA.");
         channel.setSound(null, null);
         manager.createNotificationChannel(channel);
 
@@ -550,7 +582,7 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
         super.onDestroy();
     }
 
-    private boolean isRutaFlowForeground() {
+    private boolean isRuletoForeground() {
         ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
         if (am != null) {
             List<ActivityManager.RunningAppProcessInfo> processes = am.getRunningAppProcesses();

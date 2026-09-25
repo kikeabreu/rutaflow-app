@@ -2,13 +2,13 @@
 # Descarga los volcados OCR del copiloto desde el telefono conectado por USB.
 #
 # Uso:
-#   1. Activa el copiloto en RutaFlow.
-#   2. Baja la barra de notificaciones y toca "Diagnóstico" en el aviso de RutaFlow.
+#   1. Activa el copiloto en Ruleto.
+#   2. Baja la barra de notificaciones y toca "Diagnóstico" en el aviso de Ruleto.
 #   3. Vuelve a DiDi/inDrive/Uber y deja que lleguen ofertas durante 3 minutos.
 #   4. Conecta el telefono por USB con depuracion activada y corre este script.
 set -euo pipefail
 
-PKG="mx.rutaflow.app"
+PKG="mx.ruleto.drive"
 REMOTE="/sdcard/Android/data/$PKG/files/ocr-dumps"
 LOCAL="${1:-diagnostics/ocr-dumps}"
 

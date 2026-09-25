@@ -1,6 +1,6 @@
-# Ayuda de RutaFlow
+# Ayuda de Ruleto Drive
 
-RutaFlow ayuda a conductores a registrar jornadas, viajes, gastos operativos, bonos y resultados. La aplicación estima utilidad usando los datos capturados y tu configuración; no sustituye la contabilidad, los datos oficiales de la plataforma ni las decisiones de seguridad al conducir.
+Ruleto Drive ayuda a conductores a registrar jornadas, viajes, gastos operativos, bonos y resultados. La aplicación estima utilidad usando los datos capturados y tu configuración; no sustituye la contabilidad, los datos oficiales de la plataforma ni las decisiones de seguridad al conducir.
 
 ## Primeros pasos
 
@@ -10,7 +10,7 @@ RutaFlow ayuda a conductores a registrar jornadas, viajes, gastos operativos, bo
 4. Registra cada viaje y los movimientos relevantes.
 5. Pulsa **Terminar jornada** para crear el cierre.
 
-La sesión de Google regresa a la aplicación Android mediante un enlace seguro. Si el navegador no vuelve automáticamente, abre RutaFlow y revisa que la aplicación esté actualizada.
+La sesión de Google regresa a la aplicación Android mediante un enlace seguro. Si el navegador no vuelve automáticamente, abre Ruleto Drive y revisa que la aplicación esté actualizada.
 
 ## Jornada y viajes
 
@@ -32,28 +32,28 @@ La estimación considera tarifa, comisión configurada, gasolina y, cuando está
 El Copiloto puede analizar texto visible en ofertas mediante captura de pantalla y mostrar una estimación. Solo está disponible en Android compatible.
 
 - Android muestra una confirmación de captura cada vez que hace falta iniciar una sesión nueva.
-- RutaFlow no reutiliza una autorización de captura terminada.
+- Ruleto Drive no reutiliza una autorización de captura terminada.
 - Una notificación permanente indica que la captura está activa y permite apagarla.
-- Si Android detiene la captura, vuelve a RutaFlow y autorízala otra vez.
+- Si Android detiene la captura, vuelve a Ruleto Drive y autorízala otra vez.
 - El reconocimiento ocurre en el dispositivo, pero una oferta borrosa, incompleta o con un diseño nuevo puede no detectarse.
 
 La recomendación del Copiloto es orientativa. Verifica tarifa, destino y condiciones en la aplicación de viajes.
 
 ## Android y ubicación
 
-RutaFlow solicita ubicación precisa únicamente para funciones iniciadas por el usuario. Android puede suspender o limitar el GPS por ahorro de batería, permisos, ubicación desactivada o políticas del fabricante.
+Ruleto Drive solicita ubicación precisa únicamente para funciones iniciadas por el usuario. Android puede suspender o limitar el GPS por ahorro de batería, permisos, ubicación desactivada o políticas del fabricante.
 
-El servicio nativo de seguimiento de jornada está preparado para integración, pero la interfaz publicada puede seguir usando el rastreo de la pantalla de jornada. Si desaparece la notificación de ubicación o el estado indica interrupción, vuelve a iniciar el rastreo desde RutaFlow. La aplicación no solicita `ACCESS_BACKGROUND_LOCATION`; cuando el seguimiento nativo está activo usa un servicio foreground visible.
+El servicio nativo de seguimiento de jornada está preparado para integración, pero la interfaz publicada puede seguir usando el rastreo de la pantalla de jornada. Si desaparece la notificación de ubicación o el estado indica interrupción, vuelve a iniciar el rastreo desde Ruleto Drive. La aplicación no solicita `ACCESS_BACKGROUND_LOCATION`; cuando el seguimiento nativo está activo usa un servicio foreground visible.
 
 ## PWA e instalación
 
-En navegadores compatibles puedes instalar RutaFlow desde la opción **Instalar app**. En iPhone/iPad usa **Compartir → Agregar a pantalla de inicio**. Algunas funciones nativas —como el Copiloto Android— no están disponibles en la PWA.
+En navegadores compatibles puedes instalar Ruleto Drive desde la opción **Instalar app**. En iPhone/iPad usa **Compartir → Agregar a pantalla de inicio**. Algunas funciones nativas —como el Copiloto Android— no están disponibles en la PWA.
 
 La PWA puede conservar la pestaña abierta, subsecciones, el borrador de viaje y una jornada activa para recuperarlos tras una recarga. Esto no significa que todas las operaciones funcionen sin conexión.
 
 ## Uso sin conexión y sincronización
 
-- RutaFlow conserva localmente parte del estado de trabajo y lo separa por usuario.
+- Ruleto Drive conserva localmente parte del estado de trabajo y lo separa por usuario.
 - Un error al consultar la nube no debe borrar una jornada local recuperada.
 - Guardar viajes, movimientos, bonos, cierres y configuración requiere conexión con el servidor.
 - No cierres la jornada ni borres el borrador si una operación muestra error de conexión; vuelve a intentar con señal estable.
@@ -74,15 +74,15 @@ La infraestructura segura de suscripciones puede no estar activa en todas las in
 ### No puedo iniciar sesión
 
 - Comprueba conexión y fecha/hora del dispositivo.
-- Para Google, vuelve a intentarlo desde RutaFlow y permite que el navegador abra la aplicación.
+- Para Google, vuelve a intentarlo desde Ruleto Drive y permite que el navegador abra la aplicación.
 - Para correo, usa la recuperación de contraseña.
 
 ### El GPS no registra o salta
 
-- Activa ubicación precisa y revisa el permiso de RutaFlow.
+- Activa ubicación precisa y revisa el permiso de Ruleto Drive.
 - Desactiva temporalmente el ahorro de batería para una prueba.
 - Espera al aire libre hasta obtener señal.
-- No combines manualmente puntos separados por una pausa; RutaFlow identifica segmentos de continuidad cuando usa el rastreo nativo.
+- No combines manualmente puntos separados por una pausa; Ruleto Drive identifica segmentos de continuidad cuando usa el rastreo nativo.
 
 ### El Copiloto aparece apagado
 

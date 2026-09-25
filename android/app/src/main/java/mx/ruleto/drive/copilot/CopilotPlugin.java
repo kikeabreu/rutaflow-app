@@ -1,4 +1,4 @@
-package mx.rutaflow.app.copilot;
+package mx.ruleto.drive.copilot;
 
 import android.app.Activity;
 import android.app.ActivityManager;
@@ -19,7 +19,7 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
-@CapacitorPlugin(name = "RutaFlowCopilot")
+@CapacitorPlugin(name = "RuletoCopilot")
 public class CopilotPlugin extends Plugin {
     private BroadcastReceiver eventReceiver;
 

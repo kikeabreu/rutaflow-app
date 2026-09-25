@@ -7,7 +7,7 @@ const ASSET_LINKS = [
     relation: ["delegate_permission/common.handle_all_urls"],
     target: {
       namespace: "android_app",
-      package_name: "mx.rutaflow.app",
+      package_name: "mx.ruleto.drive",
       sha256_cert_fingerprints: [
         "08:49:1F:A5:E0:49:80:C3:42:92:AB:48:68:3D:81:8B:AF:04:B5:78:AF:1B:13:64:D1:66:48:F9:E8:14:2F:AC",
       ],

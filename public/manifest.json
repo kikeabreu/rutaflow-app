@@ -1,14 +1,14 @@
 {
-  "name": "RutaFlow — Gestor de Conductor",
-  "short_name": "RutaFlow",
+  "name": "Ruleto Drive — Gestor de Conductor",
+  "short_name": "Ruleto Drive",
   "description": "Calcula cuánto ganas de verdad en cada viaje. Uber, Didi, Beat.",
   "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#07080d",
-  "theme_color": "#f0a500",
+  "background_color": "#0A1F1A",
+  "theme_color": "#0A1F1A",
   "lang": "es-MX",
   "categories": ["finance", "productivity", "utilities"],
   "icons": [

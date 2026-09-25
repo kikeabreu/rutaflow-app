@@ -1,10 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { TOUR_EVENTS, onTourEvent } from '../tourBus';
-
-const C = {
-  bg: "#07080d", card: "#0f1119", card2: "#131620", border: "#1e2230", bord2: "#2a3040",
-  text: "#e8eaf0", muted: "#8b93a7", dim: "#565e73", accent: "#f0a500", teal: "#00c9a7", danger: "#ff4055"
-};
+import { C } from '../theme';
 
 export const TAB_LABEL = {
   home: "Hoy", trips: "Viajes", stats: "Stats", ai: "IA", config: "Config",
@@ -32,7 +28,7 @@ export const TAB_LABEL = {
 export const TOUR_STEPS = [
   {
     id: "bienvenida", tab: "home", badge: "BIENVENIDA", icon: "🚕",
-    title: "¡Bienvenido a RutaFlow!",
+    title: "¡Bienvenido a Ruleto Drive!",
     subtitle: "Vamos a usarla juntos",
     description: "Te voy a llevar pantalla por pantalla y en cada una te voy a pedir que hagas algo tú mismo. No te voy a apurar: yo espero a que termines.",
     actionText: "EMPEZAR ▶",
@@ -43,7 +39,7 @@ export const TOUR_STEPS = [
     id: "ir-config", badge: "NAVEGACIÓN", icon: "🧭",
     title: "Abajo están tus 5 pestañas",
     subtitle: "Hoy · Viajes · Stats · IA · Config",
-    description: "Hoy es tu jornada de hoy; Viajes tu historial; Stats tus números del periodo; IA tu copiloto que responde preguntas; Config tus datos. Empecemos por Config: sin tus números RutaFlow no puede calcular nada.",
+    description: "Hoy es tu jornada de hoy; Viajes tu historial; Stats tus números del periodo; IA tu copiloto que responde preguntas; Config tus datos. Empecemos por Config: sin tus números Ruleto no puede calcular nada.",
     highlight: "nav-config",
     waitFor: { name: TOUR_EVENTS.TAB_CHANGED, value: "config" },
     autoAdvance: true,
@@ -53,7 +49,7 @@ export const TOUR_STEPS = [
     id: "variables", tab: "config", badge: "TUS NÚMEROS", icon: "⛽",
     title: "Gasolina, rendimiento y meta",
     subtitle: "De aquí sale todo el cálculo",
-    description: "Pon lo que pagas por litro, cuántos kilómetros te da un litro y cuánto quieres ganar por hora. Con esos tres datos RutaFlow sabe lo que te cuesta cada viaje y si una oferta conviene.",
+    description: "Pon lo que pagas por litro y cuántos kilómetros te da un litro. Luego elige cómo quieres ganar: por hora o por kilómetro, y pon tu meta en ese modo. Con esos datos Ruleto sabe lo que te cuesta cada viaje y si una oferta conviene.",
     highlight: "variables",
     waitFor: TOUR_EVENTS.CONFIG_CHANGED,
     actionHint: "Ajusta alguno de los tres campos",
@@ -63,7 +59,7 @@ export const TOUR_STEPS = [
     id: "comisiones", tab: "config", badge: "COMISIONES", icon: "📱",
     title: "Lo que te cobra cada app",
     subtitle: "Uber, DiDi, inDrive o particular",
-    description: "Escribe el porcentaje que de verdad te descuentan. RutaFlow lo resta solo al evaluar cada oferta, así que si aquí pones de más o de menos, todos tus números salen mal.",
+    description: "Escribe el porcentaje que de verdad te descuentan. Ruleto lo resta solo al evaluar cada oferta, así que si aquí pones de más o de menos, todos tus números salen mal.",
     highlight: "platforms",
     waitFor: TOUR_EVENTS.PLATFORM_CHANGED,
     actionHint: "Ajusta la comisión de alguna plataforma",
@@ -83,7 +79,7 @@ export const TOUR_STEPS = [
     id: "guardar", tab: "config", badge: "GUARDAR", icon: "💾",
     title: "Nada se aplica hasta guardar",
     subtitle: "Baja hasta el botón",
-    description: "Todo lo que cambiaste vive solo en la pantalla. Desliza hacia abajo y toca «Guardar cambios» para que RutaFlow empiece a usar tus números.",
+    description: "Todo lo que cambiaste vive solo en la pantalla. Desliza hacia abajo y toca «Guardar cambios» para que Ruleto empiece a usar tus números.",
     highlight: "config-save",
     waitFor: TOUR_EVENTS.CONFIG_SAVED,
     actionHint: "Toca «Guardar cambios»",
@@ -93,9 +89,9 @@ export const TOUR_STEPS = [
   // ─── IA ───────────────────────────────────────────────────────────────────
   {
     id: "ir-ia", badge: "NAVEGACIÓN", icon: "🧭",
-    title: "Ahora tu copiloto",
+    title: "Ahora, Ruleto IA",
     subtitle: "La pestaña IA",
-    description: "La IA ya conoce tus viajes, tus horarios y tus zonas. Le puedes preguntar como a un compañero con años de volante.",
+    description: "Ruleto IA ya conoce tus viajes, tus horarios y tus zonas. Le puedes preguntar como a un compañero con años de volante.",
     highlight: "nav-ai",
     waitFor: { name: TOUR_EVENTS.TAB_CHANGED, value: "ai" },
     autoAdvance: true,
@@ -140,7 +136,7 @@ export const TOUR_STEPS = [
     id: "ir-stats", badge: "NAVEGACIÓN", icon: "🧭",
     title: "Vamos a tus números",
     subtitle: "La pestaña Stats",
-    description: "Aquí ves cómo te fue en el periodo, no solo hoy: si de verdad estás llegando a tu meta por hora.",
+    description: "Aquí ves cómo te fue en el periodo, no solo hoy: si de verdad estás llegando a tu meta.",
     highlight: "nav-stats",
     waitFor: { name: TOUR_EVENTS.TAB_CHANGED, value: "stats" },
     autoAdvance: true,
@@ -150,7 +146,7 @@ export const TOUR_STEPS = [
     id: "stats", tab: "stats", badge: "ESTADÍSTICAS", icon: "📊",
     title: "De dónde sale tu dinero",
     subtitle: "Utilidad, propinas y $/hora",
-    description: "Utilidad es lo que queda después de gasolina y comisión. Km productivos es qué tanto de lo que manejaste fue con pasajero. Y tu $/hora real se compara contra la meta que pusiste en Config.",
+    description: "Utilidad es lo que queda después de gasolina y comisión. Km productivos es qué tanto de lo que manejaste fue con pasajero. Y tu $/hora o $/km real se compara contra la meta que elegiste en Config.",
     highlight: "stats-cards",
   },
   {
@@ -186,7 +182,7 @@ export const TOUR_STEPS = [
     id: "jornada", tab: "home", badge: "JORNADA", icon: "⏱️",
     title: "Arranca tu turno",
     subtitle: "El GPS mide tiempo y km",
-    description: "Al iniciar la jornada, RutaFlow empieza a contar tus horas y tus kilómetros, también los que haces vacío. En la app de Android sigue midiendo aunque te pases a Uber o apagues la pantalla, con su notificación visible; en el navegador solo mientras la tengas abierta. Al terminar te entrega el cierre del día.",
+    description: "Al iniciar la jornada, Ruleto empieza a contar tus horas y tus kilómetros, también los que haces vacío. En la app de Android sigue midiendo aunque te pases a Uber o apagues la pantalla, con su notificación visible; en el navegador solo mientras la tengas abierta. Al terminar te entrega el cierre del día.",
     highlight: "iniciar-jornada",
     waitFor: TOUR_EVENTS.SHIFT_STARTED,
     actionHint: "Toca «Iniciar jornada»",
@@ -207,7 +203,7 @@ export const TOUR_STEPS = [
     id: "viaje-manual", tab: "home", badge: "MODO MANUAL", icon: "✍️",
     title: "1 de 3: a mano",
     subtitle: "Lo más rápido si ya traes los datos",
-    description: "En Manual escribes la tarifa y luego, en «Recolección» y «Destino», los kilómetros y minutos. RutaFlow te dice de inmediato si el viaje convino.",
+    description: "En Manual escribes la tarifa y luego, en «Recolección» y «Destino», los kilómetros y minutos. Ruleto te dice de inmediato si el viaje convino.",
     highlight: "trip-mode-manual", doneHighlight: "trip-manual",
     waitFor: { name: TOUR_EVENTS.TRIP_MODE_CHANGED, value: "manual" },
     actionHint: "Toca «✍️ Manual»",
@@ -217,7 +213,7 @@ export const TOUR_STEPS = [
     id: "viaje-tarifa", tab: "home", badge: "LA TARIFA", icon: "💰",
     title: "Escribe cuánto te pagaron",
     subtitle: "Pruébalo con un viaje real",
-    description: "Pon la tarifa y los kilómetros: abajo aparece en verde, amarillo o rojo si el viaje valió la pena contra tu meta por hora.",
+    description: "Pon la tarifa y los kilómetros: abajo aparece en verde, amarillo o rojo si el viaje valió la pena contra tu meta.",
     highlight: "trip-fare",
     waitFor: { name: TOUR_EVENTS.TRIP_FIELD_FILLED, value: "fare" },
     actionHint: "Escribe una tarifa",
@@ -243,7 +239,7 @@ export const TOUR_STEPS = [
     id: "viaje-destino", tab: "home", badge: "DESTINO", icon: "🏁",
     title: "Luego, el viaje pagado",
     subtitle: "Del pasajero a donde lo dejas",
-    description: "Toca «🏁 Destino» y pon los kilómetros y minutos de ese tramo. Con los dos tramos juntos RutaFlow ya sabe tu ganancia real por hora, no la que parece.",
+    description: "Toca «🏁 Destino» y pon los kilómetros y minutos de ese tramo. Con los dos tramos juntos Ruleto ya sabe tu ganancia real, no la que parece.",
     highlight: "trip-manual",
     waitFor: [
       { name: TOUR_EVENTS.TRIP_FIELD_FILLED, value: "dest_km" },
@@ -327,7 +323,7 @@ export const TOUR_STEPS = [
 
   // ─── CIERRE ───────────────────────────────────────────────────────────────
   {
-    id: "copiloto", tab: "home", badge: "COPILOTO", icon: "🟢",
+    id: "copiloto", tab: "home", badge: "RULETO COPILOTO", icon: "🟢",
     title: "El semáforo de ofertas",
     subtitle: "Encima de Uber y DiDi",
     description: "Activado, lee la oferta que te aparece en pantalla y te dice en verde o en rojo si conviene, sin que tengas que salir de la app del volante.",
@@ -618,14 +614,14 @@ export function OnboardingWizard({ isOpen, onComplete, onDismissNever, currentTa
             </button>
           </div>
 
-          {isLast && (
-            <button onClick={onDismissNever} style={{
-              width: "100%", marginTop: 9, background: "transparent", border: "none",
-              color: C.dim, fontSize: 10, textDecoration: "underline", cursor: "pointer",
-            }}>
-              No volver a mostrar esta guía
-            </button>
-          )}
+          {/* Disponible en cualquier paso: casi nadie llega al ultimo, y "Saltar" solo
+              cierra por esta sesion. Sin esto, la guia volvia a aparecer siempre. */}
+          <button onClick={onDismissNever} style={{
+            width: "100%", marginTop: 9, background: "transparent", border: "none",
+            color: C.dim, fontSize: 10, textDecoration: "underline", cursor: "pointer",
+          }}>
+            No volver a mostrar esta guía
+          </button>
         </div>
       </div>
     </>

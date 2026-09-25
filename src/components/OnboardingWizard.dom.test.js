@@ -44,7 +44,7 @@ const llegarA = (id) => { for (let i = 0; i < idxDe(id); i++) avanzar(); };
 
 test("arranca en la bienvenida y no adivina pasos", () => {
   render();
-  expect(textoGlobo()).toContain("¡Bienvenido a RutaFlow!");
+  expect(textoGlobo()).toContain("¡Bienvenido a Ruleto Drive!");
   expect(textoGlobo()).toContain(`1/${TOUR_STEPS.length}`);
 });
 

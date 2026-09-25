@@ -1,5 +1,5 @@
-// ─── RutaFlow Service Worker ──────────────────────────────────────────────────
-const VERSION = "rutaflow-v6";
+// ─── Ruleto Drive Service Worker ───────────────────────────────────────────────
+const VERSION = "ruleto-v1";
 
 // Archivos que guardamos en caché para que la app cargue sin internet
 const CACHE_STATIC = [
@@ -16,7 +16,7 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
       const response = await fetch("/asset-manifest.json", { cache: "no-store" });
-      if (!response.ok) throw new Error("No se pudo preparar RutaFlow para uso sin conexión");
+      if (!response.ok) throw new Error("No se pudo preparar Ruleto Drive para uso sin conexión");
       const manifest = await response.json();
       const entries = Array.isArray(manifest.entrypoints) ? manifest.entrypoints : [];
       const assets = [...new Set([...CACHE_STATIC, ...entries.map(path => path.startsWith("/") ? path : `/${path}`)])];
@@ -32,7 +32,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(
-      keys.filter((key) => key.startsWith("rutaflow-") && key !== VERSION).map((key) => caches.delete(key))
+      keys.filter((key) => (key.startsWith("rutaflow-") || key.startsWith("ruleto-")) && key !== VERSION).map((key) => caches.delete(key))
     )).then(() => self.clients.claim())
   );
 });
@@ -78,7 +78,7 @@ self.addEventListener("fetch", (event) => {
 self.addEventListener("push", (event) => {
   if (!event.data) return;
   const data = event.data.json();
-  self.registration.showNotification(data.title || "RutaFlow", {
+  self.registration.showNotification(data.title || "Ruleto Drive", {
     body: data.body || "",
     icon: "/icons/icon-192.png",
     badge: "/icons/icon-192.png",

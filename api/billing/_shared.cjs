@@ -51,7 +51,7 @@ async function findCustomerForUser(userId){
 async function customerForUser(userId){
   const existing=await findCustomerForUser(userId);
   if(existing)return existing;
-  const customer=await stripeRequest("customers",{params:{"metadata[supabase_user_id]":userId},idempotencyKey:`rutaflow-customer-${userId}`});
+  const customer=await stripeRequest("customers",{params:{"metadata[supabase_user_id]":userId},idempotencyKey:`ruleto-customer-${userId}`});
   await adminRequest("billing_customers",{method:"POST",body:{user_id:userId,stripe_customer_id:customer.id}});
   return customer.id;
 }
@@ -59,7 +59,7 @@ async function customerForUser(userId){
 function requestKey(req,userId,purpose){
   const raw=String(req.headers?.["idempotency-key"]||req.body?.request_id||"");
   if(!/^[A-Za-z0-9_.:-]{8,200}$/.test(raw))return null;
-  return `rutaflow-${purpose}-${userId}-${crypto.createHash("sha256").update(raw).digest("hex").slice(0,32)}`;
+  return `ruleto-${purpose}-${userId}-${crypto.createHash("sha256").update(raw).digest("hex").slice(0,32)}`;
 }
 
 function appUrl(){
@@ -69,7 +69,7 @@ function appUrl(){
 
 function sendError(res,error){
   const status=error?.statusCode||500;
-  if(status>=500)console.error("RutaFlow billing error",error?.message||error);
+  if(status>=500)console.error("Ruleto billing error",error?.message||error);
   return res.status(status).json({error:status===503?"Billing no está configurado.":status===401?"Sesión no válida.":error?.message||"No se pudo procesar billing."});
 }
 

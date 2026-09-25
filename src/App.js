@@ -24,9 +24,7 @@ import { FLAGS } from "./constants/contracts";
 import { SupportModal } from "./components/SupportModal";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { PermissionGate, necesitaPuertaDePermisos } from "./components/PermissionGate";
-
-// ─── PALETA ──────────────────────────────────────────────────────────────────
-const C={bg:"#07080d",card:"#0d0f1a",card2:"#111320",border:"#1a1d2e",bord2:"#242740",accent:"#f0a500",teal:"#00c9a7",danger:"#ff4055",dim:"#3a3d55",muted:"#6b6e8a",text:"#dde0f5"};
+import { C, ACCENT_FILL, useTheme } from "./theme";
 
 // ─── localStorage ─────────────────────────────────────────────────────────────
 const LS={
@@ -115,6 +113,20 @@ const calcTrip=(trip,cfg)=>{
   const net=fare-fee-gas-fx,hrs=min/60;
   return{km,min,fare,gas,fee,fx,net,hrs,nph:hrs>0?net/hrs:0,npk:km>0?net/km:0,pct:fare>0?(net/fare)*100:0};
 };
+// ─── META DE GANANCIA (por hora o por km, solo una activa a la vez) ───────────
+const EARNINGS_MODES={
+  hour:{id:"hour",metric:"nph",targetKey:"targetHourlyRate",unit:"MXN/hr",short:"/hr",label:"Por hora",fieldLabel:"Meta por hora"},
+  km:{id:"km",metric:"npk",targetKey:"targetKmRate",unit:"MXN/km",short:"/km",label:"Por kilómetro",fieldLabel:"Meta por km"},
+};
+const earningsMode=cfg=>EARNINGS_MODES[cfg?.earningsMode]||EARNINGS_MODES.hour;
+const goalTarget=cfg=>Number(cfg?.[earningsMode(cfg).targetKey])||0;
+// Evalúa un viaje ya calculado (calcTrip) contra la meta activa: solo una de
+// las dos metas (por hora o por km) decide si conviene, la otra es informativa.
+const tripEval=(c,cfg)=>{
+  const mode=earningsMode(cfg),target=goalTarget(cfg),value=c[mode.metric];
+  const good=value>=target,ok=value>=target*.75;
+  return{mode,target,value,good,ok,col:good?C.teal:ok?C.warn:C.danger};
+};
 const calcBonus=(bonus,cfg)=>{
   const amount=Number(bonus.amount)||0;
   const extraKm=Number(bonus.extra_km)||0;
@@ -124,7 +136,9 @@ const calcBonus=(bonus,cfg)=>{
   const cost=distanceCost(extraKm,cfg);
   const gas=cost.gas,wear=cost.wear;
   const net=amount-gas-wear;
-  const targetCost=extraMin>0?((cfg.targetHourlyRate||200)*extraMin)/60:0;
+  const mode=earningsMode(cfg),target=goalTarget(cfg);
+  // Costo de oportunidad del tiempo/km extra que pide el bono, medido con la meta activa.
+  const targetCost=mode.id==="km"?(extraKm>0?target*extraKm:0):(extraMin>0?(target*extraMin)/60:0);
   return{amount,extraKm,extraMin,gas,wear,net,targetCost,valueAfterTime:net-targetCost,progress:required>0?Math.min(completed/required,1):0};
 };
 const evaluateTripForBonus=(trip,bonus,cfg)=>{
@@ -137,17 +151,19 @@ const evaluateTripForBonus=(trip,bonus,cfg)=>{
   const bonusShare=remaining>0?b.net/remaining:0;
   const effectiveNet=c.net+bonusShare;
   const effectiveHourly=c.min>0?effectiveNet/(c.min/60):0;
-  const target=cfg.targetHourlyRate||200;
+  const effectiveKm=c.km>0?effectiveNet/c.km:0;
+  const mode=earningsMode(cfg),target=goalTarget(cfg);
+  const effectiveValue=mode.id==="km"?effectiveKm:effectiveHourly;
   const enoughTime=minLeft===null||minLeft>Math.max(c.min,1);
   const paceOk=avgMinNeeded===null||avgMinNeeded>=12;
-  const profitable=effectiveHourly>=target&&c.net>=0;
+  const profitable=effectiveValue>=target&&c.net>=0;
   let verdict="neutral";
   if(remaining<=0)verdict="done";
   else if(!enoughTime)verdict="skip";
   else if(profitable&&paceOk)verdict="take";
   else if(effectiveNet>0&&enoughTime)verdict="maybe";
   else verdict="skip";
-  return{trip:c,bonus:b,remaining,remainingAfter,minLeft,avgMinNeeded,bonusShare,effectiveNet,effectiveHourly,target,enoughTime,paceOk,profitable,verdict};
+  return{trip:c,bonus:b,remaining,remainingAfter,minLeft,avgMinNeeded,bonusShare,effectiveNet,effectiveHourly,effectiveKm,target,enoughTime,paceOk,profitable,verdict};
 };
 const eventMs=e=>new Date(e.occurred_at||e.created_at||0).getTime();
 const tripMs=t=>new Date(t.end_time||t.created_at||0).getTime();
@@ -275,20 +291,20 @@ const eventMeta=type=>({
 }[type]||{label:"Movimiento",icon:IC.trips,color:C.muted});
 const eventDescription=e=>e.type==="dead_km"?`${fmt(e.km,1)} km sin pasaje`:e.type==="refuel"?`${fmt(e.liters,2)} L · ${fmtMXN(e.amount)}`:e.type==="tank_checkpoint"?`Tanque ajustado a ${fmt(e.tank_liters,1)} L`:`${fmtMXN(e.amount)} de propina`;
 
-const CSS=`
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Barlow+Condensed:wght@700;800;900&display=swap');
+const buildCSS=(C,mode)=>`
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 ::-webkit-scrollbar{width:0;height:0;}
 html,body,#root{width:100%;min-height:100%;overflow-x:hidden;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
-body{background:#07080d;color:#dde0f5;font-family:'IBM Plex Mono',monospace;-webkit-font-smoothing:antialiased;overscroll-behavior-x:none;touch-action:pan-x pan-y;}
+body{background:${C.bg};color:${C.text};font-family:'Inter',sans-serif;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;overscroll-behavior-x:none;touch-action:pan-x pan-y;}
 button,input,select,textarea{touch-action:manipulation;}
-input,select,textarea{font-family:'IBM Plex Mono',monospace;}
+input,select,textarea{font-family:'Inter',sans-serif;}
 @media (hover:none) and (pointer:coarse){input,select,textarea{font-size:16px!important;}}
 input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;}
-input[type=date]::-webkit-calendar-picker-indicator,input[type=datetime-local]::-webkit-calendar-picker-indicator{filter:invert(1);opacity:1;cursor:pointer;}
-button{cursor:pointer;font-family:'IBM Plex Mono',monospace;border:none;background:none;}
+input[type=date]::-webkit-calendar-picker-indicator,input[type=datetime-local]::-webkit-calendar-picker-indicator{filter:${mode==="light"?"none":"invert(1)"};opacity:1;cursor:pointer;}
+button{cursor:pointer;font-family:'Inter',sans-serif;border:none;background:none;}
 button:active{transform:scale(0.97);}
-.B{font-family:'Barlow Condensed',sans-serif;}
+.B{font-family:'Inter',sans-serif;font-weight:800;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -299,14 +315,14 @@ button:active{transform:scale(0.97);}
 .su{animation:slideUp .26s cubic-bezier(.32,.72,0,1) forwards;}
 .md{overflow-wrap:anywhere;}
 .md p{margin:0 0 10px;}.md p:last-child{margin-bottom:0;}
-.md h1,.md h2,.md h3{font-family:'Barlow Condensed',sans-serif;color:#f0a500;line-height:1.15;margin:16px 0 8px;letter-spacing:0;}
+.md h1,.md h2,.md h3{font-family:'Inter',sans-serif;font-weight:800;color:${C.accent};line-height:1.15;margin:16px 0 8px;letter-spacing:0;}
 .md h1{font-size:22px}.md h2{font-size:19px}.md h3{font-size:16px}
-.md ul,.md ol{padding-left:20px;margin:7px 0 11px}.md li{margin:4px 0}.md strong{color:#fff;font-weight:700}
-.md blockquote{border-left:3px solid #f0a500;padding:7px 10px;margin:10px 0;background:#f0a5000c;color:#dde0f5}
-.md code{background:#07080d;border:1px solid #242740;border-radius:4px;padding:1px 4px;font-size:.92em}
-.md pre{overflow:auto;background:#07080d;border:1px solid #242740;border-radius:7px;padding:10px;margin:10px 0}.md pre code{border:0;padding:0}
-.md .table-wrap{overflow-x:auto;margin:10px 0;border:1px solid #242740;border-radius:7px}
-.md table{width:100%;border-collapse:collapse;min-width:380px;font-size:11px}.md th,.md td{padding:8px 9px;border-bottom:1px solid #242740;text-align:left;vertical-align:top}.md th{color:#f0a500;background:#111320}.md tr:last-child td{border-bottom:0}
+.md ul,.md ol{padding-left:20px;margin:7px 0 11px}.md li{margin:4px 0}.md strong{color:${C.text};font-weight:700}
+.md blockquote{border-left:3px solid ${C.accent};padding:7px 10px;margin:10px 0;background:${C.accent}0c;color:${C.text}}
+.md code{background:${C.bg};border:1px solid ${C.border};border-radius:4px;padding:1px 4px;font-size:.92em}
+.md pre{overflow:auto;background:${C.bg};border:1px solid ${C.border};border-radius:7px;padding:10px;margin:10px 0}.md pre code{border:0;padding:0}
+.md .table-wrap{overflow-x:auto;margin:10px 0;border:1px solid ${C.border};border-radius:7px}
+.md table{width:100%;border-collapse:collapse;min-width:380px;font-size:11px}.md th,.md td{padding:8px 9px;border-bottom:1px solid ${C.border};text-align:left;vertical-align:top}.md th{color:${C.accent};background:${C.card2}}.md tr:last-child td{border-bottom:0}
 `;
 
 // ─── HOOKS DE SISTEMA ────────────────────────────────────────────────────────
@@ -427,7 +443,7 @@ function useInstallApp(){
     if(isIOS)alert('En Safari toca Compartir, despues "Agregar a pantalla de inicio" y activa "Abrir como app".');
     else alert('Abre el menu de Chrome y toca "Instalar app" o "Agregar a pantalla principal".');
   };
-  return{available:!installed,installed,install,isIOS};
+  return{available:!installed&&!Capacitor.isNativePlatform(),installed,install,isIOS};
 }
 
 // ─── ATOMS ───────────────────────────────────────────────────────────────────
@@ -448,13 +464,13 @@ const Inp=({label,value,onChange,type="text",unit,placeholder="0"})=>(
     <div style={{position:"relative"}}>
       <input type={type} step="any" value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
         onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}
-        style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 34px 9px 11px",color:"#fff",fontSize:15,fontFamily:"inherit",outline:"none"}}/>
+        style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 34px 9px 11px",color:C.text,fontSize:15,fontFamily:"inherit",outline:"none"}}/>
       {unit&&<span style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",fontSize:9,color:C.muted}}>{unit}</span>}
     </div>
   </div>
 );
 const Toast=({msg,type="ok"})=>msg?(
-  <div style={{position:"fixed",top:"calc(16px + env(safe-area-inset-top))",left:"50%",transform:"translateX(-50%)",zIndex:99999,background:type==="ok"?"#00c9a7":type==="warn"?"#f0a500":"#ff4055",color:"#000",borderRadius:10,padding:"10px 20px",fontSize:12,fontWeight:700,letterSpacing:"0.08em",whiteSpace:"nowrap",boxShadow:"0 4px 24px rgba(0,0,0,.6)"}}>
+  <div style={{position:"fixed",top:"calc(16px + env(safe-area-inset-top))",left:"50%",transform:"translateX(-50%)",zIndex:99999,background:type==="ok"?ACCENT_FILL:type==="warn"?"#f0a500":"#ff4055",color:"#000",borderRadius:10,padding:"10px 20px",fontSize:12,fontWeight:700,letterSpacing:"0.08em",whiteSpace:"nowrap",boxShadow:"0 4px 24px rgba(0,0,0,.6)"}}>
     {type==="ok"?"✅":type==="warn"?"📥":"⚠️"} {msg}
   </div>
 ):null;
@@ -482,12 +498,12 @@ function DateRangeControl({value,onChange}){
 const UpgradeCard=({monthlyTripsCount=0,onUpgrade=openUpgrade,s})=>(
   <div style={{background:`${C.accent}12`,border:`1px solid ${C.accent}3d`,borderRadius:12,padding:"12px 13px",display:"flex",alignItems:"center",gap:12,...s}}>
     <div style={{flex:1}}>
-      <div className="B" style={{fontSize:17,fontWeight:800,color:C.accent,letterSpacing:1}}>RUTAFLOW PRO</div>
+      <div className="B" style={{fontSize:17,fontWeight:800,color:C.accent,letterSpacing:1}}>RULETO PRO</div>
       <div style={{fontSize:11,color:C.text,lineHeight:1.45,marginTop:3}}>
         {monthlyTripsCount}/{FREE_MONTHLY_TRIP_LIMIT} viajes gratis este mes. Pro desbloquea GPS, Foto IA, asesor IA e historial ilimitado.
       </div>
     </div>
-    <button onClick={onUpgrade} style={{background:C.accent,color:"#000",borderRadius:8,padding:"9px 11px",fontSize:10,fontWeight:900,letterSpacing:"0.12em"}}>VER PRO</button>
+    <button onClick={onUpgrade} style={{background:ACCENT_FILL,color:"#000",borderRadius:8,padding:"9px 11px",fontSize:10,fontWeight:900,letterSpacing:"0.12em"}}>VER PRO</button>
   </div>
 );
 
@@ -518,8 +534,8 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
   };
 
   const c=calcTrip(editing?form:trip,cfg);
-  const good=c.nph>=cfg.targetHourlyRate,ok=c.nph>=cfg.targetHourlyRate*.75;
-  const V=good?{col:C.teal,lbl:"✅ Excelente viaje"}:ok?{col:C.accent,lbl:"⚠️ Aceptable"}:{col:C.danger,lbl:"❌ No rentable"};
+  const ev=tripEval(c,cfg),good=ev.good,ok=ev.ok;
+  const V=good?{col:C.teal,lbl:"✅ Excelente viaje"}:ok?{col:C.warn,lbl:"⚠️ Aceptable"}:{col:C.danger,lbl:"❌ No rentable"};
   const rows=[
     {l:"Tarifa bruta",v:fmtMXN(c.fare),c:C.text},
     {l:`Comisión ${platformInfo(cfg,editing?form.platform:trip.platform).name} (${platformCommission(cfg,editing?form.platform:trip.platform)}%)`,v:`-${fmtMXN(c.fee)}`,c:C.danger},
@@ -562,7 +578,7 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
               <Lbl s={{marginBottom:7}}>Tarifa (MXN)</Lbl>
               <input type="number" step="any" value={form.fare} onChange={e=>setF("fare",e.target.value)}
                 onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}
-                style={{width:"100%",background:"#0a0b14",border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",color:C.accent,fontSize:36,fontFamily:"inherit",fontWeight:700,outline:"none",textAlign:"center",marginBottom:14}}/>
+                style={{width:"100%",background:C.well,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",color:C.accent,fontSize:36,fontFamily:"inherit",fontWeight:700,outline:"none",textAlign:"center",marginBottom:14}}/>
               <Lbl s={{marginBottom:7}}>Recolección</Lbl>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
                 <Inp label="km" type="number" value={form.pickup_km} onChange={v=>setF("pickup_km",v)} unit="km"/>
@@ -581,7 +597,7 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
               <div style={{background:`${V.col}10`,border:`1px solid ${V.col}33`,borderRadius:11,padding:"12px 14px",marginBottom:14}}>
                 <div className="B" style={{fontSize:14,color:V.col,marginBottom:8}}>{V.lbl}</div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:7}}>
-                  {[{l:"NETO",v:fmtMXN(c.net),c:c.net>=0?C.teal:C.danger},{l:"$/HORA",v:fmtMXN(c.nph),c:V.col},{l:"$/KM",v:fmtMXN(c.npk),c:C.muted}].map(({l,v,c:col})=>(
+                  {[{l:"NETO",v:fmtMXN(c.net),c:c.net>=0?C.teal:C.danger},{l:"$/HORA",v:fmtMXN(c.nph),c:ev.mode.id==="hour"?V.col:C.muted},{l:"$/KM",v:fmtMXN(c.npk),c:ev.mode.id==="km"?V.col:C.muted}].map(({l,v,c:col})=>(
                     <div key={l} style={{textAlign:"center"}}><Lbl s={{marginBottom:3}}>{l}</Lbl><Big size={14} color={col}>{v}</Big></div>
                   ))}
                 </div>
@@ -594,7 +610,7 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
                 <div style={{textAlign:"right"}}><Big size={20}>{fmtMXN(c.fare)}</Big><Lbl s={{marginTop:3}}>tarifa bruta</Lbl></div>
               </div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:7,marginBottom:14}}>
-                {[{l:"Duración",v:`${c.min.toFixed(0)} min`,c:C.text},{l:"Distancia",v:`${fmt(c.km,1)} km`,c:C.text},{l:"$/hora",v:fmtMXN(c.nph),c:good?C.teal:ok?C.accent:C.danger},{l:"$/km",v:fmtMXN(c.npk),c:C.text},{l:"% neto",v:fmtPct(c.pct),c:c.pct>40?C.teal:C.accent},{l:"Gas",v:fmtMXN(c.gas),c:C.danger}].map(({l,v,c:col})=>(
+                {[{l:"Duración",v:`${c.min.toFixed(0)} min`,c:C.text},{l:"Distancia",v:`${fmt(c.km,1)} km`,c:C.text},{l:"$/hora",v:fmtMXN(c.nph),c:ev.mode.id==="hour"?(good?C.teal:ok?C.warn:C.danger):C.text},{l:"$/km",v:fmtMXN(c.npk),c:ev.mode.id==="km"?(good?C.teal:ok?C.warn:C.danger):C.text},{l:"% neto",v:fmtPct(c.pct),c:c.pct>40?C.teal:C.warn},{l:"Gas",v:fmtMXN(c.gas),c:C.danger}].map(({l,v,c:col})=>(
                   <div key={l} style={{background:C.card2,borderRadius:9,padding:"9px 11px"}}><Lbl s={{marginBottom:4}}>{l}</Lbl><Big size={15} color={col}>{v}</Big></div>
                 ))}
               </div>
@@ -801,7 +817,8 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
   const bonusInsights=hasData?activeBonuses
     .filter(b=>String(b.platform||"").toLowerCase()===String(trip.platform||"").toLowerCase())
     .map(b=>({bonus:b,insight:evaluateTripForBonus(trip,b,cfg)})):[];
-  const V=c.nph>=cfg.targetHourlyRate?{col:C.teal,lbl:"✅ Excelente"}:c.nph>=cfg.targetHourlyRate*.75?{col:C.accent,lbl:"⚠️ Aceptable"}:{col:C.danger,lbl:"❌ No conviene"};
+  const ev=tripEval(c,cfg);
+  const V=ev.good?{col:C.teal,lbl:"✅ Excelente"}:ev.ok?{col:C.warn,lbl:"⚠️ Aceptable"}:{col:C.danger,lbl:"❌ No conviene"};
   const mBtn=id=>({padding:"8px 4px",borderRadius:8,fontSize:10,fontWeight:600,fontFamily:"inherit",background:mode===id?`${C.teal}1e`:"transparent",border:`1px solid ${mode===id?C.teal:C.border}`,color:mode===id?C.teal:C.muted});
 
   return(
@@ -857,7 +874,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
             <Lbl s={{marginBottom:5}}>💰 Tarifa del viaje (MXN)</Lbl>
             <input type="number" step="any" value={trip.fare} onChange={e=>setF("fare",e.target.value)} placeholder="0.00"
               onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}
-              style={{width:"100%",background:"#0a0b14",border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",color:C.accent,fontSize:38,fontFamily:"inherit",fontWeight:700,outline:"none",textAlign:"center"}}/>
+              style={{width:"100%",background:C.well,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",color:C.accent,fontSize:38,fontFamily:"inherit",fontWeight:700,outline:"none",textAlign:"center"}}/>
           </div>
           {mode==="gps"&&(
             <div data-tour="trip-gps-panel" style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:12,padding:15,marginBottom:12}}>
@@ -911,7 +928,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
             <div style={{background:`${V.col}10`,border:`1px solid ${V.col}33`,borderRadius:11,padding:"12px 14px",marginBottom:12}}>
               <div className="B" style={{fontSize:15,color:V.col,marginBottom:8}}>{V.lbl}</div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:7}}>
-                {[{l:"NETO",v:fmtMXN(c.net),c:c.net>=0?C.teal:C.danger},{l:"POR HORA",v:fmtMXN(c.nph),c:V.col},{l:"POR KM",v:fmtMXN(c.npk),c:C.muted}].map(({l,v,c:col})=>(
+                {[{l:"NETO",v:fmtMXN(c.net),c:c.net>=0?C.teal:C.danger},{l:"POR HORA",v:fmtMXN(c.nph),c:ev.mode.id==="hour"?V.col:C.muted},{l:"POR KM",v:fmtMXN(c.npk),c:ev.mode.id==="km"?V.col:C.muted}].map(({l,v,c:col})=>(
                   <div key={l} style={{textAlign:"center"}}><Lbl s={{marginBottom:3}}>{l}</Lbl><Big size={15} color={col}>{v}</Big></div>
                 ))}
               </div>
@@ -919,7 +936,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
           )}
           {bonusInsights.length>0&&<div style={{marginBottom:12}}>
             <Lbl s={{marginBottom:7}}>Impacto en bono activo</Lbl>
-            {bonusInsights.map(({bonus,insight})=><BonusTripAdvice key={bonus.id} bonus={bonus} insight={insight}/>)}
+            {bonusInsights.map(({bonus,insight})=><BonusTripAdvice key={bonus.id} bonus={bonus} insight={insight} cfg={cfg}/>)}
           </div>}
           <div style={{height:8}}/>
         </div>
@@ -1025,7 +1042,7 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
       { lang: "es-MX", continuous: true },
       (heard) => setText(`${base}${base?" ":""}${heard.trim()}`),
       (e) => {
-        setVoiceError(e.error==="not-allowed"?"Activa el permiso del microfono para RutaFlow.":"No se escucho con claridad. Intenta de nuevo o corrige el texto.");
+        setVoiceError(e.error==="not-allowed"?"Activa el permiso del microfono para Ruleto.":"No se escucho con claridad. Intenta de nuevo o corrige el texto.");
       },
       () => {
         setListening(false);
@@ -1209,19 +1226,21 @@ function BonusCard({bonus,cfg,onProgress}){
   </div>;
 }
 
-function BonusTripAdvice({bonus,insight}){
-  const color=insight.verdict==="take"?C.teal:insight.verdict==="maybe"?C.accent:C.danger;
+function BonusTripAdvice({bonus,insight,cfg}){
+  const mode=earningsMode(cfg);
+  const effectiveValue=mode.id==="km"?insight.effectiveKm:insight.effectiveHourly;
+  const color=insight.verdict==="take"?C.teal:insight.verdict==="maybe"?C.warn:C.danger;
   const title={take:"TOMAR: ayuda al bono",maybe:"Solo si no hay mejor",skip:"Mejor espera otro",done:"Bono completo",neutral:"Revisa el bono"}[insight.verdict];
   const shape=insight.avgMinNeeded&&insight.avgMinNeeded<22
     ? `Busca viajes cortos de ${fmt(Math.max(8,insight.avgMinNeeded-4),0)}-${fmt(insight.avgMinNeeded+4,0)} min.`
-    : "Acepta medianos solo si quedan arriba de tu meta por hora.";
+    : `Acepta medianos solo si quedan arriba de tu meta ${mode.label.toLowerCase()}.`;
   return <div style={{background:C.card2,border:`1px solid ${color}66`,borderRadius:10,padding:"10px 12px",marginBottom:10}}>
     <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
       <div style={{fontSize:11,color,fontWeight:900,letterSpacing:"0.08em"}}>{title}</div>
       <div style={{fontSize:11,color:C.text,fontWeight:800}}>+{fmtMXN(insight.bonusShare)}</div>
     </div>
     <div style={{fontSize:11,color:C.text,lineHeight:1.5,marginTop:6}}>
-      Faltarían {insight.remainingAfter} viajes. Neto con parte del bono: {fmtMXN(insight.effectiveNet)} · {fmtMXN(insight.effectiveHourly)}/hr.
+      Faltarían {insight.remainingAfter} viajes. Neto con parte del bono: {fmtMXN(insight.effectiveNet)} · {fmtMXN(effectiveValue)}{mode.short}.
     </div>
     <div style={{fontSize:10,color:C.muted,lineHeight:1.45,marginTop:5}}>
       {insight.avgMinNeeded?`Ritmo restante: max ${fmt(insight.avgMinNeeded,0)} min/viaje. `:""}{shape}{bonus.expires_at?` Vence ${fmtHour(bonus.expires_at)}.`:""}
@@ -1277,7 +1296,7 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
               <SVG d={IC.mic} size={17} color={copilotState.running?C.teal:C.accent}/>
             </div>
             <div style={{minWidth:0}}>
-              <div className="B" style={{fontSize:14,color:copilotState.running?C.teal:C.text}}>COPILOTO DE OFERTAS</div>
+              <div className="B" style={{fontSize:14,color:copilotState.running?C.teal:C.text}}>RULETO COPILOTO</div>
               <div style={{fontSize:9,color:C.muted,lineHeight:1.45,marginTop:2}}>{copilotState.supported?(copilotState.message||"Lee la pantalla y explica cada oferta por voz"):"Disponible al instalar la app para Android"}</div>
             </div>
           </div>
@@ -1319,13 +1338,13 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
               )}
               <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:10,alignItems:"center"}}>
                 <div>
-                  <div style={{fontSize:11,color:currentOffer.verdict==="good"?C.teal:currentOffer.verdict==="maybe"?C.accent:C.danger,fontWeight:800}}>
+                  <div style={{fontSize:11,color:currentOffer.verdict==="good"?C.teal:currentOffer.verdict==="maybe"?C.warn:C.danger,fontWeight:800}}>
                     {currentOffer.verdict==="good"?"BUEN VIAJE":currentOffer.verdict==="maybe"?"ACEPTABLE":"NO CONVIENE"} · {String(currentOffer.platform||"otra").toUpperCase()}
                   </div>
                   <div style={{fontSize:9,color:C.muted,marginTop:3,lineHeight:1.45}}>{currentOffer.explanation}</div>
                 </div>
                 <div style={{textAlign:"right"}}>
-                  <Big size={19} color={currentOffer.verdict==="good"?C.teal:C.accent}>{fmtMXN(currentOffer.hourly)}/h</Big>
+                  <Big size={19} color={currentOffer.verdict==="good"?C.teal:C.warn}>{earningsMode(cfg).id==="km"?`${fmtMXN(currentOffer.perKm)}/km`:`${fmtMXN(currentOffer.hourly)}/h`}</Big>
                   <div style={{fontSize:8,color:C.muted,marginTop:2}}>{fmtMXN(currentOffer.net)} netos</div>
                 </div>
               </div>
@@ -1340,12 +1359,12 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
             <div style={{fontSize:9,color:C.accent,lineHeight:1.35}}>
               ✨ Activa "Mostrar sobre otras apps" para resaltar viajes en la pantalla.
             </div>
-            <button onClick={()=>copilot.requestOverlayPermission()} style={{padding:"4px 8px",borderRadius:6,background:C.accent,color:"#000",fontSize:9,fontWeight:800,border:"none",cursor:"pointer",flexShrink:0}}>
+            <button onClick={()=>copilot.requestOverlayPermission()} style={{padding:"4px 8px",borderRadius:6,background:ACCENT_FILL,color:"#000",fontSize:9,fontWeight:800,border:"none",cursor:"pointer",flexShrink:0}}>
               ACTIVAR
             </button>
           </div>
         )}
-        {copilotState.supported&&!copilotState.running&&<div style={{fontSize:8,color:C.dim,lineHeight:1.45,marginTop:9}}>Android mostrará el permiso de captura. RutaFlow procesa el texto en el teléfono y no guarda imágenes.</div>}
+        {copilotState.supported&&!copilotState.running&&<div style={{fontSize:8,color:C.dim,lineHeight:1.45,marginTop:9}}>Android mostrará el permiso de captura. Ruleto Copiloto procesa el texto en el teléfono y no guarda imágenes.</div>}
       </Card>
       <div data-tour="kpi-panel" style={{marginBottom:14}}>
         <Lbl s={{marginBottom:3}}>Ganancia neta hoy</Lbl>
@@ -1450,7 +1469,7 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
           <Lbl s={{marginBottom:11}}>Viajes de hoy — <span style={{color:C.dim}}>toca para desglose</span></Lbl>
           {visibleTrips.map(t=>{
             const c=calcTrip(t,cfg);
-            const col=c.nph>=cfg.targetHourlyRate?C.teal:c.nph>=cfg.targetHourlyRate*.75?C.accent:C.danger;
+            const ev=tripEval(c,cfg),col=ev.col;
             return(
               <div key={t.id} onClick={()=>onSelect(t)}
                 style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
@@ -1465,7 +1484,7 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
                 </div>
                 <div style={{textAlign:"right"}}>
                   <Big size={18} color={col}>{fmtMXN(c.net)}</Big>
-                  <Lbl s={{marginTop:2}}>{fmtMXN(c.nph)}/hr</Lbl>
+                  <Lbl s={{marginTop:2}}>{fmtMXN(ev.value)}{ev.mode.short}</Lbl>
                 </div>
               </div>
             );
@@ -1514,7 +1533,7 @@ function TripsTab({cfg,trips,events,bonuses,closures,onSelect,onNew,onQuick,onSe
         <div style={{textAlign:"center",padding:"48px 0",color:C.dim}}><div style={{fontSize:34,marginBottom:9}}>🚗</div><Lbl>Sin viajes registrados</Lbl></div>
       ):filtered.map(t=>{
         const c=calcTrip(t,cfg);
-        const col=c.nph>=cfg.targetHourlyRate?C.teal:c.nph>=cfg.targetHourlyRate*.75?C.accent:C.danger;
+        const ev=tripEval(c,cfg),col=ev.col;
         return(
           <Card key={t.id} s={{marginBottom:7,cursor:"pointer"}} onClick={()=>onSelect(t)}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
@@ -1531,7 +1550,7 @@ function TripsTab({cfg,trips,events,bonuses,closures,onSelect,onNew,onQuick,onSe
               </div>
               <div style={{textAlign:"right",display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}}>
                 <Big size={19} color={col}>{fmtMXN(c.net)}</Big>
-                <Lbl>{fmtMXN(c.nph)}/hr</Lbl>
+                <Lbl>{fmtMXN(ev.value)}{ev.mode.short}</Lbl>
               </div>
             </div>
             <div style={{marginTop:9,height:3,borderRadius:3,background:C.card2,overflow:"hidden"}}>
@@ -1628,7 +1647,7 @@ function StatsTab({cfg,trips,events,bonuses}){
         {hourData.length>0&&<Card s={{marginBottom:11,padding:"13px 8px"}}>
           <Lbl s={{marginBottom:11,paddingLeft:6}}>Rentabilidad por hora del día</Lbl>
           <ResponsiveContainer width="100%" height={125}>
-            <BarChart data={hourData} margin={{left:-20}}><CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/><XAxis dataKey="label" tick={{fill:C.dim,fontSize:9}} axisLine={false} tickLine={false}/><YAxis tick={{fill:C.dim,fontSize:9}} axisLine={false} tickLine={false}/><Tooltip content={<Tip/>}/><Bar dataKey="avg" name="$/viaje" radius={[3,3,0,0]}>{hourData.map((e,i)=><Cell key={i} fill={e.avg>=cfg.targetHourlyRate/8?C.teal:e.avg>=cfg.targetHourlyRate/12?C.accent:C.danger}/>)}</Bar></BarChart>
+            <BarChart data={hourData} margin={{left:-20}}><CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/><XAxis dataKey="label" tick={{fill:C.dim,fontSize:9}} axisLine={false} tickLine={false}/><YAxis tick={{fill:C.dim,fontSize:9}} axisLine={false} tickLine={false}/><Tooltip content={<Tip/>}/><Bar dataKey="avg" name="$/viaje" radius={[3,3,0,0]}>{hourData.map((e,i)=><Cell key={i} fill={e.avg>=cfg.targetHourlyRate/8?C.teal:e.avg>=cfg.targetHourlyRate/12?C.warn:C.danger}/>)}</Bar></BarChart>
           </ResponsiveContainer>
         </Card>}
         <Card s={{marginBottom:11,padding:"13px 8px"}}>
@@ -1726,7 +1745,7 @@ function AITab({cfg,trips,events=[],bonuses,closures=[],locations=[],isPro,month
       (heard) => {emitTourEvent(TOUR_EVENTS.AI_VOICE_STARTED);setInput(`${base}${base?" ":""}${heard.trim()}`);},
       (e) => {
         const errors={
-          "not-allowed":"Activa el permiso del micrófono para hablar con RutaFlow.",
+          "not-allowed":"Activa el permiso del micrófono para hablar con Ruleto IA.",
           "service-not-allowed":"El servicio de dictado está bloqueado en este dispositivo.",
           "audio-capture":"No encontré un micrófono disponible.",
           "no-speech":"No alcancé a escuchar. Toca el micrófono e inténtalo de nuevo.",
@@ -1829,10 +1848,10 @@ function AITab({cfg,trips,events=[],bonuses,closures=[],locations=[],isPro,month
     const lastClosure=closures[0];
     const closureCtx=lastClosure?`${dateKey(lastClosure.date||lastClosure.end_time)}: ${lastClosure.trip_count||0} viajes, ${fmtMXN(lastClosure.total_net)}, ${fmt(lastClosure.total_km,1)}km, ${fmt(lastClosure.dead_km,1)}km sin pasaje`:"ninguno";
 
-    return`CTX RUTAFLOW
+    return`CTX RULETO
 FECHA LOCAL: ${today()} ${fmtHour(new Date())}
 ZONA HORARIA DEL DISPOSITIVO: ${deviceTimeZone()}
-META ${fmtMXN(cfg.targetHourlyRate)}/hr | GAS $${cfg.gasPricePerLiter}/L ${cfg.kmPerLiter}km/L
+META ACTIVA: ${fmtMXN(goalTarget(cfg))}${earningsMode(cfg).short} (${earningsMode(cfg).label}) | meta por hora ${fmtMXN(cfg.targetHourlyRate)}/hr, meta por km ${fmtMXN(cfg.targetKmRate)}/km, solo la activa decide si un viaje conviene | GAS $${cfg.gasPricePerLiter}/L ${cfg.kmPerLiter}km/L
 TOTAL ${sAll.n} viajes: neto ${fmtMXN(sAll.net)}, ${fmt(sAll.km,0)}km, ${(sAll.min/60).toFixed(0)}h, prom ${fmtMXN(sAll.n>0?sAll.net/sAll.n:0)}/viaje
 30D ${s30.n} viajes: neto ${fmtMXN(s30.net)}, ${(s30.min/60).toFixed(1)}h, ${fmtMXN(s30.min>0?s30.net/(s30.min/60):0)}/hr, gas ${fmtMXN(s30.gas)}
 OPERACION 30D: gasolina cargada ${fmt(loaded30.liters,2)}L por ${fmtMXN(loaded30.amount)}; consumo estimado ${fmt(consumedLiters30,2)}L; sin pasaje ${fmt(dead30,1)}km; propinas ${fmtMXN(tips30)}
@@ -1859,7 +1878,7 @@ ULTIMOS ${last3||"s/d"}`;
     try{
       const recentMessages=pending.slice(-3);
       const content=await callGroq("advisor",[
-        {role:"system",content:`Copiloto RutaFlow. Responde siempre en español mexicano claro y natural para escucharse en voz alta. Contesta primero la pregunta exacta con el dato registrado; no sustituyas una carga, propina o lectura de tanque por un calculo si existe el movimiento real. Responde maximo 4 bullets, breve y con numeros. Evita tablas y abreviaturas dificiles de escuchar. Para recomendaciones da una decision clara. Para zonas usa rentabilidad historica personal, no demanda en vivo. No inventes datos. Si falta justo el dato solicitado, dilo en 1 linea. ${ctx()}`},
+        {role:"system",content:`Ruleto IA. Responde siempre en español mexicano claro y natural para escucharse en voz alta. Contesta primero la pregunta exacta con el dato registrado; no sustituyas una carga, propina o lectura de tanque por un calculo si existe el movimiento real. Responde maximo 4 bullets, breve y con numeros. Evita tablas y abreviaturas dificiles de escuchar. Para recomendaciones da una decision clara. Para zonas usa rentabilidad historica personal, no demanda en vivo. No inventes datos. Si falta justo el dato solicitado, dilo en 1 linea. ${ctx()}`},
         ...recentMessages
       ].map(m=>({role:m.role,content:m.content})),900);
       const next=[...pending,{role:"assistant",content}];setMsgs(next);
@@ -1905,7 +1924,7 @@ ULTIMOS ${last3||"s/d"}`;
 }
 
 // ─── CONFIG TAB ───────────────────────────────────────────────────────────────
-function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboarding}){
+function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboarding,themeMode,setThemeMode}){
   const[local,setLocal]=useState(cfg);
   const[saved,setSaved]=useState(false);
   useEffect(()=>setLocal(cfg),[cfg]);
@@ -1922,23 +1941,45 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
         <button onClick={()=>set(ek,!local[ek])} style={{width:38,height:21,borderRadius:11,background:local[ek]?C.accent:C.bord2,position:"relative",flexShrink:0}}><div style={{width:15,height:15,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:local[ek]?20:3,transition:"left .18s"}}/></button>
       </div>
       {local[ek]&&<div style={{display:"grid",gridTemplateColumns:xk?"1fr 1fr 1fr":"1fr 1fr",gap:7}}>
-        <div><Lbl s={{marginBottom:4}}>Monto $MXN</Lbl><input type="number" value={local[mk]} onChange={e=>set(mk,parseFloat(e.target.value)||0)} style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:"#fff",fontSize:15,fontFamily:"inherit"}}/></div>
-        {pk&&<div><Lbl s={{marginBottom:4}}>Periodo</Lbl><select value={local[pk]} onChange={e=>set(pk,e.target.value)} style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:"#fff",fontSize:11,fontFamily:"inherit"}}>{periods.map(p=><option key={p} value={p}>{p}</option>)}</select></div>}
-        {xk&&<div><Lbl s={{marginBottom:4}}>{xl}</Lbl><input type="number" value={local[xk]} onChange={e=>set(xk,parseFloat(e.target.value)||0)} style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:"#fff",fontSize:15,fontFamily:"inherit"}}/></div>}
+        <div><Lbl s={{marginBottom:4}}>Monto $MXN</Lbl><input type="number" value={local[mk]} onChange={e=>set(mk,parseFloat(e.target.value)||0)} style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:C.text,fontSize:15,fontFamily:"inherit"}}/></div>
+        {pk&&<div><Lbl s={{marginBottom:4}}>Periodo</Lbl><select value={local[pk]} onChange={e=>set(pk,e.target.value)} style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:C.text,fontSize:11,fontFamily:"inherit"}}>{periods.map(p=><option key={p} value={p}>{p}</option>)}</select></div>}
+        {xk&&<div><Lbl s={{marginBottom:4}}>{xl}</Lbl><input type="number" value={local[xk]} onChange={e=>set(xk,parseFloat(e.target.value)||0)} style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:C.text,fontSize:15,fontFamily:"inherit"}}/></div>}
       </div>}
     </div>
   );
   return(
     <div className="fu" style={{padding:"15px 14px 100px"}}>
       <div className="B" style={{fontSize:22,fontWeight:800,color:C.accent,marginBottom:16,letterSpacing:1}}>CONFIGURACIÓN</div>
-      {installApp?.available&&<div style={{background:`${C.teal}10`,border:`1px solid ${C.teal}33`,borderRadius:10,padding:"12px 13px",display:"flex",alignItems:"center",gap:11,marginBottom:14}}><SVG d={IC.home} size={18} color={C.teal}/><div style={{flex:1}}><div style={{fontSize:12,color:C.text,fontWeight:700}}>Instalar RutaFlow</div><div style={{fontSize:10,color:C.muted,marginTop:3}}>Acceso directo a pantalla completa</div></div><button onClick={installApp.install} style={{padding:"8px 10px",border:`1px solid ${C.teal}`,borderRadius:7,color:C.teal,fontSize:9,fontWeight:800}}>INSTALAR</button></div>}
+      {installApp?.available&&<div style={{background:`${C.teal}10`,border:`1px solid ${C.teal}33`,borderRadius:10,padding:"12px 13px",display:"flex",alignItems:"center",gap:11,marginBottom:14}}><SVG d={IC.home} size={18} color={C.teal}/><div style={{flex:1}}><div style={{fontSize:12,color:C.text,fontWeight:700}}>Instalar Ruleto Drive</div><div style={{fontSize:10,color:C.muted,marginTop:3}}>Acceso directo a pantalla completa</div></div><button onClick={installApp.install} style={{padding:"8px 10px",border:`1px solid ${C.teal}`,borderRadius:7,color:C.teal,fontSize:9,fontWeight:800}}>INSTALAR</button></div>}
+      <Lbl s={{marginBottom:9}}>Apariencia</Lbl>
+      <Card s={{marginBottom:13}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
+          {[{id:"dark",l:"🌙 Oscuro"},{id:"light",l:"☀️ Claro"}].map(o=>{const active=themeMode===o.id;return(
+            <button key={o.id} onClick={()=>setThemeMode(o.id)} style={{padding:"9px 6px",borderRadius:8,background:active?`${C.accent}1e`:"transparent",border:`1px solid ${active?C.accent:C.border}`,color:active?C.accent:C.muted,fontSize:11,fontWeight:700}}>{o.l}</button>
+          );})}
+        </div>
+      </Card>
       <Lbl s={{marginBottom:9}}>Variables base</Lbl>
       <Card tour="variables" s={{marginBottom:13}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11,marginBottom:14}}>
           <Inp label="Gasolina (MXN/L)" type="number" value={local.gasPricePerLiter} onChange={v=>set("gasPricePerLiter",parseFloat(v)||0)} unit="$/L"/>
           <Inp label="Rendimiento" type="number" value={local.kmPerLiter} onChange={v=>set("kmPerLiter",parseFloat(v)||0)} unit="km/L"/>
-          <Inp label="Meta por hora" type="number" value={local.targetHourlyRate} onChange={v=>set("targetHourlyRate",parseFloat(v)||0)} unit="MXN/hr"/>
         </div>
+        <Lbl s={{marginBottom:7}}>¿Cómo quieres ganar?</Lbl>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:11}}>
+          {Object.values(EARNINGS_MODES).map(m=>{const active=(local.earningsMode||"hour")===m.id;return(
+            <button key={m.id} onClick={()=>set("earningsMode",m.id)} style={{padding:"9px 6px",borderRadius:8,background:active?`${C.accent}1e`:"transparent",border:`1px solid ${active?C.accent:C.border}`,color:active?C.accent:C.muted,fontSize:11,fontWeight:700}}>{m.label}</button>
+          );})}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
+          <div style={{opacity:(local.earningsMode||"hour")==="hour"?1:.45}}>
+            <Inp label="Meta por hora" type="number" value={local.targetHourlyRate} onChange={v=>set("targetHourlyRate",parseFloat(v)||0)} unit="MXN/hr"/>
+          </div>
+          <div style={{opacity:(local.earningsMode||"hour")==="km"?1:.45}}>
+            <Inp label="Meta por km" type="number" value={local.targetKmRate} onChange={v=>set("targetKmRate",parseFloat(v)||0)} unit="MXN/km"/>
+          </div>
+        </div>
+        <div style={{fontSize:9,color:C.dim,marginTop:9,lineHeight:1.4}}>Se guardan las dos metas, pero solo la marcada arriba decide si un viaje, una oferta del copiloto o un bono conviene.</div>
       </Card>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}><Lbl>Plataformas y comisiones</Lbl><Btn sm onClick={addPlatform} color={C.teal}><SVG d={IC.plus} size={11} color={C.teal}/>Añadir</Btn></div>
       <div data-tour="platforms" style={{marginBottom:14}}>{platformList(local).map(p=><div key={p.id} style={{display:"grid",gridTemplateColumns:"34px minmax(0,1fr) 86px 30px",gap:7,alignItems:"end",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
@@ -1988,17 +2029,17 @@ function Auth(){
       if(native){
         if(!data?.url)throw new Error("No se recibió el enlace de inicio de sesión.");
         await Browser.open({url:data.url});
-        setSuccess("Completa el acceso en Google; volverás automáticamente a RutaFlow.");
+        setSuccess("Completa el acceso en Google; volverás automáticamente a Ruleto.");
         setLoading(false);
       }
     }catch(err){setError(err.message||"No se pudo iniciar sesión con Google.");setLoading(false);}
   };
-  const inp={width:"100%",background:"#0a0b14",border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px 12px 42px",color:"#fff",fontSize:14,fontFamily:"IBM Plex Mono,monospace",outline:"none"};
+  const inp={width:"100%",background:C.well,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px 12px 42px",color:C.text,fontSize:14,fontFamily:"inherit",outline:"none"};
   const FI=({d})=><div style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}><SVG d={d} size={15} color={C.muted}/></div>;
   return(
     <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div style={{width:"100%",maxWidth:400}}>
-        <div style={{textAlign:"center",marginBottom:28}}><div className="B" style={{fontSize:36,fontWeight:900,color:C.accent,letterSpacing:2}}>RUTAFLOW</div><div style={{fontSize:10,color:C.dim,letterSpacing:"0.3em",marginTop:3}}>GESTOR DE CONDUCTOR</div></div>
+        <div style={{textAlign:"center",marginBottom:28}}><div className="B" style={{fontSize:36,fontWeight:900,color:C.accent,letterSpacing:2}}>RULETO DRIVE</div><div style={{fontSize:10,color:C.dim,letterSpacing:"0.3em",marginTop:3}}>GESTOR DE CONDUCTOR</div></div>
         {mode!=="forgot"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:20,background:C.card2,borderRadius:11,padding:4}}>{["login","register"].map(m=><button key={m} onClick={()=>{setMode(m);reset();}} style={{padding:"9px",background:mode===m?C.card:"transparent",border:`1px solid ${mode===m?C.bord2:"transparent"}`,borderRadius:8,color:mode===m?C.text:C.muted,fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700}}>{m==="login"?"Iniciar sesión":"Crear cuenta"}</button>)}</div>}
         <form onSubmit={mode==="login"?handleLogin:mode==="register"?handleRegister:handleForgot}>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -2028,13 +2069,14 @@ function Auth(){
 }
 
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
-const DCFG={gasPricePerLiter:24,kmPerLiter:12,targetHourlyRate:200,platformCut:10,platforms:DEFAULT_PLATFORMS,
+const DCFG={gasPricePerLiter:24,kmPerLiter:12,targetHourlyRate:200,earningsMode:"hour",targetKmRate:8,platformCut:10,platforms:DEFAULT_PLATFORMS,
   rentaEnabled:false,rentaMonto:0,rentaPeriodo:"mensual",
   seguroEnabled:false,seguroMonto:0,seguroPeriodo:"mensual",
   llantasEnabled:false,llantasMonto:0,llantasKmVida:40000,
   mantenimientoEnabled:false,mantenimientoMonto:0,mantenimientoKmVida:5000};
 
-export default function RutaFlow(){
+export default function RuletoDriveApp(){
+  const{mode:themeMode,toggleTheme,setTheme:setThemeMode}=useTheme();
   const[tab,setTab]=useState("home");
   // En el navegador los permisos se piden al usarlos; en la app de Android se
   // piden de entrada, porque medir la jornada con la app cerrada depende de
@@ -2301,7 +2343,7 @@ export default function RutaFlow(){
         if(authUserRef.current!==uid)break;
         await resolvePlace(row,uid).catch(()=>false);
         // Nominatim admite una consulta por segundo. Pasarse le cuesta el
-        // bloqueo a RutaFlow entera, no solo a este conductor.
+        // bloqueo a Ruleto entera, no solo a este conductor.
         await new Promise(done=>setTimeout(done,1200));
       }
     }catch(error){console.warn("Zonas pendientes",error);}
@@ -2670,15 +2712,15 @@ export default function RutaFlow(){
   };
 
   if(loading)return(
-    <><style>{CSS}</style>
+    <><style>{buildCSS(C,themeMode)}</style>
     <div style={{background:C.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
-      <div className="B" style={{fontSize:34,fontWeight:900,color:C.accent,letterSpacing:3}}>RUTAFLOW</div>
+      <div className="B" style={{fontSize:34,fontWeight:900,color:C.accent,letterSpacing:3}}>RULETO DRIVE</div>
       <div style={{marginTop:20,width:100,height:2,background:C.border,borderRadius:2,overflow:"hidden"}}><div className="pu" style={{width:"60%",height:"100%",background:C.accent}}/></div>
       <div style={{marginTop:11,fontSize:9,color:C.dim,letterSpacing:"0.3em"}}>CARGANDO...</div>
     </div></>
   );
-  if(!session)return <><style>{CSS}</style><Auth/></>;
-  if(!permisosListos)return <><style>{CSS}</style><PermissionGate onReady={()=>setPermisosListos(true)}/></>;
+  if(!session)return <><style>{buildCSS(C,themeMode)}</style><Auth/></>;
+  if(!permisosListos)return <><style>{buildCSS(C,themeMode)}</style><PermissionGate onReady={()=>setPermisosListos(true)}/></>;
 
   const uname=session?.user?.user_metadata?.full_name||session?.user?.email?.split("@")[0]||"Driver";
   const todayNet=operationalSummary(trips,events,cfg,today(),dayKm,bonuses).net;
@@ -2692,12 +2734,12 @@ export default function RutaFlow(){
 
   return(
     <>
-      <style>{CSS}</style>
+      <style>{buildCSS(C,themeMode)}</style>
       {toast&&<Toast msg={toast.msg} type={toast.type}/>}
       <div style={{background:C.bg,minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative"}}>
         <div style={{background:C.card,padding:`calc(10px + env(safe-area-inset-top)) 15px 10px`,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10,borderBottom:`1px solid ${C.border}`}}>
           <div>
-            <div className="B" style={{fontSize:19,fontWeight:900,color:C.accent,letterSpacing:1.5}}>RUTAFLOW</div>
+            <div className="B" style={{fontSize:19,fontWeight:900,color:C.accent,letterSpacing:1.5}}>RULETO DRIVE</div>
             <div style={{fontSize:9,color:C.dim,letterSpacing:"0.18em"}}>{uname.toUpperCase()}</div>
             {pendingCount>0&&<button onClick={()=>syncPendingFor(session.user.id)} style={{fontSize:9,color:syncError?C.danger:C.accent,marginTop:4,textAlign:"left"}} title={syncError||"Toca para sincronizar"}>{pendingCount} registro{pendingCount===1?"":"s"} pendiente{pendingCount===1?"":"s"} · {syncError?"reintentar":"sincronizando"}</button>}
           </div>
@@ -2711,7 +2753,7 @@ export default function RutaFlow(){
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses}/>}
         {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} userId={session.user.id}/>}
-        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)}/>}
+        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode}/>}
 
         {/* NAVEGACIÓN FIJA */}
         <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100,paddingBottom:"calc(10px + env(safe-area-inset-bottom))",paddingTop:"10px"}}>

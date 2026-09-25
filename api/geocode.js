@@ -58,7 +58,7 @@ module.exports=async function handler(req,res){
     let response;
     try{
       response=await fetch(`${NOMINATIM_URL}?${params}`,{
-        headers:{"User-Agent":"RutaFlow/1.0 (https://github.com/kikeabreu/rutaflow-app)","Accept-Language":"es"},
+        headers:{"User-Agent":"Ruleto/1.0 (https://github.com/kikeabreu/rutaflow-app)","Accept-Language":"es"},
         signal:controller.signal,
       });
     }finally{clearTimeout(timer);}
@@ -68,7 +68,7 @@ module.exports=async function handler(req,res){
     return res.status(200).json(normalizePlace(data.address||{}));
 
   }catch(error){
-    console.error("RutaFlow geocode error",error);
+    console.error("Ruleto geocode error",error);
     return res.status(500).json({error:"No se pudo identificar la zona"});
   }
 };

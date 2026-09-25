@@ -1,6 +1,6 @@
 import {Capacitor,registerPlugin} from "@capacitor/core";
 
-const NativeTracking=registerPlugin("RutaFlowTracking");
+const NativeTracking=registerPlugin("RuletoTracking");
 const android=()=>Capacitor.isNativePlatform()&&Capacitor.getPlatform()==="android";
 const unavailable={supported:false,running:false,state:"unsupported",message:"Disponible en la app Android"};
 
