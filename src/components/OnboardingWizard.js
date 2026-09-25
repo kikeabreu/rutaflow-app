@@ -181,7 +181,7 @@ export const TOUR_STEPS = [
     id: "jornada", tab: "home", badge: "JORNADA", icon: "⏱️",
     title: "Arranca tu turno",
     subtitle: "El GPS mide tiempo y km",
-    description: "Al iniciar la jornada, RutaFlow empieza a contar tus horas y tus kilómetros, incluidos los que haces sin pasajero. Al terminar te entrega el cierre del día.",
+    description: "Al iniciar la jornada, RutaFlow empieza a contar tus horas y tus kilómetros, también los que haces vacío. En la app de Android sigue midiendo aunque te pases a Uber o apagues la pantalla, con su notificación visible; en el navegador solo mientras la tengas abierta. Al terminar te entrega el cierre del día.",
     highlight: "iniciar-jornada",
     waitFor: TOUR_EVENTS.SHIFT_STARTED,
     actionHint: "Toca «Iniciar jornada»",

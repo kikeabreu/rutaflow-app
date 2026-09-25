@@ -5,9 +5,10 @@ import remarkGfm from "remark-gfm";
 import { supabase } from "./supabaseClient";
 import { callGroq, imageToDataUrl, parseJsonContent } from "./groqClient";
 import { locateDriver, reverseGeocodePoint } from "./locationClient";
-import { copilot } from "./copilotClient";
+import { copilot, isAndroidApp } from "./copilotClient";
 import { startSpeechRecognition } from "./speechClient";
 import { nativeTracking } from "./nativeTrackingClient";
+import { drainNativeKm, ensureNativeShift } from "./dayTracking";
 import dateUtils from "./dateUtils";
 import { useSpanishSpeech } from "./voiceClient";
 import { App as CapacitorApp } from "@capacitor/app";
@@ -21,6 +22,7 @@ import { acknowledge, enqueue, pendingFor, readSnapshot, saveSnapshot } from "./
 import { FLAGS } from "./constants/contracts";
 import { SupportModal } from "./components/SupportModal";
 import { OnboardingWizard } from "./components/OnboardingWizard";
+import { PermissionGate, necesitaPuertaDePermisos } from "./components/PermissionGate";
 
 // ─── PALETA ──────────────────────────────────────────────────────────────────
 const C={bg:"#07080d",card:"#0d0f1a",card2:"#111320",border:"#1a1d2e",bord2:"#242740",accent:"#f0a500",teal:"#00c9a7",danger:"#ff4055",dim:"#3a3d55",muted:"#6b6e8a",text:"#dde0f5"};
@@ -318,7 +320,7 @@ function useWakeLock(isActive){
   },[isActive,requestLock]);
 }
 
-function useDayGPS(isActive){
+function useDayGPS(isActive,userId,sessionId){
   const[dayKm,setDayKm]=useState(0);
   const[isLoaded,setIsLoaded]=useState(false);
   const lastRef=useRef(null);
@@ -341,6 +343,15 @@ function useDayGPS(isActive){
   }, []);
 
   useWakeLock(isActive);
+  const persistKm=useCallback(km=>{
+    distRef.current=km;setDayKm(km);
+    const dataToSave={km,ts:Date.now()};
+    if (FLAGS.offline_v2) {
+      import('./storage/db').then(DexieDB => DexieDB.UIStateStore.set(K.DAYGPS, dataToSave));
+    } else {
+      LS.set(K.DAYGPS, dataToSave);
+    }
+  },[]);
   const start=useCallback(()=>{
     if(!navigator.geolocation)return;
     return navigator.geolocation.watchPosition(
@@ -365,11 +376,29 @@ function useDayGPS(isActive){
     );
   },[]);
   useEffect(()=>{
-    if (!isLoaded) return;
-    let watchId;
-    if(isActive){watchId=start();}
+    if (!isLoaded || !isActive) return undefined;
+    // En la app de Android el servicio en primer plano sigue midiendo con la
+    // app cerrada; aquí solo se cobran sus puntos. En web no existe esa opción
+    // y se mide mientras la pantalla esté encendida y la app al frente.
+    if(isAndroidApp()){
+      let alive=true;
+      const cobrar=async()=>{
+        if(!alive)return;
+        try{
+          await ensureNativeShift(userId,sessionId);
+          const km=await drainNativeKm(userId);
+          if(km>0&&alive)persistKm(distRef.current+km);
+        }catch(error){console.warn("Rastreo de jornada",error);}
+      };
+      cobrar();
+      const timer=setInterval(cobrar,15000);
+      const onVisible=()=>{if(document.visibilityState==="visible")cobrar();};
+      document.addEventListener("visibilitychange",onVisible);
+      return()=>{alive=false;clearInterval(timer);document.removeEventListener("visibilitychange",onVisible);};
+    }
+    const watchId=start();
     return()=>{if(watchId)navigator.geolocation.clearWatch(watchId);};
-  },[isActive,start,isLoaded]);
+  },[isActive,start,isLoaded,userId,sessionId,persistKm]);
   return{dayKm,reset:()=>{
     distRef.current=0;
     setDayKm(0);
@@ -2004,6 +2033,10 @@ const DCFG={gasPricePerLiter:24,kmPerLiter:12,targetHourlyRate:200,platformCut:1
 
 export default function RutaFlow(){
   const[tab,setTab]=useState("home");
+  // En el navegador los permisos se piden al usarlos; en la app de Android se
+  // piden de entrada, porque medir la jornada con la app cerrada depende de
+  // ellos y descubrirlo a media jornada ya es tarde.
+  const[permisosListos,setPermisosListos]=useState(()=>!necesitaPuertaDePermisos());
   const[tripsSection,setTripsSection]=useState("trips");
   const[tripsExtraType,setTripsExtraType]=useState("all");
   const[cfg,setCfg]=useState(DCFG);
@@ -2049,7 +2082,7 @@ export default function RutaFlow(){
   },[session?.user?.id,tab,tripsSection,tripsExtraType]);
 
   const showToast=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
-  const{dayKm,reset:resetDayGPS}=useDayGPS(!!activeDay?.running);
+  const{dayKm,reset:resetDayGPS}=useDayGPS(!!activeDay?.running,session?.user?.id,activeDay?.id);
 
   useEffect(()=>{
     let mounted=true;
@@ -2497,7 +2530,7 @@ export default function RutaFlow(){
       }
       const point=await locationPromise;
       if(point)await saveCheckpoints([{...point,event_type:"shift_start",day_id:data.id}]);
-      nativeTracking.startSession({userId:session.user.id,sessionId:data.id}).catch(()=>{});
+      ensureNativeShift(session.user.id,data.id).catch(error=>console.warn("Rastreo de jornada",error));
       showToast(point?`Jornada iniciada en ${locationName(point)}`:"Jornada iniciada; GPS sin ubicacion","ok");
     }
   };
@@ -2563,6 +2596,7 @@ export default function RutaFlow(){
     setSelectedClosure(closed);
     const endLocation=await locationPromise;
     if(endLocation)await saveCheckpoints([{...endLocation,event_type:"shift_end",day_id:activeDay.id}]).catch(error=>console.warn("Shift end location",error));
+    await drainNativeKm(session.user.id).catch(()=>0);
     resetDayGPS();
     nativeTracking.stopSession().catch(()=>{});
     if (FLAGS.offline_v2) {
@@ -2609,6 +2643,7 @@ export default function RutaFlow(){
     </div></>
   );
   if(!session)return <><style>{CSS}</style><Auth/></>;
+  if(!permisosListos)return <><style>{CSS}</style><PermissionGate onReady={()=>setPermisosListos(true)}/></>;
 
   const uname=session?.user?.user_metadata?.full_name||session?.user?.email?.split("@")[0]||"Driver";
   const todayNet=operationalSummary(trips,events,cfg,today(),dayKm,bonuses).net;

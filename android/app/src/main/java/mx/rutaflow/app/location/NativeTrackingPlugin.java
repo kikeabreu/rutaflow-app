@@ -24,7 +24,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-@CapacitorPlugin(name="RutaFlowTracking",permissions={@Permission(alias="location",strings={Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION})})
+// La notificación no es un adorno: Android exige un servicio en primer plano
+// con notificación visible para seguir leyendo la ubicación con la app cerrada.
+// Sin ese permiso, la jornada deja de contar kilómetros en cuanto el conductor
+// se pasa a Uber, que es justo cuando está manejando.
+@CapacitorPlugin(name="RutaFlowTracking",permissions={
+    @Permission(alias="location",strings={Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION}),
+    @Permission(alias="notifications",strings={Manifest.permission.POST_NOTIFICATIONS})
+})
 public class NativeTrackingPlugin extends Plugin {
     @PluginMethod public void supported(PluginCall call){JSObject out=new JSObject();out.put("supported",true);out.put("platform","android");call.resolve(out);}
 

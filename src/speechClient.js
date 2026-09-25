@@ -1,6 +1,27 @@
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition } from "@capacitor-community/speech-recognition";
 
+// El estado sin pedirlo, para poder mostrarlo en la pantalla de permisos.
+export async function speechPermissionState() {
+  if (!Capacitor.isNativePlatform()) return "granted";
+  try {
+    const status = await SpeechRecognition.checkPermissions();
+    return status?.speechRecognition === "granted" ? "granted" : "prompt";
+  } catch {
+    return "prompt";
+  }
+}
+
+export async function requestSpeechPermission() {
+  if (!Capacitor.isNativePlatform()) return "granted";
+  try {
+    const request = await SpeechRecognition.requestPermissions();
+    return request?.speechRecognition === "granted" ? "granted" : "denied";
+  } catch {
+    return "denied";
+  }
+}
+
 export async function checkSpeechPermissions() {
   if (!Capacitor.isNativePlatform()) return true;
   try {
