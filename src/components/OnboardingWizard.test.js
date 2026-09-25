@@ -91,11 +91,24 @@ describe("TOUR_STEPS", () => {
       "kpi-panel", "jornada-card", "copilot-card",
       "iniciar-jornada", "nuevo-viaje", "registro-rapido",
       "trip-mode-manual", "trip-mode-gps", "trip-mode-photo", "trip-fare", "trip-close",
+      "trip-manual", "trip-gps-panel", "trip-photo-panel",
       "quick-text", "quick-types", "quick-close",
       ...Object.keys(TAB_LABEL).map(t => `nav-${t}`),
     ]);
     for (const step of TOUR_STEPS) {
       if (step.highlight) expect(anclas.has(step.highlight)).toBe(true);
+      if (step.doneHighlight) expect(anclas.has(step.doneHighlight)).toBe(true);
+    }
+  });
+
+  // El aro solo se mueve al cumplir un paso que pide algo; en uno informativo
+  // no hay "después" al que moverse.
+  test("solo los pasos con acción mueven el aro al cumplirse", () => {
+    for (const step of TOUR_STEPS) {
+      if (step.doneHighlight) {
+        expect(stepWaits(step).length).toBeGreaterThan(0);
+        expect(step.doneHighlight).not.toBe(step.highlight);
+      }
     }
   });
 

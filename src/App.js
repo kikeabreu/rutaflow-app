@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import { supabase } from "./supabaseClient";
 import { callGroq, imageToDataUrl, parseJsonContent } from "./groqClient";
 import { locateDriver, reverseGeocodePoint } from "./locationClient";
+import { placeLabel } from "./placeFormat";
 import { copilot, isAndroidApp } from "./copilotClient";
 import { startSpeechRecognition } from "./speechClient";
 import { nativeTracking } from "./nativeTrackingClient";
@@ -79,6 +80,7 @@ const haversine=(a,b)=>{const R=6371,r=x=>x*Math.PI/180;const dLat=r(b.lat-a.lat
 const dateOf=x=>dateKey(x?.end_time||x?.occurred_at||x?.paid_at||x?.created_at||x?.date||Date.now());
 const inDateRange=(item,range)=>{const d=dateOf(item);return(!range.from||d>=range.from)&&(!range.to||d<=range.to);};
 const locationName=point=>point?.zone||point?.city||(Number.isFinite(Number(point?.latitude??point?.lat))?`${Number(point.latitude??point.lat).toFixed(3)}, ${Number(point.longitude??point.lon).toFixed(3)}`:"");
+
 const retainCheckpoints=rows=>[...rows.filter(row=>row._pending),...rows.filter(row=>!row._pending).slice(0,500)];
 const openSettings=()=>NativeSettings.open({optionAndroid:AndroidSettings.ApplicationDetails,optionIOS:IOSSettings.App}).catch(()=>{});
 
@@ -848,7 +850,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
               <button key={m.id} data-tour={`trip-mode-${m.id}`} onClick={()=>setModeP(m.id)} style={mBtn(m.id)}>{m.l}</button>
             ))}
           </div>
-          {startLocation&&<div style={{fontSize:9,color:C.muted,margin:"-3px 0 10px"}}>Inicio detectado: {locationName(startLocation)}</div>}
+          {startLocation&&<div style={{fontSize:9,color:C.muted,margin:"-3px 0 10px"}}>Inicio detectado: {placeLabel(startLocation)||locationName(startLocation)}</div>}
         </div>
         <div style={{flex:1,overflowY:"auto",padding:"0 18px",WebkitOverflowScrolling:"touch"}}>
           <div data-tour="trip-fare" style={{marginBottom:12}}>
@@ -858,7 +860,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
               style={{width:"100%",background:"#0a0b14",border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",color:C.accent,fontSize:38,fontFamily:"inherit",fontWeight:700,outline:"none",textAlign:"center"}}/>
           </div>
           {mode==="gps"&&(
-            <div style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:12,padding:15,marginBottom:12}}>
+            <div data-tour="trip-gps-panel" style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:12,padding:15,marginBottom:12}}>
               <Lbl s={{marginBottom:10}}>Rastreo GPS en tiempo real</Lbl>
               {!isPro&&<UpgradeCard onUpgrade={onUpgrade} s={{marginBottom:12}}/>}
               {gpsOn&&<div className="B" style={{fontSize:46,fontWeight:900,color:C.teal,textAlign:"center",marginBottom:8}}>{fmtClock(gpsMs)}</div>}
@@ -877,7 +879,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
             </div>
           )}
           {mode==="manual"&&(
-            <div style={{marginBottom:12}}>
+            <div data-tour="trip-manual" style={{marginBottom:12}}>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:9}}>
                 {[{id:0,l:"📍 Recolección"},{id:1,l:"🏁 Destino"}].map(ph=>(
                   <button key={ph.id} onClick={()=>setPhaseP(ph.id)} style={{padding:"8px",background:phase===ph.id?`${C.accent}1a`:"transparent",border:`1px solid ${phase===ph.id?C.accent:C.border}`,borderRadius:8,color:phase===ph.id?C.accent:C.muted,fontSize:10,fontWeight:600}}>{ph.l}</button>
@@ -888,7 +890,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
             </div>
           )}
           {mode==="photo"&&(
-            <div style={{marginBottom:12}}>
+            <div data-tour="trip-photo-panel" style={{marginBottom:12}}>
               <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}}/>
               {!isPro&&<UpgradeCard onUpgrade={onUpgrade} s={{marginBottom:12}}/>}
               {proc?(
@@ -1804,8 +1806,8 @@ function AITab({cfg,trips,events=[],bonuses,closures=[],locations=[],isPro,month
     all.forEach(t=>{
       const startPoint=tripLocations[String(t.id)]?.start;
       const endPoint=tripLocations[String(t.id)]?.end;
-      const startZone=locationName(startPoint);
-      const endZone=locationName(endPoint);
+      const startZone=placeLabel(startPoint);
+      const endZone=placeLabel(endPoint);
       const zoneKey = startZone ? (endZone ? `${startZone} ➔ ${endZone}` : startZone) : (endZone ? `Destino: ${endZone}` : "");
       if(!zoneKey)return;
       if(!zoneBuckets[zoneKey])zoneBuckets[zoneKey]={n:0,net:0,min:0,colonia:startPoint?.neighborhood||startPoint?.zone||"",ciudad:startPoint?.city||""};
@@ -1818,7 +1820,8 @@ function AITab({cfg,trips,events=[],bonuses,closures=[],locations=[],isPro,month
       .join(" | ");
     const locatedTrips=all.filter(t=>tripLocations[String(t.id)]?.start||tripLocations[String(t.id)]?.end).length;
     const latestPoint=[...locations].sort((a,b)=>new Date(b.captured_at||0)-new Date(a.captured_at||0))[0];
-    const geoSummaryLatest = latestPoint ? `${locationName(latestPoint)} (${latestPoint.neighborhood||""} ${latestPoint.city||""}) [coords: ${Number(latestPoint.latitude||latestPoint.lat).toFixed(4)}, ${Number(latestPoint.longitude||latestPoint.lon).toFixed(4)}]` : "sin dato";
+    const geoSummaryLatest = latestPoint ? `${placeLabel(latestPoint)||"zona sin identificar"}${latestPoint.state?` · ${latestPoint.state}`:""} [coords: ${Number(latestPoint.latitude||latestPoint.lat).toFixed(4)}, ${Number(latestPoint.longitude||latestPoint.lon).toFixed(4)}]` : "sin dato";
+    const sinZona=locations.filter(point=>!point.neighborhood&&!point.zone&&!point.city).length;
     const lastRefuel=refuels[0]?describeEvent(refuels[0]):"ninguna";
     const lastTank=tanks[0]?describeEvent(tanks[0]):"ninguno";
     const lastTip=tips[0]?describeEvent(tips[0]):"ninguna";
@@ -1837,7 +1840,7 @@ GASOLINA TOTAL REGISTRADA: ${fmt(loadedAll.liters,2)}L por ${fmtMXN(loadedAll.am
 ULTIMO TANQUE: ${lastTank} | ULTIMA PROPINA: ${lastTip}
 BONOS cobrados ${paidBonuses.length}: ${fmtMXN(bonusNet)} | activos: ${bonusCtx||"ninguno"}
 SEÑALES tendencia ${tendencia}; mejores ${bestH||"s/d"}; peores ${worstH||"s/d"}; dias ${diaS||"s/d"}; plataformas ${platS||"s/d"}
-ZONAS ORIGEN Y TRAYECTOS (${locatedTrips}/${all.length} viajes con GPS): ${zoneCtx||"aun sin viajes geolocalizados"}
+ZONAS ORIGEN Y TRAYECTOS, COLONIA Y CIUDAD (${locatedTrips}/${all.length} viajes con GPS${sinZona?`; ${sinZona} puntos aun sin colonia resuelta`:""}): ${zoneCtx||"aun sin viajes geolocalizados"}
 UBICACION RECIENTE Y ZONA: ${geoSummaryLatest}
 ULTIMO CIERRE: ${closureCtx}
 MOVIMIENTOS RECIENTES: ${recentOps||"ninguno"}
@@ -2263,6 +2266,48 @@ export default function RutaFlow(){
     setLoading(false);
   },[]);
 
+  // Le pone colonia y ciudad a un punto ya guardado. La IA no puede
+  // aconsejar sobre "20.97, -89.62": necesita saber que eso es Itzimná, Mérida.
+  const resolvePlace=useCallback(async(row,uid)=>{
+    const place=await reverseGeocodePoint({lat:Number(row.latitude),lon:Number(row.longitude)}).catch(()=>null);
+    if(!place||place.place_status==="pending")return false;
+    const patch={zone:place.zone||"",neighborhood:place.neighborhood||"",neighborhood_type:place.neighborhood_type||"",
+      city:place.city||"",city_type:place.city_type||"",municipality:place.municipality||"",state:place.state||"",
+      place_status:place.place_status||"partial",geocode_provider:place.geocode_provider||""};
+    const{error}=await supabase.from("location_checkpoints").update(patch).eq("id",row.id).eq("user_id",uid);
+    if(authUserRef.current!==uid)return false;
+    setLocations(prev=>{
+      const next=prev.map(item=>item.id===row.id?{...item,...patch,_pending:Boolean(error)}:item);
+      LS.set(`${K.LOCATIONS}_${uid}`,next);return next;
+    });
+    return !error;
+  },[]);
+
+  // El punto final de un viaje se guarda sin zona a propósito, para no hacer
+  // esperar al conductor mientras se cierra el viaje; y el que se registró sin
+  // señal tampoco la tiene. El reintento del momento no alcanza: si falla, el
+  // punto se quedaba para siempre en coordenadas pelonas. Esto los recoge.
+  const backfillingRef=useRef(false);
+  const backfillPendingPlaces=useCallback(async uid=>{
+    if(!uid||backfillingRef.current||navigator.onLine===false)return;
+    backfillingRef.current=true;
+    try{
+      const{data,error}=await supabase.from("location_checkpoints")
+        .select("id,latitude,longitude")
+        .eq("user_id",uid).eq("place_status","pending")
+        .order("captured_at",{ascending:false}).limit(20);
+      if(error||!data?.length)return;
+      for(const row of data){
+        if(authUserRef.current!==uid)break;
+        await resolvePlace(row,uid).catch(()=>false);
+        // Nominatim admite una consulta por segundo. Pasarse le cuesta el
+        // bloqueo a RutaFlow entera, no solo a este conductor.
+        await new Promise(done=>setTimeout(done,1200));
+      }
+    }catch(error){console.warn("Zonas pendientes",error);}
+    finally{backfillingRef.current=false;}
+  },[resolvePlace]);
+
   const saveCheckpoints=async points=>{
     if(!session||!points.length)return;
     const uid=session.user.id;
@@ -2294,18 +2339,7 @@ export default function RutaFlow(){
       }
     }catch(error){if(error?.code!=="42P01")console.warn("Save location checkpoint",error?.message||error);}
     for(const row of rows.filter(item=>item.place_status==="pending")){
-      reverseGeocodePoint({lat:row.latitude,lon:row.longitude}).then(async place=>{
-        if(!place||place.place_status==="pending")return;
-        const patch={zone:place.zone||"",neighborhood:place.neighborhood||"",neighborhood_type:place.neighborhood_type||"",
-          city:place.city||"",city_type:place.city_type||"",municipality:place.municipality||"",state:place.state||"",
-          place_status:place.place_status||"partial",geocode_provider:place.geocode_provider||""};
-        const{error}=await supabase.from("location_checkpoints").update(patch).eq("id",row.id).eq("user_id",uid);
-        if(authUserRef.current!==uid)return;
-        setLocations(prev=>{
-          const next=prev.map(item=>item.id===row.id?{...item,...patch,_pending:Boolean(error)}:item);
-          LS.set(`${K.LOCATIONS}_${uid}`,next);return next;
-        });
-      }).catch(()=>{});
+      resolvePlace({id:row.id,latitude:row.latitude,longitude:row.longitude},uid).catch(()=>{});
     }
   };
 
@@ -2381,13 +2415,14 @@ export default function RutaFlow(){
     // El outbox Dexie (tickets de soporte) necesita su propio drenado: sin esto se
     // encolaban para siempre y el conductor veía "enviado con éxito" sin que saliera.
     const drainDexieOutbox=()=>{import("./storage/syncEngine").then(({syncOutbox})=>syncOutbox(uid)).catch(()=>{});};
-    const resume=()=>{if(document.visibilityState==="visible"){syncPendingFor(uid);drainDexieOutbox();}};
+    const resume=()=>{if(document.visibilityState==="visible"){syncPendingFor(uid);drainDexieOutbox();backfillPendingPlaces(uid);}};
     syncPendingFor(uid);
     drainDexieOutbox();
+    backfillPendingPlaces(uid);
     window.addEventListener("online",resume);
     document.addEventListener("visibilitychange",resume);
     return()=>{window.removeEventListener("online",resume);document.removeEventListener("visibilitychange",resume);};
-  },[session?.user?.id]);
+  },[session?.user?.id,backfillPendingPlaces]);
 
   const saveTrip=async data=>{
     if(!session)return false;
@@ -2531,7 +2566,7 @@ export default function RutaFlow(){
       const point=await locationPromise;
       if(point)await saveCheckpoints([{...point,event_type:"shift_start",day_id:data.id}]);
       ensureNativeShift(session.user.id,data.id).catch(error=>console.warn("Rastreo de jornada",error));
-      showToast(point?`Jornada iniciada en ${locationName(point)}`:"Jornada iniciada; GPS sin ubicacion","ok");
+      showToast(point?`Jornada iniciada en ${placeLabel(point)||"ubicacion sin zona"}`:"Jornada iniciada; GPS sin ubicacion","ok");
     }
   };
 

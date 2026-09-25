@@ -22,6 +22,11 @@ export const TAB_LABEL = {
 //   nada de eso    paso informativo: se bloquea el toque sobre el elemento
 //                  para no disparar acciones reales mientras se explica.
 //
+// `doneHighlight` mueve el aro cuando el paso se cumple. Sirve para lo que no
+// existe hasta que el conductor lo abre: el aro empieza en el botón y, en
+// cuanto aparece el panel, se pasa a él; si se quedara en el botón, el globo
+// cubriría justo el panel que se está explicando.
+//
 // `tab` dice en qué pestaña vive el paso. El tour nunca cambia de pestaña por
 // el conductor: si anda en otra, lo regresa señalándole cuál tocar.
 export const TOUR_STEPS = [
@@ -203,10 +208,10 @@ export const TOUR_STEPS = [
     title: "1 de 3: a mano",
     subtitle: "Lo más rápido si ya traes los datos",
     description: "En Manual escribes la tarifa y luego, en «Recolección» y «Destino», los kilómetros y minutos. RutaFlow te dice de inmediato si el viaje convino.",
-    highlight: "trip-mode-manual",
+    highlight: "trip-mode-manual", doneHighlight: "trip-manual",
     waitFor: { name: TOUR_EVENTS.TRIP_MODE_CHANGED, value: "manual" },
     actionHint: "Toca «✍️ Manual»",
-    doneHint: "Llena la tarifa y los km si quieres probarlo",
+    doneHint: "Ahí abajo van la tarifa y los kilómetros",
   },
   {
     id: "viaje-tarifa", tab: "home", badge: "LA TARIFA", icon: "💰",
@@ -214,17 +219,47 @@ export const TOUR_STEPS = [
     subtitle: "Pruébalo con un viaje real",
     description: "Pon la tarifa y los kilómetros: abajo aparece en verde, amarillo o rojo si el viaje valió la pena contra tu meta por hora.",
     highlight: "trip-fare",
-    waitFor: TOUR_EVENTS.TRIP_FIELD_FILLED,
+    waitFor: { name: TOUR_EVENTS.TRIP_FIELD_FILLED, value: "fare" },
     actionHint: "Escribe una tarifa",
-    doneHint: "Mira la evaluación de abajo y sigue cuando quieras",
+    doneHint: "Ahora vienen los kilómetros, en dos partes",
     optional: true,
+  },
+  {
+    id: "viaje-recoleccion", tab: "home", badge: "RECOLECCIÓN", icon: "📍",
+    title: "Primero, lo que te cuesta llegar",
+    subtitle: "Del lugar donde estás al pasajero",
+    description: "En «Recolección» van los kilómetros y los minutos que haces para ir por él. Ese tramo no te lo pagan pero sí te gasta gasolina, y por eso cuenta para saber si la oferta convenía.",
+    highlight: "trip-manual",
+    waitFor: [
+      { name: TOUR_EVENTS.TRIP_FIELD_FILLED, value: "pickup_km" },
+      { name: TOUR_EVENTS.TRIP_FIELD_FILLED, value: "pickup_min" },
+    ],
+    actionHint: "Llena los km y minutos para recoger",
+    doneHint: "Listo. Ahora el tramo con el pasajero arriba",
+    optional: true,
+    missingHint: "Elige el modo «✍️ Manual» para ver estos campos",
+  },
+  {
+    id: "viaje-destino", tab: "home", badge: "DESTINO", icon: "🏁",
+    title: "Luego, el viaje pagado",
+    subtitle: "Del pasajero a donde lo dejas",
+    description: "Toca «🏁 Destino» y pon los kilómetros y minutos de ese tramo. Con los dos tramos juntos RutaFlow ya sabe tu ganancia real por hora, no la que parece.",
+    highlight: "trip-manual",
+    waitFor: [
+      { name: TOUR_EVENTS.TRIP_FIELD_FILLED, value: "dest_km" },
+      { name: TOUR_EVENTS.TRIP_FIELD_FILLED, value: "dest_min" },
+    ],
+    actionHint: "Toca «🏁 Destino» y llena los km y minutos",
+    doneHint: "Ya puedes ver la evaluación del viaje completo",
+    optional: true,
+    missingHint: "Elige el modo «✍️ Manual» para ver estos campos",
   },
   {
     id: "viaje-gps", tab: "home", badge: "MODO GPS", icon: "📍",
     title: "2 de 3: que el GPS lo mida",
     subtitle: "Sin escribir kilómetros",
     description: "Tocas «Iniciar GPS» al arrancar el viaje y «Finalizar GPS» al llegar: la app cuenta sola los km y los minutos. Solo te falta poner la tarifa.",
-    highlight: "trip-mode-gps",
+    highlight: "trip-mode-gps", doneHighlight: "trip-gps-panel",
     waitFor: { name: TOUR_EVENTS.TRIP_MODE_CHANGED, value: "gps" },
     actionHint: "Toca «📍 GPS» para verlo",
     doneHint: "Así se ve. No hace falta que lo inicies ahora",
@@ -234,7 +269,7 @@ export const TOUR_STEPS = [
     title: "3 de 3: con una captura",
     subtitle: "Lo más cómodo al terminar",
     description: "Toma una captura de pantalla del viaje en Uber o DiDi, súbela aquí y la IA saca sola la tarifa, los kilómetros y el tiempo. Si no quieres probarlo ahora, sáltalo.",
-    highlight: "trip-mode-photo",
+    highlight: "trip-mode-photo", doneHighlight: "trip-photo-panel",
     waitFor: { name: TOUR_EVENTS.TRIP_MODE_CHANGED, value: "photo" },
     actionHint: "Toca «📸 Foto IA»",
     doneHint: "Ahí subes la captura cuando la tengas",
@@ -391,7 +426,9 @@ export function OnboardingWizard({ isOpen, onComplete, onDismissNever, currentTa
   // El tour ya no mueve la pestaña por su cuenta. Si el conductor anda en otra,
   // se le señala cómo volver en vez de arrancarle la pantalla de enfrente.
   const offTab = Boolean(step.tab && currentTab && currentTab !== step.tab);
-  const highlight = offTab ? `nav-${step.tab}` : step.highlight;
+  const highlight = offTab
+    ? `nav-${step.tab}`
+    : ((done && step.doneHighlight) || step.highlight);
   const rect = useTargetRect(highlight, stepIdx, isOpen);
   const advanceRef = useRef(null);
 

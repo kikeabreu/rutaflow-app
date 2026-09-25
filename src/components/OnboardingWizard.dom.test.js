@@ -115,6 +115,44 @@ test("un paso informativo sí bloquea, para no disparar acciones reales", () => 
   for (const v of velos()) expect(v.style.pointerEvents).toBe("auto");
 });
 
+// Lo que se rompió en el teléfono: el aro se quedaba en el botón de modo y el
+// globo tapaba justo el panel de GPS o Foto IA que se estaba explicando.
+test("al cumplir un paso el aro se pasa al panel que acaba de aparecer", () => {
+  render({ currentTab: "home" });
+  llegarA("viaje-gps");
+  const paso = TOUR_STEPS[idxDe("viaje-gps")];
+  expect(textoGlobo()).toContain("2 de 3: que el GPS lo mida");
+
+  emitir(TOUR_EVENTS.TRIP_MODE_CHANGED, "gps");
+
+  expect(textoGlobo()).toContain(paso.doneHint);
+  expect(paso.doneHighlight).toBe("trip-gps-panel");
+});
+
+test("los km del viaje se explican en dos tramos, no de golpe", () => {
+  const orden = ["viaje-tarifa", "viaje-recoleccion", "viaje-destino"].map(idxDe);
+  expect(orden).toEqual([...orden].sort((a, b) => a - b));
+  expect(orden.every(i => i >= 0)).toBe(true);
+
+  render({ currentTab: "home" });
+  llegarA("viaje-recoleccion");
+  expect(textoGlobo()).toContain("Primero, lo que te cuesta llegar");
+  // El tramo para recoger no se paga pero sí gasta: por eso se pide aparte.
+  emitir(TOUR_EVENTS.TRIP_FIELD_FILLED, "pickup_min");
+  expect(textoGlobo()).toContain("Ahora el tramo con el pasajero arriba");
+  avanzar();
+  expect(textoGlobo()).toContain("Luego, el viaje pagado");
+  emitir(TOUR_EVENTS.TRIP_FIELD_FILLED, "dest_km");
+  expect(textoGlobo()).toContain("evaluación del viaje completo");
+});
+
+test("escribir la tarifa no adelanta el paso de los kilómetros", () => {
+  render({ currentTab: "home" });
+  llegarA("viaje-recoleccion");
+  emitir(TOUR_EVENTS.TRIP_FIELD_FILLED, "fare");
+  expect(botonPrincipal().textContent).toContain("SALTAR ESTE PASO");
+});
+
 test("ningún paso del recorrido se queda sin salida", () => {
   render({ currentTab: "home" });
   for (let i = 0; i < TOUR_STEPS.length; i++) {
