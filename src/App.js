@@ -33,7 +33,6 @@ const LS={
   del:(k)=>{try{localStorage.removeItem(k);}catch{}},
 };
 const K={DAYGPS:"rf_daygps",CHATS:"rf_ai_conversations",LOCATIONS:"rf_location_checkpoints",AIVOICE:"rf_ai_voice_auto"};
-const FREE_MONTHLY_TRIP_LIMIT=30;
 const isStandaloneApp=()=>typeof window!=="undefined"&&(window.matchMedia?.("(display-mode: standalone)").matches||window.navigator.standalone===true);
 const paymentUrl=()=>process.env.REACT_APP_STRIPE_PAYMENT_LINK||process.env.REACT_APP_MERCADOPAGO_PAYMENT_LINK||"";
 const isProProfile=profile=>{
@@ -495,12 +494,12 @@ function DateRangeControl({value,onChange}){
     </div>}
   </div>;
 }
-const UpgradeCard=({monthlyTripsCount=0,onUpgrade=openUpgrade,s})=>(
+const UpgradeCard=({onUpgrade=openUpgrade,s})=>(
   <div style={{background:`${C.accent}12`,border:`1px solid ${C.accent}3d`,borderRadius:12,padding:"12px 13px",display:"flex",alignItems:"center",gap:12,...s}}>
     <div style={{flex:1}}>
       <div className="B" style={{fontSize:17,fontWeight:800,color:C.accent,letterSpacing:1}}>RULETO PRO</div>
       <div style={{fontSize:11,color:C.text,lineHeight:1.45,marginTop:3}}>
-        {monthlyTripsCount}/{FREE_MONTHLY_TRIP_LIMIT} viajes gratis este mes. Pro desbloquea GPS, Foto IA, asesor IA e historial ilimitado.
+        Ruleto Copiloto, Ruleto IA, GPS, Foto IA y gráficas avanzadas.
       </div>
     </div>
     <button onClick={onUpgrade} style={{background:ACCENT_FILL,color:"#000",borderRadius:8,padding:"9px 11px",fontSize:10,fontWeight:900,letterSpacing:"0.12em"}}>VER PRO</button>
@@ -1249,7 +1248,7 @@ function BonusTripAdvice({bonus,insight,cfg}){
 }
 
 // ─── HOME TAB ─────────────────────────────────────────────────────────────────
-function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,onNew,onQuick,dayKm:propDayKm,onSelect,onDeleteEvent,onEditEvent,onSelectClosure,onUpdateBonus,isPro,monthlyTripsCount,onUpgrade,copilotState,onToggleCopilot,copilotPlatform,onCopilotPlatform,onRegisterCopilotOffer,onSelectCopilotOfferIndex}){
+function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,onNew,onQuick,dayKm:propDayKm,onSelect,onDeleteEvent,onEditEvent,onSelectClosure,onUpdateBonus,isPro,onUpgrade,copilotState,onToggleCopilot,copilotPlatform,onCopilotPlatform,onRegisterCopilotOffer,onSelectCopilotOfferIndex}){
   const[elapsed,setElapsed]=useState(0);
   const[showAll,setShowAll]=useState(false);
   const timerRef=useRef(null);
@@ -1288,7 +1287,7 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
 
   return(
     <div className="fu" style={{padding:"15px 14px 90px"}}>
-      {!isPro&&<UpgradeCard monthlyTripsCount={monthlyTripsCount} onUpgrade={onUpgrade} s={{marginBottom:13}}/>}
+      {!isPro&&<UpgradeCard onUpgrade={onUpgrade} s={{marginBottom:13}}/>}
       <Card tour="copilot-card" s={{marginBottom:13,borderColor:copilotState.running?`${C.teal}66`:C.border}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
           <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
@@ -1600,7 +1599,7 @@ function TripsTab({cfg,trips,events,bonuses,closures,onSelect,onNew,onQuick,onSe
 }
 
 // ─── STATS TAB ────────────────────────────────────────────────────────────────
-function StatsTab({cfg,trips,events,bonuses}){
+function StatsTab({cfg,trips,events,bonuses,isPro,onUpgrade}){
   const[range,setRange]=useState({preset:"month",from:shiftDate(-29),to:shiftDate(0)});
   const filtered=trips.filter(t=>inDateRange(t,range));
   const filteredEvents=events.filter(e=>inDateRange(e,range));
@@ -1632,6 +1631,7 @@ function StatsTab({cfg,trips,events,bonuses}){
           {bestD&&<div style={{background:`${C.accent}10`,border:`1px solid ${C.accent}33`,borderRadius:12,padding:"11px 13px"}}><Lbl s={{color:C.accent,marginBottom:6}}>🏆 Mejor día</Lbl><div style={{fontSize:11,color:C.text,marginBottom:4}}>{fmtDate(bestD.date)}</div><Big size={19} color={C.accent}>{fmtMXN(bestD.net)}</Big></div>}
           {bestH&&<div style={{background:`${C.teal}10`,border:`1px solid ${C.teal}33`,borderRadius:12,padding:"11px 13px"}}><Lbl s={{color:C.teal,marginBottom:6}}>⏰ Mejor hora</Lbl><div style={{fontSize:11,color:C.text,marginBottom:4}}>{bestH.hour}:00 – {bestH.hour+1}:00</div><Big size={19} color={C.teal}>{fmtMXN(bestH.avg)}/viaje</Big></div>}
         </div>
+        {isPro?<>
         <Card s={{marginBottom:11,padding:"13px 8px"}}>
           <Lbl s={{marginBottom:11,paddingLeft:6}}>Ganancia diaria (MXN)</Lbl>
           <ResponsiveContainer width="100%" height={145}>
@@ -1668,14 +1668,15 @@ function StatsTab({cfg,trips,events,bonuses}){
             ))}</div>
           </div>
         </Card>}
+        </>:<UpgradeCard onUpgrade={onUpgrade} s={{marginBottom:11}}/>}
       </>}
     </div>
   );
 }
 
 // ─── AI TAB ───────────────────────────────────────────────────────────────────
-function AITab({cfg,trips,events=[],bonuses,closures=[],locations=[],isPro,monthlyTripsCount,onUpgrade,userId}){
-  const WELCOME={role:"assistant",content:"## Asesor de rentabilidad\n\nTe digo qué tomar, qué evitar y cuándo un bono deja de convenir."};
+function AITab({cfg,trips,events=[],bonuses,closures=[],locations=[],isPro,onUpgrade,userId}){
+  const WELCOME={role:"assistant",content:"## Ruleto IA\n\nSoy tu copiloto financiero: leo tus viajes, gastos y jornadas reales para ayudarte a decidir con números, no con intuición.\n\n- 🎯 Te digo si un viaje o un bono conviene, y qué evitar\n- 📈 Comparo tu semana contra la anterior y te digo tus mejores horas, días y zonas\n- ⛽ Sigo tu gasolina, kilómetros sin pasaje y el cierre de cada jornada\n- 🗣️ Pregúntame por texto o por voz, en español, cuando quieras"};
   const[msgs,setMsgs]=useState([WELCOME]);
   const[conversations,setConversations]=useState([]);
   const[activeId,setActiveId]=useState(null);
@@ -1887,7 +1888,7 @@ ULTIMOS ${last3||"s/d"}`;
     }catch(err){const message=`No pude consultar la IA: ${err.message}`;const next=[...pending,{role:"assistant",content:message}];setMsgs(next);if(voiceAuto&&voiceSupported)speak(message,`ai-${next.length-1}`);await persistConversation(next,conversations.find(c=>c.id===activeId)?.title||question.slice(0,52));}
     setLoading(false);
   };
-  const SUGG=["¿Qué debo tomar para el bono?","¿Este bono sí conviene?","¿Qué viajes debo evitar?","Dame un diagnóstico rápido"];
+  const SUGG=["Dame un diagnóstico rápido de hoy","¿Cómo voy esta semana vs la pasada?","¿Cuáles son mis mejores zonas y horas?","¿Este bono sí conviene?","¿Qué viajes debo evitar?","¿Cuánto llevo gastado en gasolina?"];
   return(
     <div className="fu" style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)",minHeight:0,paddingBottom:"calc(60px + env(safe-area-inset-bottom))"}}>
       <div style={{padding:"9px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:7,position:"relative"}}>
@@ -1904,7 +1905,7 @@ ULTIMOS ${last3||"s/d"}`;
         </button>
       </div>
       {recent.length<5&&<div style={{margin:"11px 14px 0",background:`${C.accent}12`,border:`1px solid ${C.accent}33`,borderRadius:9,padding:"9px 13px",fontSize:11,color:C.accent}}>⚠️ Con más viajes el análisis mejora ({recent.length} actuales)</div>}
-      {!isPro&&<UpgradeCard monthlyTripsCount={monthlyTripsCount} onUpgrade={onUpgrade} s={{margin:"11px 14px 0"}}/>}
+      {!isPro&&<UpgradeCard onUpgrade={onUpgrade} s={{margin:"11px 14px 0"}}/>}
       {msgs.length<=1&&<div style={{padding:"11px 14px 0"}}><Lbl s={{marginBottom:7}}>Preguntas frecuentes</Lbl><div style={{display:"flex",flexWrap:"wrap",gap:6}}>{SUGG.map(s=><button key={s} onClick={()=>setInput(s)} style={{padding:"6px 11px",background:`${C.teal}12`,border:`1px solid ${C.teal}33`,borderRadius:18,color:C.teal,fontSize:11,fontWeight:600}}>{s}</button>)}</div></div>}
       <div style={{flex:1,overflowY:"auto",padding:"11px 14px",display:"flex",flexDirection:"column",gap:9}}>
         {msgs.map((m,i)=>{const speechId=`ai-${i}`,isAssistant=m.role==="assistant",isSpeaking=speakingId===speechId;return <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}><div style={{maxWidth:m.role==="user"?"88%":"96%",padding:"10px 13px",borderRadius:m.role==="user"?"13px 13px 3px 13px":"13px 13px 13px 3px",background:m.role==="user"?`${C.accent}1e`:C.card,border:`1px solid ${m.role==="user"?C.accent+"44":C.border}`,fontSize:13,lineHeight:1.6,whiteSpace:m.role==="user"?"pre-wrap":"normal",color:C.text}}>{isAssistant?<MarkdownMessage>{m.content}</MarkdownMessage>:m.content}{isAssistant&&<button data-tour="ai-speak" onClick={()=>{const arranco=speak(m.content,speechId)&&!isSpeaking;if(arranco)emitTourEvent(TOUR_EVENTS.AI_SPOKEN);}} disabled={!voiceSupported} aria-label={isSpeaking?"Detener respuesta":"Escuchar respuesta"} style={{minHeight:38,marginTop:9,padding:"7px 10px",border:`1px solid ${voiceSupported?(isSpeaking?C.danger:C.teal+"55"):C.dim}`,borderRadius:8,color:voiceSupported?(isSpeaking?C.danger:C.teal):C.dim,display:"flex",alignItems:"center",gap:7,fontSize:9,fontWeight:800}}><SVG d={isSpeaking?IC.stop:IC.speaker} size={14} color={voiceSupported?(isSpeaking?C.danger:C.teal):C.dim}/>{isSpeaking?"DETENER":"ESCUCHAR"}</button>}</div></div>;})}
@@ -2127,7 +2128,8 @@ export default function RuletoDriveApp(){
   },[session?.user?.id,tab,tripsSection,tripsExtraType]);
 
   const showToast=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
-  const{dayKm,reset:resetDayGPS}=useDayGPS(!!activeDay?.running,session?.user?.id,activeDay?.id);
+  const isPro=!paymentUrl()||isProProfile(profile);
+  const{dayKm,reset:resetDayGPS}=useDayGPS(!!activeDay?.running&&isPro,session?.user?.id,activeDay?.id);
 
   useEffect(()=>{
     let mounted=true;
@@ -2468,12 +2470,6 @@ export default function RuletoDriveApp(){
 
   const saveTrip=async data=>{
     if(!session)return false;
-    const monthlyTripsCount=trips.filter(t=>dateOf(t).slice(0,7)===today().slice(0,7)).length;
-    if(paymentUrl()&&!isProProfile(profile)&&monthlyTripsCount>=FREE_MONTHLY_TRIP_LIMIT){
-      openUpgrade();
-      showToast(`Tu plan gratis incluye ${FREE_MONTHLY_TRIP_LIMIT} viajes al mes`,"err");
-      return false;
-    }
     try{
       const endTime=data.end_time||toStorageInstant();
       let endLocation=data.end_location||null;
@@ -2607,7 +2603,7 @@ export default function RuletoDriveApp(){
       }
       const point=await locationPromise;
       if(point)await saveCheckpoints([{...point,event_type:"shift_start",day_id:data.id}]);
-      ensureNativeShift(session.user.id,data.id).catch(error=>console.warn("Rastreo de jornada",error));
+      if(isPro)ensureNativeShift(session.user.id,data.id).catch(error=>console.warn("Rastreo de jornada",error));
       showToast(point?`Jornada iniciada en ${placeLabel(point)||"ubicacion sin zona"}`:"Jornada iniciada; GPS sin ubicacion","ok");
     }
   };
@@ -2724,12 +2720,6 @@ export default function RuletoDriveApp(){
 
   const uname=session?.user?.user_metadata?.full_name||session?.user?.email?.split("@")[0]||"Driver";
   const todayNet=operationalSummary(trips,events,cfg,today(),dayKm,bonuses).net;
-  const isPro=!paymentUrl()||isProProfile(profile);
-  const monthlyTripsCount=trips.filter(t=>{
-    const d=new Date(t.end_time||t.created_at||0);
-    const now=new Date();
-    return dateKey(d).slice(0,7)===today().slice(0,7);
-  }).length;
   const NAV=[{id:"home",d:IC.home,l:"Hoy"},{id:"trips",d:IC.trips,l:"Viajes"},{id:"stats",d:IC.stats,l:"Stats"},{id:"ai",d:IC.ai,l:"IA"},{id:"config",d:IC.cfg,l:"Config"}];
 
   return(
@@ -2749,10 +2739,10 @@ export default function RuletoDriveApp(){
           </div>
         </div>
 
-        {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer} onSelectCopilotOfferIndex={idx=>setCopilotState(p=>({...p,selectedOfferIndex:idx}))}/>}
+        {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} onUpgrade={openUpgrade} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer} onSelectCopilotOfferIndex={idx=>setCopilotState(p=>({...p,selectedOfferIndex:idx}))}/>}
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
-        {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses}/>}
-        {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} userId={session.user.id}/>}
+        {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} isPro={isPro} onUpgrade={openUpgrade}/>}
+        {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} onUpgrade={openUpgrade} userId={session.user.id}/>}
         {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode}/>}
 
         {/* NAVEGACIÓN FIJA */}
