@@ -672,8 +672,10 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
       writeScoped(window.localStorage,userId,"trip-draft",m);
     }
   };
-  const setF=(k,v)=>setTrip(p=>{const n={...p,[k]:v};persist(n);return n;});
-  const setModeP=m=>{setMode(m);persist({mode:m});};
+  // Elegir plataforma no es "llenar el viaje": el tour solo cuenta los datos.
+  const TRIP_DATA_FIELDS=["fare","pickup_km","pickup_min","dest_km","dest_min"];
+  const setF=(k,v)=>{if(v!==""&&v!=null&&TRIP_DATA_FIELDS.includes(k))emitTourEvent(TOUR_EVENTS.TRIP_FIELD_FILLED,k);setTrip(p=>{const n={...p,[k]:v};persist(n);return n;});};
+  const setModeP=m=>{setMode(m);persist({mode:m});emitTourEvent(TOUR_EVENTS.TRIP_MODE_CHANGED,m);};
   const setPhaseP=p=>{setPhase(p);persist({phase:p});};
   const toast_=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
 
@@ -757,6 +759,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
       } else {
         removeScoped(window.localStorage,userId,"trip-draft");
       }
+      emitTourEvent(TOUR_EVENTS.TRIP_SAVED);
       onClose();
     }
     else toast_("Error al guardar. Intenta de nuevo.","err");
@@ -803,7 +806,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
 
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <Big size={19} color={C.accent} s={{letterSpacing:1}}>NUEVO VIAJE</Big>
-            <button onClick={onClose} style={{color:C.muted,fontSize:20,lineHeight:1,padding:"4px 8px"}}>✕</button>
+            <button data-tour="trip-close" onClick={onClose} style={{color:C.muted,fontSize:20,lineHeight:1,padding:"4px 8px"}}>✕</button>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:10}}>
             {platforms.map(p=>(
@@ -813,13 +816,13 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
           {!platforms.length&&<div style={{fontSize:10,color:C.danger,margin:"-3px 0 10px",lineHeight:1.45}}>Activa al menos una plataforma en Config para registrar viajes.</div>}
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:10}}>
             {[{id:"manual",l:"✍️ Manual"},{id:"gps",l:"📍 GPS"},{id:"photo",l:"📸 Foto IA"}].map(m=>(
-              <button key={m.id} onClick={()=>setModeP(m.id)} style={mBtn(m.id)}>{m.l}</button>
+              <button key={m.id} data-tour={`trip-mode-${m.id}`} onClick={()=>setModeP(m.id)} style={mBtn(m.id)}>{m.l}</button>
             ))}
           </div>
           {startLocation&&<div style={{fontSize:9,color:C.muted,margin:"-3px 0 10px"}}>Inicio detectado: {locationName(startLocation)}</div>}
         </div>
         <div style={{flex:1,overflowY:"auto",padding:"0 18px",WebkitOverflowScrolling:"touch"}}>
-          <div style={{marginBottom:12}}>
+          <div data-tour="trip-fare" style={{marginBottom:12}}>
             <Lbl s={{marginBottom:5}}>💰 Tarifa del viaje (MXN)</Lbl>
             <input type="number" step="any" value={trip.fare} onChange={e=>setF("fare",e.target.value)} placeholder="0.00"
               onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}
@@ -1032,15 +1035,15 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
   return(
     <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.76)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
       <div className="su" style={{width:"100%",maxWidth:480,maxHeight:"92dvh",overflowY:"auto",background:C.card,border:`1px solid ${C.bord2}`,borderRadius:"14px 14px 0 0",padding:"15px 14px calc(18px + env(safe-area-inset-bottom))"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div><Big size={23} color={C.accent}>{initial?"EDITAR REGISTRO":"REGISTRO RAPIDO"}</Big><div style={{fontSize:10,color:C.muted,marginTop:3}}>Escribe, dicta o elige un movimiento</div></div><button onClick={onClose} aria-label="Cerrar"><SVG d={IC.close} color={C.muted}/></button></div>
-        <div style={{display:"flex",gap:6,marginBottom:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div><Big size={23} color={C.accent}>{initial?"EDITAR REGISTRO":"REGISTRO RAPIDO"}</Big><div style={{fontSize:10,color:C.muted,marginTop:3}}>Escribe, dicta o elige un movimiento</div></div><button data-tour="quick-close" onClick={onClose} aria-label="Cerrar"><SVG d={IC.close} color={C.muted}/></button></div>
+        <div data-tour="quick-text" style={{display:"flex",gap:6,marginBottom:8}}>
           <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&parse()} placeholder='Ej. "Cargue 10 litros por $243.90"' style={{flex:1,minWidth:0,background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"11px",color:C.text,fontSize:12,outline:"none"}}/>
           <button onClick={listen} title={listening?"Detener dictado":"Dictar movimiento"} style={{width:42,height:42,border:`1px solid ${listening?C.danger:C.border}`,borderRadius:8,display:"grid",placeItems:"center",background:listening?`${C.danger}18`:C.card2}}><SVG d={listening?IC.stop:IC.mic} color={listening?C.danger:C.muted}/></button>
           <button onClick={parse} disabled={!text.trim()||parsing} style={{padding:"0 12px",border:`1px solid ${C.teal}`,borderRadius:8,color:C.teal,fontSize:10,fontWeight:700}}>{parsing?"...":"IA"}</button>
         </div>
         <div style={{fontSize:9,color:listening?C.teal:C.dim,lineHeight:1.45,marginBottom:voiceError?6:14}}>{listening?"Escuchando... puedes corregir el texto antes de enviarlo a IA.":"La IA prepara el registro. Tu confirmas antes de guardarlo."}</div>
         {voiceError&&<div style={{fontSize:10,color:C.danger,background:`${C.danger}10`,border:`1px solid ${C.danger}33`,borderRadius:7,padding:"8px 9px",marginBottom:12}}>{voiceError}{voiceError.includes("permiso")&&<div style={{marginTop:6}}><button onClick={openSettings} style={{color:C.danger,textDecoration:"underline",fontWeight:700,fontSize:10}}>Abrir ajustes</button></div>}</div>}
-        <div style={{display:"grid",gridTemplateColumns:initial?"1fr":"repeat(3,1fr)",gap:5,marginBottom:15}}>{TYPES.filter(t=>!initial||t.id===form.type).map(t=><button key={t.id} onClick={()=>set("type",t.id)} style={{minHeight:initial?44:58,padding:"7px 3px",border:`1px solid ${form.type===t.id?C.accent:C.border}`,borderRadius:8,background:form.type===t.id?`${C.accent}12`:C.card2,color:form.type===t.id?C.accent:C.muted,fontSize:8,fontWeight:700,display:"flex",flexDirection:initial?"row":"column",alignItems:"center",justifyContent:"center",gap:5}}><SVG d={t.d} size={16} color={form.type===t.id?C.accent:C.muted}/>{t.label}</button>)}</div>
+        <div data-tour="quick-types" style={{display:"grid",gridTemplateColumns:initial?"1fr":"repeat(3,1fr)",gap:5,marginBottom:15}}>{TYPES.filter(t=>!initial||t.id===form.type).map(t=><button key={t.id} onClick={()=>{set("type",t.id);emitTourEvent(TOUR_EVENTS.QUICK_TYPE_CHANGED,t.id);}} style={{minHeight:initial?44:58,padding:"7px 3px",border:`1px solid ${form.type===t.id?C.accent:C.border}`,borderRadius:8,background:form.type===t.id?`${C.accent}12`:C.card2,color:form.type===t.id?C.accent:C.muted,fontSize:8,fontWeight:700,display:"flex",flexDirection:initial?"row":"column",alignItems:"center",justifyContent:"center",gap:5}}><SVG d={t.d} size={16} color={form.type===t.id?C.accent:C.muted}/>{t.label}</button>)}</div>
         {form.type==="trip"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Tarifa" type="number" value={form.fare} onChange={v=>set("fare",v)} unit="$"/><Inp label="Distancia" type="number" value={form.trip_km} onChange={v=>set("trip_km",v)} unit="km"/><div style={{gridColumn:"1 / -1"}}><Lbl s={{marginBottom:5}}>Plataforma</Lbl><select value={form.platform} onChange={e=>set("platform",e.target.value)} disabled={!platforms.length} style={{width:"100%",background:C.card2,border:`1px solid ${platforms.length?C.border:C.danger}`,borderRadius:8,padding:"10px",color:platforms.length?C.text:C.danger}}>{!platforms.length&&<option value="">Activa una plataforma en Config</option>}{platforms.map(p=><option key={p.id} value={p.id}>{p.name} · {p.commission}%</option>)}</select></div></div>}
         {form.type==="dead_km"&&(
           <div>
@@ -1329,7 +1332,7 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
         <Lbl s={{marginBottom:11}}>Estado de jornada</Lbl>
         {!activeDay?(
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            <Btn full onClick={startDay} color={C.teal}><SVG d={IC.play} size={13} color={C.teal} fill={C.teal}/>Iniciar jornada</Btn>
+            <Btn tour="iniciar-jornada" full onClick={startDay} color={C.teal}><SVG d={IC.play} size={13} color={C.teal} fill={C.teal}/>Iniciar jornada</Btn>
             <Btn tour="registro-rapido" full onClick={onQuick} color={C.accent}><SVG d={IC.plus} size={13} color={C.accent}/>Registrar</Btn>
           </div>
         ):(
@@ -1372,7 +1375,7 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
 
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
               <Btn tour="nuevo-viaje" full onClick={onNew} color={C.accent}><SVG d={IC.plus} size={13} color={C.accent}/>Nuevo viaje</Btn>
-              <Btn full onClick={onQuick} color={C.teal}><SVG d={IC.mic} size={13} color={C.teal}/>Registro rapido</Btn>
+              <Btn tour="registro-rapido" full onClick={onQuick} color={C.teal}><SVG d={IC.mic} size={13} color={C.teal}/>Registro rapido</Btn>
             </div>
             <Btn full onClick={onEndDay} color={C.danger} outline><SVG d={IC.flag} size={12} color={C.danger}/>Terminar y ver cierre</Btn>
           </div>
@@ -1875,7 +1878,7 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
   const[saved,setSaved]=useState(false);
   useEffect(()=>setLocal(cfg),[cfg]);
   const set=(k,v)=>{emitTourEvent(TOUR_EVENTS.CONFIG_CHANGED);setLocal(p=>({...p,[k]:v}));};
-  const updatePlatform=(id,patch)=>{emitTourEvent(TOUR_EVENTS.PLATFORM_CHANGED);setLocal(p=>({...p,platforms:platformList(p).map(x=>x.id===id?{...x,...patch}:x)}));};
+  const updatePlatform=(id,patch)=>{emitTourEvent("enabled" in patch?TOUR_EVENTS.PLATFORM_TOGGLED:TOUR_EVENTS.PLATFORM_CHANGED);setLocal(p=>({...p,platforms:platformList(p).map(x=>x.id===id?{...x,...patch}:x)}));};
   const addPlatform=()=>{const id=`personal-${Date.now()}`;setLocal(p=>({...p,platforms:[...platformList(p),{id,name:"Servicio propio",commission:0,enabled:true,color:C.muted}]}));};
   const removePlatform=id=>setLocal(p=>({...p,platforms:platformList(p).filter(x=>x.id!==id)}));
   const save=async()=>{await saveConfig(local);emitTourEvent(TOUR_EVENTS.CONFIG_SAVED);setSaved(true);setTimeout(()=>setSaved(false),2000);};
@@ -2634,8 +2637,8 @@ export default function RutaFlow(){
           </div>
         </div>
 
-        {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>setShowNew(true)} onQuick={()=>{emitTourEvent(TOUR_EVENTS.QUICK_OPENED);setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer} onSelectCopilotOfferIndex={idx=>setCopilotState(p=>({...p,selectedOfferIndex:idx}))}/>}
-        {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>setShowNew(true)} onQuick={()=>{emitTourEvent(TOUR_EVENTS.QUICK_OPENED);setEditingEvent(null);setEditingKind("event");setShowOperation(true);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
+        {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer} onSelectCopilotOfferIndex={idx=>setCopilotState(p=>({...p,selectedOfferIndex:idx}))}/>}
+        {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses}/>}
         {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} monthlyTripsCount={monthlyTripsCount} onUpgrade={openUpgrade} userId={session.user.id}/>}
         {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)}/>}
@@ -2643,7 +2646,7 @@ export default function RutaFlow(){
         {/* NAVEGACIÓN FIJA */}
         <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100,paddingBottom:"calc(10px + env(safe-area-inset-bottom))",paddingTop:"10px"}}>
           {NAV.map(n=>(
-            <button key={n.id} onClick={()=>setTab(n.id)} style={{flex:1,padding:"12px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:tab===n.id?C.accent:C.dim,transition:"color .15s"}}>
+            <button key={n.id} data-tour={`nav-${n.id}`} onClick={()=>{setTab(n.id);emitTourEvent(TOUR_EVENTS.TAB_CHANGED,n.id);}} style={{flex:1,padding:"12px 0",display:"flex",flexDirection:"column",alignItems:"center",gap:4,color:tab===n.id?C.accent:C.dim,transition:"color .15s"}}>
               <SVG d={n.d} size={18} color={tab===n.id?C.accent:C.dim}/>
               <span style={{fontSize:9,letterSpacing:"0.1em",fontWeight:tab===n.id?700:400}}>{n.l}</span>
             </button>
@@ -2653,15 +2656,15 @@ export default function RutaFlow(){
       </div>{/* ← CIERRE DEL DIV PRINCIPAL */}
 
       {/* MODALES FUERA DEL DIV — flotan sobre todo incluyendo la NAV */}
-      {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} activeBonuses={bonuses.filter(b=>String(b.status||"")==="active")} onClose={()=>setShowNew(false)} isPro={isPro} onUpgrade={openUpgrade} copilotState={copilotState} userId={session.user.id}/>}
-      {showOperation&&<OperationModal cfg={cfg} initial={editingEvent} initialKind={editingKind} onClose={()=>{setShowOperation(false);setEditingEvent(null);setEditingKind("event");}} onSaveOperation={saveOperation} onUpdateOperation={updateOperation} onSaveTrip={saveTrip} onSaveBonus={saveBonus} onUpdateBonus={updateBonus}/>}
+      {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} activeBonuses={bonuses.filter(b=>String(b.status||"")==="active")} onClose={()=>{setShowNew(false);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_CLOSED);}} isPro={isPro} onUpgrade={openUpgrade} copilotState={copilotState} userId={session.user.id}/>}
+      {showOperation&&<OperationModal cfg={cfg} initial={editingEvent} initialKind={editingKind} onClose={()=>{setShowOperation(false);setEditingEvent(null);setEditingKind("event");emitTourEvent(TOUR_EVENTS.QUICK_CLOSED);}} onSaveOperation={saveOperation} onUpdateOperation={updateOperation} onSaveTrip={saveTrip} onSaveBonus={saveBonus} onUpdateBonus={updateBonus}/>}
       {selectedRecord&&<RecordDetail kind={selectedRecord.kind} record={selectedRecord.record} cfg={cfg} onClose={()=>setSelectedRecord(null)} onEdit={()=>{setEditingEvent(selectedRecord.record);setEditingKind(selectedRecord.kind);setSelectedRecord(null);setShowOperation(true);}} onDelete={async()=>{const deleted=selectedRecord.kind==="bonus"?await deleteBonus(selectedRecord.record.id):await deleteOperation(selectedRecord.record.id);if(deleted)setSelectedRecord(null);}}/>}
       {selectedClosure&&<ClosureModal closure={selectedClosure} cfg={cfg} trips={trips} events={events} bonuses={bonuses} onClose={()=>setSelectedClosure(null)} onSelectTrip={trip=>{setSelectedClosure(null);setSelTrip(trip);}} onSelectRecord={(kind,record)=>{setSelectedClosure(null);setSelectedRecord({kind,record});}}/>}
       {selTrip&&<TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)}
         onSave={async(id,d)=>{await updateTrip(id,d);setSelTrip(null);}}
         onDelete={async id=>{await deleteTrip(id);setSelTrip(null);}}/>}
       {showSupport&&<SupportModal isOpen={showSupport} onClose={()=>setShowSupport(false)} userId={session?.user?.id} userEmail={session?.user?.email} onReportSent={sent=>showToast(sent?"Reporte enviado con éxito":"Reporte guardado; se enviará al recuperar la conexión",sent?"ok":"warn")}/>}
-      {showOnboarding&&<OnboardingWizard isOpen={showOnboarding} onComplete={()=>setShowOnboarding(false)} onDismissNever={()=>{setShowOnboarding(false);LS.set("rf_onboarding_dismissed",true);}} setTab={setTab} currentTab={tab}/>}
+      {showOnboarding&&<OnboardingWizard isOpen={showOnboarding} onComplete={()=>setShowOnboarding(false)} onDismissNever={()=>{setShowOnboarding(false);LS.set("rf_onboarding_dismissed",true);}} currentTab={tab}/>}
     </>
   );
 }

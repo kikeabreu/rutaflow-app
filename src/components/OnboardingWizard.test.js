@@ -1,4 +1,4 @@
-import { computeTourPlacement, TOUR_STEPS } from './OnboardingWizard';
+import { computeTourPlacement, matchesWait, stepWaits, TAB_LABEL, TOUR_STEPS } from './OnboardingWizard';
 import { TOUR_EVENTS } from '../tourBus';
 
 // Teléfono de referencia: 375x812.
@@ -41,49 +41,109 @@ describe("computeTourPlacement", () => {
   });
 });
 
-describe("TOUR_STEPS", () => {
-  test("cada paso informativo declara a qué pestaña lleva", () => {
-    for (const step of TOUR_STEPS) {
-      expect(typeof step.targetTab).toBe("string");
-      expect(step.targetTab.length).toBeGreaterThan(0);
-    }
+// Un paso se da por hecho con un aviso de la app. Algunos exigen además un
+// valor (qué pestaña, qué modo de captura) y otros aceptan varios finales.
+describe("stepWaits / matchesWait", () => {
+  test("un paso sin espera no se cumple con ningún aviso", () => {
+    const paso = { title: "informativo" };
+    expect(stepWaits(paso)).toEqual([]);
+    expect(matchesWait(paso, TOUR_EVENTS.CONFIG_SAVED)).toBe(false);
   });
 
-  test("los pasos de práctica traen la instrucción visible", () => {
-    const practica = TOUR_STEPS.filter(s => s.action === "click" || s.waitFor);
-    expect(practica.length).toBeGreaterThan(0);
-    for (const step of practica) {
+  test("espera simple: basta el nombre del aviso", () => {
+    const paso = { waitFor: TOUR_EVENTS.CONFIG_SAVED };
+    expect(matchesWait(paso, TOUR_EVENTS.CONFIG_SAVED)).toBe(true);
+    expect(matchesWait(paso, TOUR_EVENTS.CONFIG_SAVED, "loquesea")).toBe(true);
+    expect(matchesWait(paso, TOUR_EVENTS.CONFIG_CHANGED)).toBe(false);
+  });
+
+  test("espera con valor: el aviso correcto con el valor equivocado no cuenta", () => {
+    const paso = { waitFor: { name: TOUR_EVENTS.TAB_CHANGED, value: "config" } };
+    expect(matchesWait(paso, TOUR_EVENTS.TAB_CHANGED, "config")).toBe(true);
+    expect(matchesWait(paso, TOUR_EVENTS.TAB_CHANGED, "stats")).toBe(false);
+    expect(matchesWait(paso, TOUR_EVENTS.TAB_CHANGED)).toBe(false);
+  });
+
+  test("varios finales posibles: guardar el viaje o cerrar el modal", () => {
+    const paso = { waitFor: [TOUR_EVENTS.TRIP_SAVED, TOUR_EVENTS.TRIP_MODAL_CLOSED] };
+    expect(matchesWait(paso, TOUR_EVENTS.TRIP_SAVED)).toBe(true);
+    expect(matchesWait(paso, TOUR_EVENTS.TRIP_MODAL_CLOSED)).toBe(true);
+    expect(matchesWait(paso, TOUR_EVENTS.QUICK_CLOSED)).toBe(false);
+  });
+});
+
+describe("TOUR_STEPS", () => {
+  test("los pasos que piden algo traen la instrucción visible", () => {
+    const conAccion = TOUR_STEPS.filter(s => stepWaits(s).length);
+    expect(conAccion.length).toBeGreaterThan(0);
+    for (const step of conAccion) {
       expect(step.highlight).toBeTruthy();
       expect(step.actionHint).toBeTruthy();
     }
   });
 
-  test("todo paso con práctica apunta a un ancla real", () => {
+  test("todo paso señala un ancla real", () => {
     // Las anclas existentes en App.js; si se renombra una, esta prueba avisa.
     const anclas = new Set([
-      "variables", "platforms", "config-save", "ai-chat", "ai-mic", "ai-speak",
-      "stats-cards", "trips-list", "nuevo-viaje", "registro-rapido",
-      "jornada-card", "copilot-card", "kpi-panel",
+      "variables", "platforms", "config-save",
+      "ai-chat", "ai-mic", "ai-speak",
+      "stats-cards", "trips-list",
+      "kpi-panel", "jornada-card", "copilot-card",
+      "iniciar-jornada", "nuevo-viaje", "registro-rapido",
+      "trip-mode-manual", "trip-mode-gps", "trip-mode-photo", "trip-fare", "trip-close",
+      "quick-text", "quick-types", "quick-close",
+      ...Object.keys(TAB_LABEL).map(t => `nav-${t}`),
     ]);
     for (const step of TOUR_STEPS) {
       if (step.highlight) expect(anclas.has(step.highlight)).toBe(true);
     }
   });
 
-  // El tour solo puede esperar eventos que la app de verdad emite; si alguien
+  // El tour solo puede esperar avisos que la app de verdad emite; si alguien
   // inventa un waitFor que nadie dispara, el conductor se queda atorado.
-  test("cada waitFor corresponde a un evento declarado", () => {
+  test("cada espera corresponde a un evento declarado", () => {
     const conocidos = new Set(Object.values(TOUR_EVENTS));
-    const conEspera = TOUR_STEPS.filter(s => s.waitFor);
-    expect(conEspera.length).toBeGreaterThan(0);
-    for (const step of conEspera) {
-      expect(conocidos.has(step.waitFor)).toBe(true);
+    const esperas = TOUR_STEPS.flatMap(stepWaits);
+    expect(esperas.length).toBeGreaterThan(0);
+    for (const espera of esperas) expect(conocidos.has(espera.name)).toBe(true);
+  });
+
+  // Si un paso vive en una pestaña, el tour tiene que poder mandarlo de vuelta.
+  test("la pestaña de cada paso es una de las cinco reales", () => {
+    for (const step of TOUR_STEPS) {
+      if (step.tab) expect(TAB_LABEL[step.tab]).toBeTruthy();
     }
   });
 
-  test("un paso no espera un evento y un toque a la vez", () => {
-    for (const step of TOUR_STEPS) {
-      if (step.waitFor) expect(step.action).toBeUndefined();
+  // Solo la navegación pura puede saltar sola: en un paso donde el conductor
+  // está escribiendo, avanzar solo le borra de la vista lo que está haciendo.
+  test("solo avanzan solos los pasos de navegación", () => {
+    for (const step of TOUR_STEPS.filter(s => s.autoAdvance)) {
+      const nombres = stepWaits(step).map(w => w.name);
+      const navegacion = [
+        TOUR_EVENTS.TAB_CHANGED, TOUR_EVENTS.TRIP_MODAL_OPENED,
+        TOUR_EVENTS.TRIP_MODAL_CLOSED, TOUR_EVENTS.TRIP_SAVED,
+        TOUR_EVENTS.QUICK_OPENED, TOUR_EVENTS.QUICK_CLOSED,
+      ];
+      expect(nombres.length).toBeGreaterThan(0);
+      for (const nombre of nombres) expect(navegacion).toContain(nombre);
     }
+  });
+
+  test("antes de señalar algo dentro de un modal, el tour pidió abrirlo", () => {
+    const abre = { trip: TOUR_EVENTS.TRIP_MODAL_OPENED, quick: TOUR_EVENTS.QUICK_OPENED };
+    const dentro = { trip: /^trip-/, quick: /^quick-/ };
+    for (const modal of ["trip", "quick"]) {
+      const primerUso = TOUR_STEPS.findIndex(s => dentro[modal].test(s.highlight || ""));
+      const pasoQueAbre = TOUR_STEPS.findIndex(s => stepWaits(s).some(w => w.name === abre[modal]));
+      expect(pasoQueAbre).toBeGreaterThanOrEqual(0);
+      expect(pasoQueAbre).toBeLessThan(primerUso);
+    }
+  });
+
+  test("cada modal que se abre también se cierra antes de terminar", () => {
+    const cierra = [TOUR_EVENTS.TRIP_MODAL_CLOSED, TOUR_EVENTS.QUICK_CLOSED];
+    const esperas = TOUR_STEPS.flatMap(stepWaits).map(w => w.name);
+    for (const evento of cierra) expect(esperas).toContain(evento);
   });
 });
