@@ -3,6 +3,7 @@ import { copilot, isAndroidApp } from '../copilotClient';
 import { nativeTracking } from '../nativeTrackingClient';
 import { requestSpeechPermission, speechPermissionState } from '../speechClient';
 import { C } from '../theme';
+import { Logo } from './Logo';
 
 // Qué se le pide al conductor y por qué. El "por qué" no es relleno: si no
 // entiende para qué sirve, niega el permiso y la app queda inservible sin que
@@ -135,7 +136,7 @@ export function PermissionGate({ onReady }) {
       padding: "calc(28px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom))",
     }}>
       <div style={{ maxWidth: 440, margin: "0 auto" }}>
-        <div className="B" style={{ fontSize: 22, fontWeight: 900, color: C.accent, letterSpacing: 1.5 }}>RULETO DRIVE</div>
+        <Logo size={20} iconSize={32}/>
         <div className="B" style={{ fontSize: 19, fontWeight: 800, color: C.text, marginTop: 14, lineHeight: 1.25 }}>
           Antes de empezar, dale estos permisos
         </div>

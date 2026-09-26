@@ -24,7 +24,9 @@ import { FLAGS } from "./constants/contracts";
 import { SupportModal } from "./components/SupportModal";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { PermissionGate, necesitaPuertaDePermisos } from "./components/PermissionGate";
+import { Logo } from "./components/Logo";
 import { C, ACCENT_FILL, useTheme } from "./theme";
+import { DEMO_TRIPS, DEMO_EVENTS } from "./demoData";
 
 // ─── localStorage ─────────────────────────────────────────────────────────────
 const LS={
@@ -453,6 +455,35 @@ const Pill=({platform})=>{
   const cols={uber:"#00b4d8",didi:"#ff6b35",indrive:"#8bd450",particular:C.teal,beat:"#a855f7",otra:C.muted};
   const p=(platform||"uber").toLowerCase();
   return <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.08em",color:cols[p]||C.muted,textTransform:"uppercase",background:`${cols[p]||C.muted}18`,padding:"2px 7px",borderRadius:4}}>{p}</span>;
+};
+// Aviso de datos de ejemplo: se usa en Hoy, Historial y Estadísticas mientras
+// la cuenta no tiene ni un viaje real registrado.
+const DemoBanner=({s})=>(
+  <div style={{background:`${C.warn}14`,border:`1px solid ${C.warn}44`,borderRadius:10,padding:"10px 13px",marginBottom:11,display:"flex",alignItems:"center",gap:9,...s}}>
+    <span style={{fontSize:16,flexShrink:0}}>✨</span>
+    <div style={{fontSize:11,color:C.warn,lineHeight:1.4}}><b>Así se ve una semana llena.</b> Esto es un ejemplo — registra tu primer viaje y desaparece.</div>
+  </div>
+);
+// Tarjeta de viaje de ejemplo: igual a la real pero sin click, para no abrir
+// el editor real sobre un registro que no existe en la base de datos.
+const DemoTripRow=({t,cfg})=>{
+  const c=calcTrip(t,cfg),ev=tripEval(c,cfg),col=ev.col;
+  return(
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:`1px solid ${C.border}`,opacity:.88}}>
+      <div>
+        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3}}>
+          <Pill platform={t.platform}/>
+          {t.zone&&<span style={{fontSize:9,color:C.teal}}>📍{t.zone}</span>}
+          <span style={{fontSize:8,color:C.warn,fontWeight:800,letterSpacing:"0.08em",border:`1px solid ${C.warn}55`,borderRadius:4,padding:"1px 5px"}}>EJEMPLO</span>
+        </div>
+        <div style={{fontSize:11,color:C.muted}}>{fmtMXN(t.fare)} · {fmt(c.km,1)}km · {c.min.toFixed(0)}min</div>
+      </div>
+      <div style={{textAlign:"right"}}>
+        <Big size={18} color={col}>{fmtMXN(c.net)}</Big>
+        <Lbl s={{marginTop:2}}>{fmtMXN(ev.value)}{ev.mode.short}</Lbl>
+      </div>
+    </div>
+  );
 };
 const Btn=({children,onClick,color=C.accent,outline=false,sm=false,disabled=false,s,full,tour})=>(
   <button data-tour={tour} onClick={onClick} disabled={disabled} style={{padding:sm?"7px 13px":"12px 18px",background:outline?"transparent":`${color}1e`,border:`${outline?1:2}px solid ${disabled?C.dim:color}`,borderRadius:9,color:disabled?C.dim:color,fontSize:sm?10:11,fontWeight:700,letterSpacing:"0.12em",textTransform:"uppercase",display:"inline-flex",alignItems:"center",justifyContent:"center",gap:7,transition:"all .15s",width:full?"100%":undefined,opacity:disabled?.5:1,cursor:disabled?"not-allowed":"pointer",...s}}>{children}</button>
@@ -1431,6 +1462,14 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
         )}
       </Card>
 
+      {trips.length===0&&events.length===0&&!activeDay&&(
+        <Card s={{marginBottom:13}}>
+          <DemoBanner s={{marginBottom:11}}/>
+          <Lbl s={{marginBottom:9}}>Vista previa: una semana llena</Lbl>
+          {DEMO_TRIPS.slice(-4).reverse().map(t=><DemoTripRow key={t.id} t={t} cfg={cfg}/>)}
+        </Card>
+      )}
+
       {activeBonuses.length>0&&<Card s={{marginBottom:13}}>
         <Lbl s={{marginBottom:9}}>Bonos activos</Lbl>
         {activeBonuses.map(b=><BonusCard key={b.id} bonus={b} cfg={cfg} onProgress={onUpdateBonus}/>)}
@@ -1528,8 +1567,9 @@ function TripsTab({cfg,trips,events,bonuses,closures,onSelect,onNew,onQuick,onSe
       <DateRangeControl value={range} onChange={setRange}/>
       {section==="trips"?<>
       <Btn tour="trips-list" full onClick={onNew} s={{marginBottom:11}}><SVG d={IC.plus} size={13} color={C.accent}/>Agregar viaje</Btn>
+      {trips.length===0&&<><DemoBanner/>{DEMO_TRIPS.map(t=><DemoTripRow key={t.id} t={t} cfg={cfg}/>)}</>}
       {filtered.length===0?(
-        <div style={{textAlign:"center",padding:"48px 0",color:C.dim}}><div style={{fontSize:34,marginBottom:9}}>🚗</div><Lbl>Sin viajes registrados</Lbl></div>
+        trips.length===0?null:<div style={{textAlign:"center",padding:"48px 0",color:C.dim}}><div style={{fontSize:34,marginBottom:9}}>🚗</div><Lbl>Sin viajes en este periodo</Lbl></div>
       ):filtered.map(t=>{
         const c=calcTrip(t,cfg);
         const ev=tripEval(c,cfg),col=ev.col;
@@ -1599,7 +1639,9 @@ function TripsTab({cfg,trips,events,bonuses,closures,onSelect,onNew,onQuick,onSe
 }
 
 // ─── STATS TAB ────────────────────────────────────────────────────────────────
-function StatsTab({cfg,trips,events,bonuses,isPro,onUpgrade}){
+function StatsTab({cfg,trips:realTrips,events:realEvents,bonuses,isPro,onUpgrade}){
+  const isDemo=realTrips.length===0&&realEvents.length===0;
+  const trips=isDemo?DEMO_TRIPS:realTrips,events=isDemo?DEMO_EVENTS:realEvents;
   const[range,setRange]=useState({preset:"month",from:shiftDate(-29),to:shiftDate(0)});
   const filtered=trips.filter(t=>inDateRange(t,range));
   const filteredEvents=events.filter(e=>inDateRange(e,range));
@@ -1618,6 +1660,7 @@ function StatsTab({cfg,trips,events,bonuses,isPro,onUpgrade}){
   return(
     <div className="fu" style={{padding:"15px 14px 90px"}}>
       <div className="B" style={{fontSize:22,fontWeight:800,color:C.accent,marginBottom:13,letterSpacing:1}}>ESTADÍSTICAS</div>
+      {isDemo&&<DemoBanner/>}
       <DateRangeControl value={range} onChange={setRange}/>
       {filtered.length===0&&filteredEvents.length===0?(
         <div style={{textAlign:"center",padding:"50px 0",color:C.dim}}><div style={{fontSize:34,marginBottom:9}}>📊</div><Lbl>Registra viajes para ver estadísticas</Lbl></div>
@@ -2040,7 +2083,7 @@ function Auth(){
   return(
     <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div style={{width:"100%",maxWidth:400}}>
-        <div style={{textAlign:"center",marginBottom:28}}><div className="B" style={{fontSize:36,fontWeight:900,color:C.accent,letterSpacing:2}}>RULETO DRIVE</div><div style={{fontSize:10,color:C.dim,letterSpacing:"0.3em",marginTop:3}}>GESTOR DE CONDUCTOR</div></div>
+        <div style={{textAlign:"center",marginBottom:28}}><Logo size={28} stacked s={{marginBottom:9}}/><div style={{fontSize:10,color:C.dim,letterSpacing:"0.3em",marginTop:3}}>GESTOR DE CONDUCTOR</div></div>
         {mode!=="forgot"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:20,background:C.card2,borderRadius:11,padding:4}}>{["login","register"].map(m=><button key={m} onClick={()=>{setMode(m);reset();}} style={{padding:"9px",background:mode===m?C.card:"transparent",border:`1px solid ${mode===m?C.bord2:"transparent"}`,borderRadius:8,color:mode===m?C.text:C.muted,fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700}}>{m==="login"?"Iniciar sesión":"Crear cuenta"}</button>)}</div>}
         <form onSubmit={mode==="login"?handleLogin:mode==="register"?handleRegister:handleForgot}>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -2710,7 +2753,7 @@ export default function RuletoDriveApp(){
   if(loading)return(
     <><style>{buildCSS(C,themeMode)}</style>
     <div style={{background:C.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
-      <div className="B" style={{fontSize:34,fontWeight:900,color:C.accent,letterSpacing:3}}>RULETO DRIVE</div>
+      <Logo size={24} stacked/>
       <div style={{marginTop:20,width:100,height:2,background:C.border,borderRadius:2,overflow:"hidden"}}><div className="pu" style={{width:"60%",height:"100%",background:C.accent}}/></div>
       <div style={{marginTop:11,fontSize:9,color:C.dim,letterSpacing:"0.3em"}}>CARGANDO...</div>
     </div></>
@@ -2729,7 +2772,7 @@ export default function RuletoDriveApp(){
       <div style={{background:C.bg,minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative"}}>
         <div style={{background:C.card,padding:`calc(10px + env(safe-area-inset-top)) 15px 10px`,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10,borderBottom:`1px solid ${C.border}`}}>
           <div>
-            <div className="B" style={{fontSize:19,fontWeight:900,color:C.accent,letterSpacing:1.5}}>RULETO DRIVE</div>
+            <Logo size={15} iconSize={24}/>
             <div style={{fontSize:9,color:C.dim,letterSpacing:"0.18em"}}>{uname.toUpperCase()}</div>
             {pendingCount>0&&<button onClick={()=>syncPendingFor(session.user.id)} style={{fontSize:9,color:syncError?C.danger:C.accent,marginTop:4,textAlign:"left"}} title={syncError||"Toca para sincronizar"}>{pendingCount} registro{pendingCount===1?"":"s"} pendiente{pendingCount===1?"":"s"} · {syncError?"reintentar":"sincronizando"}</button>}
           </div>
