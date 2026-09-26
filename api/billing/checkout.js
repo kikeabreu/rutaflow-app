@@ -5,7 +5,10 @@ module.exports=async function handler(req,res){
   try{
     const user=await authenticate(req);
     if(!user)throw Object.assign(new Error("Sesión no válida."),{statusCode:401});
-    const price=process.env.STRIPE_PRICE_ID;
+    const plan=String(req.body?.plan||"monthly").toLowerCase();
+    if(!["monthly","annual"].includes(plan))return res.status(400).json({error:"Plan debe ser 'monthly' o 'annual'."});
+    const priceKey=plan==="annual"?"STRIPE_PRICE_ID_ANNUAL":"STRIPE_PRICE_ID_MONTHLY";
+    const price=process.env[priceKey];
     const origin=appUrl();
     if(!price||!origin||!process.env.STRIPE_SECRET_KEY||!process.env.SUPABASE_SERVICE_ROLE_KEY)throw Object.assign(new Error("Billing no configurado"),{statusCode:503});
     const key=requestKey(req,user.id,"checkout");

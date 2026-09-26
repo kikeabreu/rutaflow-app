@@ -11,7 +11,7 @@ async function userForEvent(object){
 
 module.exports=async function handler(req,res){
   if(req.method!=="POST"){res.setHeader("Allow","POST");return res.status(405).json({error:"Método no permitido"});}
-  if(!process.env.STRIPE_WEBHOOK_SECRET||!process.env.STRIPE_PRICE_ID||!process.env.SUPABASE_SERVICE_ROLE_KEY)return res.status(503).json({error:"Billing no está configurado."});
+  if(!process.env.STRIPE_WEBHOOK_SECRET||!process.env.SUPABASE_SERVICE_ROLE_KEY||(!process.env.STRIPE_PRICE_ID_MONTHLY&&!process.env.STRIPE_PRICE_ID_ANNUAL&&!process.env.STRIPE_PRICE_ID))return res.status(503).json({error:"Billing no está configurado."});
   try{
     const raw=await rawBody(req);
     if(!verifyStripeSignature(raw,req.headers?.["stripe-signature"],process.env.STRIPE_WEBHOOK_SECRET))return res.status(400).json({error:"Firma inválida"});
@@ -22,7 +22,8 @@ module.exports=async function handler(req,res){
     const userId=await userForEvent(subscription);
     if(!userId)return res.status(200).json({received:true,ignored:true,reason:"unmapped_customer"});
     const priceId=subscription.items?.data?.[0]?.price?.id||null;
-    const active=priceId===process.env.STRIPE_PRICE_ID&&["active","trialing"].includes(subscription.status);
+    const validPrices=[process.env.STRIPE_PRICE_ID_MONTHLY,process.env.STRIPE_PRICE_ID_ANNUAL,process.env.STRIPE_PRICE_ID].filter(Boolean);
+    const active=validPrices.includes(priceId)&&["active","trialing"].includes(subscription.status);
     await adminRequest("rpc/apply_stripe_subscription_event",{method:"POST",body:{
       p_event_id:event.id,p_event_type:event.type,p_event_created:Number(event.created)||0,p_user_id:userId,
       p_customer_id:typeof subscription.customer==="string"?subscription.customer:subscription.customer?.id,

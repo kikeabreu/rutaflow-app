@@ -44,29 +44,24 @@ const isProProfile=profile=>{
   const until=profile.pro_until?new Date(profile.pro_until).getTime():0;
   return plan==="pro"||status==="active"||status==="trialing"||until>Date.now();
 };
-const openUpgrade=async(user,action='checkout')=>{
-  try {
-    const res = await fetch('/api/stripe/checkout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId: user?.id,
-        userEmail: user?.email,
-        action
-      })
+const openUpgrade=async(session,plan='monthly')=>{
+  try{
+    const token=session?.access_token;
+    if(!token){alert("Sesión no válida. Recarga la página.");return;}
+    const res=await fetch('/api/billing/checkout',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`,'Idempotency-Key':`ruleto-upgrade-${session?.user?.id}-${Date.now()}`},
+      body:JSON.stringify({plan:plan==='annual'?'annual':'monthly'})
     });
-    const data = await res.json();
-    if (data?.url) {
-      window.location.href = data.url;
-      return;
-    }
-  } catch (e) {
-    console.warn("Dynamic stripe checkout fallback to payment link", e);
+    const data=await res.json();
+    if(data?.url){window.location.href=data.url;return;}
+    alert(data?.error||"Error al abrir el checkout.");
+  }catch(e){
+    console.warn("Billing checkout error",e);
+    const url=paymentUrl();
+    if(url)window.open(url,"_blank","noopener,noreferrer");
+    else alert("No se pudo abrir el pago. Recarga e intenta de nuevo.");
   }
-
-  const url=paymentUrl();
-  if(url)window.open(url,"_blank","noopener,noreferrer");
-  else alert("Configura STRIPE_SECRET_KEY o REACT_APP_STRIPE_PAYMENT_LINK para activar cobros.");
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -2782,10 +2777,10 @@ export default function RuletoDriveApp(){
           </div>
         </div>
 
-        {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} onUpgrade={openUpgrade} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer} onSelectCopilotOfferIndex={idx=>setCopilotState(p=>({...p,selectedOfferIndex:idx}))}/>}
+        {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} onUpgrade={()=>openUpgrade(session)} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer} onSelectCopilotOfferIndex={idx=>setCopilotState(p=>({...p,selectedOfferIndex:idx}))}/>}
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
-        {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} isPro={isPro} onUpgrade={openUpgrade}/>}
-        {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} onUpgrade={openUpgrade} userId={session.user.id}/>}
+        {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} isPro={isPro} onUpgrade={()=>openUpgrade(session)}/>}
+        {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} onUpgrade={()=>openUpgrade(session)} userId={session.user.id}/>}
         {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode}/>}
 
         {/* NAVEGACIÓN FIJA */}
@@ -2801,7 +2796,7 @@ export default function RuletoDriveApp(){
       </div>{/* ← CIERRE DEL DIV PRINCIPAL */}
 
       {/* MODALES FUERA DEL DIV — flotan sobre todo incluyendo la NAV */}
-      {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} activeBonuses={bonuses.filter(b=>String(b.status||"")==="active")} onClose={()=>{setShowNew(false);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_CLOSED);}} isPro={isPro} onUpgrade={openUpgrade} copilotState={copilotState} userId={session.user.id}/>}
+      {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} activeBonuses={bonuses.filter(b=>String(b.status||"")==="active")} onClose={()=>{setShowNew(false);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_CLOSED);}} isPro={isPro} onUpgrade={()=>openUpgrade(session)} copilotState={copilotState} userId={session.user.id}/>}
       {showOperation&&<OperationModal cfg={cfg} initial={editingEvent} initialKind={editingKind} onClose={()=>{setShowOperation(false);setEditingEvent(null);setEditingKind("event");emitTourEvent(TOUR_EVENTS.QUICK_CLOSED);}} onSaveOperation={saveOperation} onUpdateOperation={updateOperation} onSaveTrip={saveTrip} onSaveBonus={saveBonus} onUpdateBonus={updateBonus}/>}
       {selectedRecord&&<RecordDetail kind={selectedRecord.kind} record={selectedRecord.record} cfg={cfg} onClose={()=>setSelectedRecord(null)} onEdit={()=>{setEditingEvent(selectedRecord.record);setEditingKind(selectedRecord.kind);setSelectedRecord(null);setShowOperation(true);}} onDelete={async()=>{const deleted=selectedRecord.kind==="bonus"?await deleteBonus(selectedRecord.record.id):await deleteOperation(selectedRecord.record.id);if(deleted)setSelectedRecord(null);}}/>}
       {selectedClosure&&<ClosureModal closure={selectedClosure} cfg={cfg} trips={trips} events={events} bonuses={bonuses} onClose={()=>setSelectedClosure(null)} onSelectTrip={trip=>{setSelectedClosure(null);setSelTrip(trip);}} onSelectRecord={(kind,record)=>{setSelectedClosure(null);setSelectedRecord({kind,record});}}/>}
