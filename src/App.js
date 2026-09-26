@@ -2057,7 +2057,11 @@ function Auth(){
   const reset=()=>{setError("");setSuccess("");};
   const redir=()=>`${window.location.origin}/`;
   const handleLogin=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.signInWithPassword({email,password:pass});if(err)setError("Correo o contraseña incorrectos");setLoading(false);};
-  const handleRegister=async e=>{e.preventDefault();reset();if(!name.trim()){setError("Ingresa tu nombre completo");return;}if(pass.length<6){setError("Contraseña mínima: 6 caracteres");return;}if(pass!==confirm){setError("Las contraseñas no coinciden");return;}setLoading(true);const{data,error:err}=await supabase.auth.signUp({email,password:pass,options:{data:{full_name:name},emailRedirectTo:redir()}});if(err){setError(err.message);setLoading(false);return;}if(data?.user)await supabase.from("profiles").upsert({id:data.user.id,full_name:name,email,config:{}});setSuccess("¡Cuenta creada! Revisa tu correo para confirmar.");setLoading(false);};
+  const handleRegister=async e=>{e.preventDefault();reset();if(!name.trim()){setError("Ingresa tu nombre completo");return;}if(pass.length<6){setError("Contraseña mínima: 6 caracteres");return;}if(pass!==confirm){setError("Las contraseñas no coinciden");return;}setLoading(true);const{data,error:err}=await supabase.auth.signUp({email,password:pass,options:{data:{full_name:name},emailRedirectTo:redir()}});if(err){setError(err.message);setLoading(false);return;}if(data?.user){
+        await supabase.from("profiles").upsert({id:data.user.id,full_name:name,email,config:{}});
+        // Start 14-day trial without credit card
+        await fetch('/api/billing/start-trial',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:data.user.id})}).catch(()=>{});
+      }setSuccess("¡Cuenta creada! Revisa tu correo para confirmar.");setLoading(false);};
   const handleForgot=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:redir()});if(err)setError(err.message);else setSuccess("Te enviamos un link para restablecer tu contraseña.");setLoading(false);};
   const handleGoogle=async()=>{
     reset();setLoading(true);
@@ -2758,6 +2762,7 @@ export default function RuletoDriveApp(){
 
   const uname=session?.user?.user_metadata?.full_name||session?.user?.email?.split("@")[0]||"Driver";
   const todayNet=operationalSummary(trips,events,cfg,today(),dayKm,bonuses).net;
+  const trialDaysLeft=!isPro&&profile?.subscription_status==="trialing"&&profile?.pro_until?Math.ceil((new Date(profile.pro_until).getTime()-Date.now())/(1000*60*60*24)):0;
   const NAV=[{id:"home",d:IC.home,l:"Hoy"},{id:"trips",d:IC.trips,l:"Viajes"},{id:"stats",d:IC.stats,l:"Stats"},{id:"ai",d:IC.ai,l:"IA"},{id:"config",d:IC.cfg,l:"Config"}];
 
   return(
@@ -2776,6 +2781,8 @@ export default function RuletoDriveApp(){
             <div className="B" style={{fontSize:21,fontWeight:800,color:todayNet>=0?C.teal:C.danger}}>{fmtMXN(todayNet)}</div>
           </div>
         </div>
+
+        {trialDaysLeft>0&&<div style={{background:`${C.accent}1a`,borderBottom:`1px solid ${C.accent}33`,padding:"9px 15px",fontSize:11,color:C.accent,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>🎁 {trialDaysLeft} día{trialDaysLeft===1?"":"s"} de prueba — Mejora a Pro</span><button onClick={()=>openUpgrade(session,"monthly")} style={{background:C.accent,color:"#000",border:"none",borderRadius:6,padding:"5px 10px",fontSize:9,fontWeight:700,cursor:"pointer"}}>VER</button></div>}
 
         {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} onUpgrade={()=>openUpgrade(session)} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer} onSelectCopilotOfferIndex={idx=>setCopilotState(p=>({...p,selectedOfferIndex:idx}))}/>}
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}

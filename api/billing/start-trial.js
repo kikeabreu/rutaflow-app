@@ -3,12 +3,19 @@ const{adminRequest,authenticate}=require("./_shared.cjs");
 module.exports=async function handler(req,res){
   if(req.method!=="POST"){res.setHeader("Allow","POST");return res.status(405).json({error:"Método no permitido"});}
   try{
-    const user=await authenticate(req);
-    if(!user)throw Object.assign(new Error("Sesión no válida."),{statusCode:401});
     if(!process.env.SUPABASE_SERVICE_ROLE_KEY)throw Object.assign(new Error("Billing no configurado"),{statusCode:503});
 
+    // Accept either Bearer token OR direct userId (from app at signup)
+    let userId;
+    const user=await authenticate(req);
+    if(user){
+      userId=user.id;
+    }else{
+      userId=String(req.body?.user_id||"").trim();
+      if(!userId)throw Object.assign(new Error("Sesión no válida."),{statusCode:401});
+    }
+
     const deviceId=String(req.body?.device_id||"").trim();
-    const userId=user.id;
 
     // Check if this user already used their trial
     const profile=await adminRequest("profiles",{query:`?id=eq.${encodeURIComponent(userId)}&select=plan,pro_until&limit=1`});
