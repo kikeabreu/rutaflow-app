@@ -500,7 +500,7 @@ const Inp=({label,value,onChange,type="text",unit,placeholder="0"})=>(
   </div>
 );
 const Toast=({msg,type="ok"})=>msg?(
-  <div style={{position:"fixed",top:"calc(16px + env(safe-area-inset-top))",left:"50%",transform:"translateX(-50%)",zIndex:99999,background:type==="ok"?ACCENT_FILL:type==="warn"?"#f0a500":"#ff4055",color:"#000",borderRadius:10,padding:"10px 20px",fontSize:12,fontWeight:700,letterSpacing:"0.08em",whiteSpace:"nowrap",boxShadow:"0 4px 24px rgba(0,0,0,.6)"}}>
+  <div style={{position:"fixed",top:"calc(16px + env(safe-area-inset-top))",left:"50%",transform:"translateX(-50%)",zIndex:99999,width:"calc(100% - 32px)",maxWidth:420,boxSizing:"border-box",background:type==="ok"?ACCENT_FILL:type==="warn"?"#f0a500":"#ff4055",color:"#000",borderRadius:10,padding:"10px 16px",fontSize:12,fontWeight:700,letterSpacing:"0.03em",lineHeight:1.4,whiteSpace:"normal",wordBreak:"break-word",textAlign:"center",boxShadow:"0 4px 24px rgba(0,0,0,.6)"}}>
     {type==="ok"?"✅":type==="warn"?"📥":"⚠️"} {msg}
   </div>
 ):null;
