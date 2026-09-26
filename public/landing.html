@@ -246,5 +246,54 @@
   <footer>
     <div class="wrap footerin"><span>© 2026 Ruleto Drive</span><span>Tu operación. Tus números. Tu decisión.</span></div>
   </footer>
+
+  <script>
+    (function(){
+      // Plan selector logic
+      const btns = document.querySelectorAll('.plan.pro button');
+      const priceEl = document.querySelector('.plan.pro .price');
+      const discountEl = document.querySelector('.plan.pro [style*="margin-bottom:12px"]');
+      const ctaEl = document.querySelector('.plan.pro .btn.primary');
+
+      let selectedPlan = localStorage.getItem('ruleto_plan') || 'monthly';
+
+      function updatePricing(plan) {
+        selectedPlan = plan;
+        localStorage.setItem('ruleto_plan', plan);
+
+        if (plan === 'annual') {
+          priceEl.innerHTML = '$697 <small>MXN / año</small>';
+          discountEl.textContent = '40% menos que pago mensual';
+          btns[0].style.background = 'transparent';
+          btns[0].style.color = 'var(--accent)';
+          btns[1].style.background = 'var(--accent)';
+          btns[1].style.color = '#000';
+        } else {
+          priceEl.innerHTML = '$97 <small>MXN / mes</small>';
+          discountEl.innerHTML = 'O $697/año (40% descuento)';
+          btns[0].style.background = 'var(--accent)';
+          btns[0].style.color = '#000';
+          btns[1].style.background = 'transparent';
+          btns[1].style.color = 'var(--accent)';
+        }
+      }
+
+      // Initialize with saved plan
+      updatePricing(selectedPlan);
+
+      // Add listeners
+      btns[0].addEventListener('click', () => updatePricing('monthly'));
+      btns[1].addEventListener('click', () => updatePricing('annual'));
+
+      // CTA redirects with plan
+      if (ctaEl) {
+        ctaEl.href = '/?plan=' + selectedPlan;
+        ctaEl.addEventListener('click', (e) => {
+          const plan = localStorage.getItem('ruleto_plan') || 'monthly';
+          ctaEl.href = '/?plan=' + plan;
+        });
+      }
+    })();
+  </script>
 </body>
 </html>
