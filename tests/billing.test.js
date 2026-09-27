@@ -8,7 +8,7 @@ const{verifyStripeSignature}=require("../api/billing/_shared.cjs");
 function response(){return{statusCode:200,body:null,headers:{},setHeader(k,v){this.headers[k]=v;},status(code){this.statusCode=code;return this;},json(body){this.body=body;return this;}};}
 function configure(){
   process.env.SUPABASE_URL="https://example.supabase.co";process.env.SUPABASE_ANON_KEY="anon";process.env.SUPABASE_SERVICE_ROLE_KEY="service";
-  process.env.STRIPE_SECRET_KEY="sk_test_value";process.env.STRIPE_PRICE_ID="price_real_required";process.env.STRIPE_WEBHOOK_SECRET="whsec_test";process.env.APP_URL="https://ruleto.example";
+  process.env.STRIPE_SECRET_KEY="sk_test_value";process.env.STRIPE_PRICE_ID="price_real_required";process.env.STRIPE_PRICE_ID_MONTHLY="price_real_required";process.env.STRIPE_WEBHOOK_SECRET="whsec_test";process.env.APP_URL="https://ruleto.example";
 }
 
 test("verifies Stripe signature over the exact raw body and rejects tampering",()=>{
@@ -33,6 +33,7 @@ test("checkout binds Stripe metadata to JWT user id and never to email",async()=
     if(String(url).includes("/auth/v1/user"))return{ok:true,json:async()=>({id:"11111111-1111-4111-8111-111111111111",email:"untrusted@example.com"})};
     if(String(url).includes("billing_customers?") )return{ok:true,json:async()=>[]};
     if(String(url).includes("api.stripe.com/v1/customers"))return{ok:true,json:async()=>({id:"cus_1"})};
+    if(String(url).includes("/subscriptions?")||String(url).includes("/checkout/sessions?"))return{ok:true,json:async()=>({data:[],has_more:false})};
     if(String(url).includes("billing_customers"))return{ok:true,json:async()=>[{}]};
     return{ok:true,json:async()=>({url:"https://checkout.stripe.com/session"})};
   };

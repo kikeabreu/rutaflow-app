@@ -1,5 +1,7 @@
 const{appUrl,authenticate,customerForUser,requestKey,sendError,stripeRequest}=require("./_shared.cjs");
 
+const{checkoutGuard}=require("./_checkout-guard.cjs");
+
 module.exports=async function handler(req,res){
   if(req.method!=="POST"){res.setHeader("Allow","POST");return res.status(405).json({error:"Método no permitido"});}
   try{
@@ -14,9 +16,11 @@ module.exports=async function handler(req,res){
     const key=requestKey(req,user.id,"checkout");
     if(!key)return res.status(400).json({error:"Envía Idempotency-Key único para crear el checkout."});
     const customer=await customerForUser(user.id);
-    const session=await stripeRequest("checkout/sessions",{idempotencyKey:key,params:{
+    const guard=await checkoutGuard(customer,price);
+    if(guard.url)return res.status(200).json({url:guard.url});
+    const session=await stripeRequest("checkout/sessions",{idempotencyKey:guard.idempotencyKey,params:{
       mode:"subscription",customer,"line_items[0][price]":price,"line_items[0][quantity]":"1",
-      client_reference_id:user.id,"metadata[supabase_user_id]":user.id,
+      "metadata[price_id]":price,client_reference_id:user.id,"metadata[supabase_user_id]":user.id,
       "subscription_data[metadata][supabase_user_id]":user.id,
       success_url:`${origin}/?billing=return`,cancel_url:`${origin}/?billing=cancelled`,
       allow_promotion_codes:"true",

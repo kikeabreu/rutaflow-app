@@ -1,3 +1,4 @@
+import {getPlanTier,isProProfile} from "./billingAccess";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell } from "recharts";
 import ReactMarkdown from "react-markdown";
@@ -36,14 +37,7 @@ const LS={
 };
 const K={DAYGPS:"rf_daygps",CHATS:"rf_ai_conversations",LOCATIONS:"rf_location_checkpoints",AIVOICE:"rf_ai_voice_auto"};
 const isStandaloneApp=()=>typeof window!=="undefined"&&(window.matchMedia?.("(display-mode: standalone)").matches||window.navigator.standalone===true);
-const paymentUrl=()=>process.env.REACT_APP_STRIPE_PAYMENT_LINK||process.env.REACT_APP_MERCADOPAGO_PAYMENT_LINK||"";
-const isProProfile=profile=>{
-  if(!profile)return false;
-  const plan=String(profile.plan||"").toLowerCase();
-  const status=String(profile.subscription_status||"").toLowerCase();
-  const until=profile.pro_until?new Date(profile.pro_until).getTime():0;
-  return plan==="pro"||status==="active"||status==="trialing"||until>Date.now();
-};
+
 const openExternalUrl=async url=>{
   if(Capacitor.isNativePlatform()){await Browser.open({url}).catch(()=>{window.location.href=url;});return;}
   window.location.href=url;
@@ -62,9 +56,7 @@ const openUpgrade=async(session,plan='monthly')=>{
     alert(data?.error||"Error al abrir el checkout.");
   }catch(e){
     console.warn("Billing checkout error",e);
-    const url=paymentUrl();
-    if(url)window.open(url,"_blank","noopener,noreferrer");
-    else alert("No se pudo abrir el pago. Recarga e intenta de nuevo.");
+    alert("No se pudo abrir el pago. Recarga e intenta de nuevo.");
   }
 };
 const openBillingPortal=async(session)=>{
@@ -1984,14 +1976,14 @@ ULTIMOS ${last3||"s/d"}`;
 }
 
 // ─── CONFIG TAB ───────────────────────────────────────────────────────────────
-function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboarding,themeMode,setThemeMode,isPro,profile,trialDaysLeft,session,onUpgrade}){
+function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboarding,themeMode,setThemeMode,isPro,planTier,profile,trialDaysLeft,session,onUpgrade}){
   const[portalLoading,setPortalLoading]=useState(false);
   const planLabel=(()=>{
     const status=String(profile?.subscription_status||"").toLowerCase();
-    if(status==="trialing")return trialDaysLeft>0?`Prueba gratuita · ${trialDaysLeft} día${trialDaysLeft===1?"":"s"} restante${trialDaysLeft===1?"":"s"}`:"Prueba gratuita vencida";
+    if(planTier==="TRIAL")return `TRIAL · ${trialDaysLeft} día${trialDaysLeft===1?"":"s"} restante${trialDaysLeft===1?"":"s"}`;
     if(isPro&&profile?.cancel_at_period_end&&profile?.pro_until)return `Pro hasta el ${new Date(profile.pro_until).toLocaleDateString("es-MX",{day:"numeric",month:"short",year:"numeric"})} (cancelado)`;
     if(isPro)return "Pro activo";
-    return "Gratis";
+    return "FREE";
   })();
   const[local,setLocal]=useState(cfg);
   const[saved,setSaved]=useState(false);
@@ -2070,7 +2062,7 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
             <div style={{fontSize:9,color:C.muted,letterSpacing:"0.1em",marginBottom:3}}>TU PLAN</div>
             <div style={{fontSize:14,fontWeight:800,color:isPro?C.teal:C.text}}>{planLabel}</div>
           </div>
-          {!isPro&&<Btn sm onClick={onUpgrade} color={C.accent}>Comprar Pro</Btn>}
+          {!isPro&&<Btn sm onClick={onUpgrade} color={C.accent}>Actualizar a PRO</Btn>}
         </div>
         {isPro&&<button disabled={portalLoading} onClick={async()=>{setPortalLoading(true);await openBillingPortal(session);setPortalLoading(false);}} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.text,fontSize:12,fontWeight:700,cursor:"pointer"}}>{portalLoading?"Abriendo…":"Gestionar o cancelar suscripción"}</button>}
         <div style={{fontSize:9,color:C.dim,marginTop:10,display:"flex",gap:12,flexWrap:"wrap"}}>
@@ -2272,7 +2264,15 @@ export default function RuletoDriveApp(){
   },[session?.user?.id]);
 
   const showToast=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
-  const isPro=isProProfile(profile);
+  const[billingNow,setBillingNow]=useState(Date.now());
+  useEffect(()=>{
+    const refreshClock=()=>setBillingNow(Date.now());
+    const timer=setInterval(refreshClock,30000);
+    document.addEventListener("visibilitychange",refreshClock);
+    return()=>{clearInterval(timer);document.removeEventListener("visibilitychange",refreshClock);};
+  },[]);
+  const planTier=getPlanTier(profile,billingNow);
+  const isPro=planTier!=="FREE";
   const{dayKm,reset:resetDayGPS}=useDayGPS(!!activeDay?.running&&isPro,session?.user?.id,activeDay?.id);
 
   useEffect(()=>{
@@ -2864,7 +2864,7 @@ export default function RuletoDriveApp(){
 
   const uname=session?.user?.user_metadata?.full_name||session?.user?.email?.split("@")[0]||"Driver";
   const todayNet=operationalSummary(trips,events,cfg,today(),dayKm,bonuses).net;
-  const trialDaysLeft=!isPro&&profile?.subscription_status==="trialing"&&profile?.pro_until?Math.ceil((new Date(profile.pro_until).getTime()-Date.now())/(1000*60*60*24)):0;
+  const trialDaysLeft=planTier==="TRIAL"&&profile?.pro_until?Math.max(0,Math.ceil((new Date(profile.pro_until).getTime()-billingNow)/(1000*60*60*24))):0;
   const NAV=[{id:"home",d:IC.home,l:"Hoy"},{id:"trips",d:IC.trips,l:"Viajes"},{id:"stats",d:IC.stats,l:"Stats"},{id:"ai",d:IC.ai,l:"IA"},{id:"config",d:IC.cfg,l:"Config"}];
 
   return(
@@ -2876,7 +2876,7 @@ export default function RuletoDriveApp(){
           <div>
             <div style={{display:"flex",alignItems:"center",gap:7}}>
               <Logo size={15} iconSize={24}/>
-              {isPro&&<span style={{background:ACCENT_FILL,color:"#000",fontSize:9,fontWeight:900,letterSpacing:"0.08em",padding:"2px 6px",borderRadius:5}}>PRO</span>}
+              <span style={{background:planTier==="FREE"?C.card2:ACCENT_FILL,color:planTier==="FREE"?C.muted:"#000",border:planTier==="FREE"?`1px solid ${C.border}`:"none",fontSize:9,fontWeight:900,letterSpacing:"0.08em",padding:"2px 6px",borderRadius:5}}>{planTier}</span>
             </div>
             <div style={{fontSize:9,color:C.dim,letterSpacing:"0.18em"}}>{uname.toUpperCase()}</div>
             {pendingCount>0&&<button onClick={()=>syncPendingFor(session.user.id)} style={{fontSize:9,color:syncError?C.danger:C.accent,marginTop:4,textAlign:"left"}} title={syncError||"Toca para sincronizar"}>{pendingCount} registro{pendingCount===1?"":"s"} pendiente{pendingCount===1?"":"s"} · {syncError?"reintentar":"sincronizando"}</button>}
@@ -2887,12 +2887,20 @@ export default function RuletoDriveApp(){
           </div>
         </div>
 
-        {trialDaysLeft>0&&<div style={{background:`linear-gradient(135deg, ${C.accent}1a, ${C.accent}0d)`,borderBottom:`2px solid ${C.accent}`,padding:"14px 16px",fontSize:13,color:C.accent,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
+        {planTier==="TRIAL"&&trialDaysLeft>0&&<div style={{background:`linear-gradient(135deg, ${C.accent}1a, ${C.accent}0d)`,borderBottom:`2px solid ${C.accent}`,padding:"14px 16px",fontSize:13,color:C.accent,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
           <div style={{flex:1}}>
             <div style={{fontWeight:800,marginBottom:4}}>🎁 {trialDaysLeft} día{trialDaysLeft===1?"":"s"} de PRUEBA GRATIS</div>
             <div style={{fontSize:11,color:C.text,lineHeight:1.3}}>Caduca el {new Date(new Date(profile?.pro_until).getTime()).toLocaleDateString("es-MX",{weekday:"short",month:"short",day:"numeric"})}</div>
           </div>
           <button onClick={()=>setShowPlanPicker(true)} style={{background:ACCENT_FILL,color:"#000",border:"none",borderRadius:7,padding:"8px 13px",fontSize:11,fontWeight:800,cursor:"pointer",flexShrink:0}}>COMPRAR PRO</button>
+        </div>}
+
+        {planTier==="FREE"&&profile?.plan==="trialing"&&<div style={{background:`${C.card2}`,borderBottom:`1px solid ${C.border}`,padding:"14px 16px",fontSize:13,color:C.text,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:800,marginBottom:4}}>Tu prueba terminó · Plan FREE</div>
+            <div style={{fontSize:11,color:C.muted,lineHeight:1.3}}>Actualiza a PRO para recuperar las funciones avanzadas.</div>
+          </div>
+          <button onClick={()=>setShowPlanPicker(true)} style={{background:ACCENT_FILL,color:"#000",border:"none",borderRadius:7,padding:"8px 13px",fontSize:11,fontWeight:800,cursor:"pointer",flexShrink:0}}>ACTUALIZAR A PRO</button>
         </div>}
 
         {isPro&&profile?.cancel_at_period_end&&profile?.pro_until&&<div style={{background:`${C.warn}1a`,borderBottom:`2px solid ${C.warn}`,padding:"14px 16px",fontSize:13,color:C.warn,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
@@ -2907,7 +2915,7 @@ export default function RuletoDriveApp(){
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)}/>}
         {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)} userId={session.user.id}/>}
-        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode} isPro={isPro} profile={profile} trialDaysLeft={trialDaysLeft} session={session} onUpgrade={()=>setShowPlanPicker(true)}/>}
+        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode} isPro={isPro} planTier={planTier} profile={profile} trialDaysLeft={trialDaysLeft} session={session} onUpgrade={()=>setShowPlanPicker(true)}/>}
 
         {/* NAVEGACIÓN FIJA */}
         <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100,paddingBottom:"calc(10px + env(safe-area-inset-bottom))",paddingTop:"10px"}}>
