@@ -67,6 +67,16 @@ function appUrl(){
   try{const url=new URL(raw);return /^https?:$/.test(url.protocol)?url.origin:"";}catch{return "";}
 }
 
+function allowAppOrigin(req,res){
+  const origin=String(req.headers?.origin||"");
+  if(!["https://localhost","capacitor://localhost","https://app.ruleto.mx"].includes(origin))return false;
+  res.setHeader("Access-Control-Allow-Origin",origin);
+  res.setHeader("Vary","Origin");
+  res.setHeader("Access-Control-Allow-Methods","POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers","Authorization, Content-Type, Idempotency-Key");
+  return true;
+}
+
 function sendError(res,error){
   const status=error?.statusCode||500;
   if(status>=500)console.error("Ruleto billing error",error?.message||error);
@@ -92,4 +102,4 @@ async function rawBody(req){
   return Buffer.concat(chunks);
 }
 
-module.exports={adminRequest,appUrl,authenticate,customerForUser,findCustomerForUser,requestKey,sendError,stripeRequest,verifyStripeSignature,rawBody};
+module.exports={adminRequest,allowAppOrigin,appUrl,authenticate,customerForUser,findCustomerForUser,requestKey,sendError,stripeRequest,verifyStripeSignature,rawBody};

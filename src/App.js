@@ -4,6 +4,7 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContai
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { supabase } from "./supabaseClient";
+import { apiUrl } from "./apiClient";
 import { callGroq, imageToDataUrl, parseJsonContent } from "./groqClient";
 import { locateDriver, reverseGeocodePoint } from "./locationClient";
 import { placeLabel } from "./placeFormat";
@@ -46,7 +47,7 @@ const openUpgrade=async(session,plan='monthly')=>{
   try{
     const token=session?.access_token;
     if(!token){alert("Sesión no válida. Recarga la página.");return;}
-    const res=await fetch('/api/billing/checkout',{
+    const res=await fetch(apiUrl("/api/billing/checkout"),{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`,'Idempotency-Key':`ruleto-upgrade-${session?.user?.id}-${Date.now()}`},
       body:JSON.stringify({plan:plan==='annual'?'annual':'monthly'})
@@ -63,7 +64,7 @@ const openBillingPortal=async(session)=>{
   try{
     const token=session?.access_token;
     if(!token){alert("Sesión no válida. Recarga la página.");return;}
-    const res=await fetch('/api/billing/portal',{
+    const res=await fetch(apiUrl("/api/billing/portal"),{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`,'Idempotency-Key':`ruleto-portal-${session?.user?.id}-${Date.now()}`},
     });
@@ -2083,7 +2084,7 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 function Auth(){
-  const[mode,setMode]=useState("login");
+  const[mode,setMode]=useState(()=>new URLSearchParams(window.location.search).get("auth")==="register"||new URLSearchParams(window.location.search).has("buy")?"register":"login");
   const[name,setName]=useState("");
   const[email,setEmail]=useState("");
   const[pass,setPass]=useState("");
@@ -2094,13 +2095,13 @@ function Auth(){
   const[success,setSuccess]=useState("");
   const[acceptedTerms,setAcceptedTerms]=useState(false);
   const reset=()=>{setError("");setSuccess("");};
-  const redir=()=>`${window.location.origin}/`;
+  const redir=()=>Capacitor.isNativePlatform()?"https://app.ruleto.mx/":`${window.location.origin}/`;
   const handleLogin=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.signInWithPassword({email,password:pass});if(err)setError("Correo o contraseña incorrectos");setLoading(false);};
   const handleRegister=async e=>{e.preventDefault();reset();if(!name.trim()){setError("Ingresa tu nombre completo");return;}if(pass.length<6){setError("Contraseña mínima: 6 caracteres");return;}if(pass!==confirm){setError("Las contraseñas no coinciden");return;}if(!acceptedTerms){setError("Debes aceptar los Términos y el Aviso de Privacidad para continuar.");return;}setLoading(true);const{data,error:err}=await supabase.auth.signUp({email,password:pass,options:{data:{full_name:name},emailRedirectTo:redir()}});if(err){setError(err.message);setLoading(false);return;}if(data?.user){
         await supabase.from("profiles").upsert({id:data.user.id,full_name:name,email,config:{}});
         // Start 14-day trial without credit card
-        await fetch('/api/billing/start-trial',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:data.user.id})}).catch(()=>{});
-      }setSuccess("¡Cuenta creada! Revisa tu correo para confirmar.");setLoading(false);};
+        await fetch(apiUrl("/api/billing/start-trial"),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:data.user.id})}).catch(()=>{});
+      }setSuccess("¡Cuenta creada! Revisa tu correo para confirmar.");setLoading(false);if(!Capacitor.isNativePlatform())window.location.assign("https://ruleto.mx/descargar?cuenta=creada");};
   const handleForgot=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:redir()});if(err)setError(err.message);else setSuccess("Te enviamos un link para restablecer tu contraseña.");setLoading(false);};
   const handleGoogle=async()=>{
     reset();setLoading(true);
@@ -2121,7 +2122,7 @@ function Auth(){
   return(
     <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div style={{width:"100%",maxWidth:400}}>
-        <div style={{textAlign:"center",marginBottom:28}}><Logo size={28} stacked s={{marginBottom:9}}/><div style={{fontSize:10,color:C.dim,letterSpacing:"0.3em",marginTop:3}}>GESTOR DE CONDUCTOR</div></div>
+        <div style={{textAlign:"center",marginBottom:28}}><Logo size={38} iconSize={72} stacked tagline={false} s={{marginBottom:10}}/><div style={{fontSize:13,color:C.accent,fontWeight:700,marginTop:4}}>Tu copiloto financiero para cada viaje.</div></div>
         {mode!=="forgot"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:20,background:C.card2,borderRadius:11,padding:4}}>{["login","register"].map(m=><button key={m} onClick={()=>{setMode(m);reset();}} style={{padding:"9px",background:mode===m?C.card:"transparent",border:`1px solid ${mode===m?C.bord2:"transparent"}`,borderRadius:8,color:mode===m?C.text:C.muted,fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700}}>{m==="login"?"Iniciar sesión":"Crear cuenta"}</button>)}</div>}
         <form onSubmit={mode==="login"?handleLogin:mode==="register"?handleRegister:handleForgot}>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -2198,6 +2199,7 @@ export default function RuletoDriveApp(){
   const[showOnboarding,setShowOnboarding]=useState(()=>LS.get("rf_onboarding_dismissed",false)!==true);
   const[billingModal,setBillingModal]=useState(null);
   const[showPlanPicker,setShowPlanPicker]=useState(false);
+  const purchaseHandledRef=useRef(false);
   const[copilotState,setCopilotState]=useState({supported:false,running:false,busy:false,message:"",lastOffer:null,offerHistory:[],selectedOfferIndex:0});
   const[copilotPlatform,setCopilotPlatform]=useState(()=>LS.get("rf_copilot_platform","didi"));
   const authUserRef=useRef(null);
@@ -2216,6 +2218,24 @@ export default function RuletoDriveApp(){
       writeScoped(window.localStorage,uid,"ui",{tab,tripsSection,extraType:tripsExtraType});
     }
   },[session?.user?.id,tab,tripsSection,tripsExtraType]);
+
+  useEffect(()=>{
+    const pending=new URLSearchParams(window.location.search).get("buy");
+    if(pending==="annual"||pending==="monthly")sessionStorage.setItem("ruleto_pending_buy",pending);
+  },[]);
+
+  useEffect(()=>{
+    if(!session||purchaseHandledRef.current)return;
+    const plan=sessionStorage.getItem("ruleto_pending_buy");
+    if(plan!=="annual"&&plan!=="monthly")return;
+    purchaseHandledRef.current=true;
+    sessionStorage.removeItem("ruleto_pending_buy");
+    const url=new URL(window.location.href);
+    url.searchParams.delete("buy");
+    url.searchParams.delete("auth");
+    window.history.replaceState({},"",url.pathname+url.search+url.hash);
+    openUpgrade(session,plan);
+  },[session]);
 
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
