@@ -2192,7 +2192,7 @@ export default function RuletoDriveApp(){
   },[session?.user?.id]);
 
   const showToast=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
-  const isPro=!paymentUrl()||isProProfile(profile);
+  const isPro=isProProfile(profile);
   const{dayKm,reset:resetDayGPS}=useDayGPS(!!activeDay?.running&&isPro,session?.user?.id,activeDay?.id);
 
   useEffect(()=>{
