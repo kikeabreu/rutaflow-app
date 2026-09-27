@@ -2227,10 +2227,16 @@ export default function RuletoDriveApp(){
       if(status==="return"){
         setTimeout(()=>setBillingModal("success"),300);
         (async()=>{
-          try{
-            const{data:pr}=await supabase.from("profiles").select("*").eq("id",session?.user?.id).single();
-            if(pr)setProfile(pr);
-          }catch(e){console.warn("Refresh profile after billing",e);}
+          for(let attempt=0;attempt<8;attempt++){
+            try{
+              const{data:pr}=await supabase.from("profiles").select("*").eq("id",session?.user?.id).single();
+              if(pr){
+                setProfile(pr);
+                if(isProProfile(pr))return;
+              }
+            }catch(e){console.warn("Refresh profile after billing",e);}
+            await new Promise(r=>setTimeout(r,2000));
+          }
         })();
         window.history.replaceState({},document.title,window.location.pathname);
       }else if(status==="cancelled"){
@@ -2869,7 +2875,7 @@ export default function RuletoDriveApp(){
             <div style={{fontWeight:800,marginBottom:4}}>🎁 {trialDaysLeft} día{trialDaysLeft===1?"":"s"} de PRUEBA GRATIS</div>
             <div style={{fontSize:11,color:C.text,lineHeight:1.3}}>Caduca el {new Date(new Date(profile?.pro_until).getTime()).toLocaleDateString("es-MX",{weekday:"short",month:"short",day:"numeric"})}</div>
           </div>
-          <button onClick={()=>setShowPlanPicker(true)} style={{background:C.accent,color:"#000",border:"none",borderRadius:7,padding:"8px 13px",fontSize:11,fontWeight:800,cursor:"pointer",flexShrink:0}}>COMPRAR PRO</button>
+          <button onClick={()=>setShowPlanPicker(true)} style={{background:ACCENT_FILL,color:"#000",border:"none",borderRadius:7,padding:"8px 13px",fontSize:11,fontWeight:800,cursor:"pointer",flexShrink:0}}>COMPRAR PRO</button>
         </div>}
 
         {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer} onSelectCopilotOfferIndex={idx=>setCopilotState(p=>({...p,selectedOfferIndex:idx}))}/>}
@@ -2909,14 +2915,14 @@ export default function RuletoDriveApp(){
             <div style={{fontSize:13,color:C.text,lineHeight:1.6,marginBottom:20}}>
               Ahora tienes acceso a Ruleto IA, Copiloto, GPS y todas las gráficas avanzadas.
             </div>
-            <button onClick={()=>{setBillingModal(null);}} style={{background:C.accent,color:"#000",border:"none",borderRadius:8,padding:"11px 16px",fontSize:12,fontWeight:800,width:"100%",cursor:"pointer"}}>CONTINUAR</button>
+            <button onClick={()=>{setBillingModal(null);}} style={{background:ACCENT_FILL,color:"#000",border:"none",borderRadius:8,padding:"11px 16px",fontSize:12,fontWeight:800,width:"100%",cursor:"pointer"}}>CONTINUAR</button>
           </>:<>
             <div style={{fontSize:48,marginBottom:12}}>❌</div>
             <div style={{fontSize:18,fontWeight:800,color:C.danger,marginBottom:8}}>Compra cancelada</div>
             <div style={{fontSize:13,color:C.text,lineHeight:1.6,marginBottom:20}}>
               Puedes intentar más tarde o contactarnos si necesitas ayuda.
             </div>
-            <button onClick={()=>{setBillingModal(null);}} style={{background:C.accent,color:"#000",border:"none",borderRadius:8,padding:"11px 16px",fontSize:12,fontWeight:800,width:"100%",cursor:"pointer"}}>VOLVER</button>
+            <button onClick={()=>{setBillingModal(null);}} style={{background:ACCENT_FILL,color:"#000",border:"none",borderRadius:8,padding:"11px 16px",fontSize:12,fontWeight:800,width:"100%",cursor:"pointer"}}>VOLVER</button>
           </>}
         </div>
       </div>}
