@@ -15,7 +15,21 @@
         }
       ],
       "destination": "https://ruleto.mx/",
-      "permanent": false
+      "permanent": false,
+      "missing": [
+        {
+          "type": "query",
+          "key": "code"
+        },
+        {
+          "type": "query",
+          "key": "error"
+        },
+        {
+          "type": "query",
+          "key": "oauth_return"
+        }
+      ]
     },
     {
       "source": "/landing.html",

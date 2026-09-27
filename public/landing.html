@@ -6,6 +6,15 @@
   <title>Ruleto Drive | Maneja con números, no con intuición</title>
   <meta name="description" content="Ruleto Drive ayuda a conductores de DiDi, Uber, inDrive y viajes particulares a saber si un viaje conviene, registrar su operación y conocer su ganancia real." />
   <meta name="theme-color" content="#0A1F1A" />
+  <script>
+    // Preserve existing email/OAuth callbacks while the former Vercel host migrates.
+    if (location.hash.includes('access_token=') || location.hash.includes('refresh_token=')) {
+      const target = /Android/i.test(navigator.userAgent)
+        ? 'mx.ruleto.drive://auth/callback'
+        : 'https://app.ruleto.mx/';
+      location.replace(target + location.hash);
+    }
+  </script>
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/mark-light-dashes.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

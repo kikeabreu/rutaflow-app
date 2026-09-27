@@ -2095,7 +2095,7 @@ function Auth(){
   const[success,setSuccess]=useState("");
   const[acceptedTerms,setAcceptedTerms]=useState(false);
   const reset=()=>{setError("");setSuccess("");};
-  const redir=()=>`${window.location.origin}/`;
+  const redir=()=>Capacitor.isNativePlatform()?"https://app.ruleto.mx/":`${window.location.origin}/`;
   const handleLogin=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.signInWithPassword({email,password:pass});if(err)setError("Correo o contraseña incorrectos");setLoading(false);};
   const handleRegister=async e=>{e.preventDefault();reset();if(!name.trim()){setError("Ingresa tu nombre completo");return;}if(pass.length<6){setError("Contraseña mínima: 6 caracteres");return;}if(pass!==confirm){setError("Las contraseñas no coinciden");return;}if(!acceptedTerms){setError("Debes aceptar los Términos y el Aviso de Privacidad para continuar.");return;}setLoading(true);const{data,error:err}=await supabase.auth.signUp({email,password:pass,options:{data:{full_name:name},emailRedirectTo:redir()}});if(err){setError(err.message);setLoading(false);return;}if(data?.user){
         await supabase.from("profiles").upsert({id:data.user.id,full_name:name,email,config:{}});
