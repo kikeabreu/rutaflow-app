@@ -147,7 +147,8 @@ final class OfferParser {
         double commission = fare * config.commissionFor(platform) / 100.0;
         double fuel = totalKm / config.kmPerLiter * config.gasPrice;
         double wear = totalKm * config.wearPerKm;
-        double net = fare - commission - fuel - wear;
+        double fixed = (totalMin / 60.0) * config.fixedCostPerHour;
+        double net = fare - commission - fuel - wear - fixed;
         double hourly = totalMin > 0 ? net / (totalMin / 60.0) : 0;
         double perKm = totalKm > 0 ? net / totalKm : 0;
 

@@ -34,22 +34,6 @@
       --danger:#FF4055;
       --shadow:0 24px 80px rgba(0,0,0,.38);
     }
-    @media (prefers-color-scheme: light){
-      :root{
-        --bg:#F3F4F6;
-        --panel:#FFFFFF;
-        --panel2:#F7F9F8;
-        --border:#E1E5E3;
-        --text:#111827;
-        --muted:#6B7280;
-        --accent:#0F2D27;
-        --accent-ink:#EAFBF3;
-        --teal:#0D9488;
-        --warn:#B45309;
-        --danger:#DC2626;
-        --shadow:0 24px 80px rgba(15,45,39,.12);
-      }
-    }
     *{box-sizing:border-box}
     html{scroll-behavior:smooth}
     body{margin:0;background:
@@ -170,14 +154,14 @@
     .ai-points{display:grid;gap:13px;margin:24px 0}
     .ai-points div{padding:16px 18px;border:1px solid var(--border);background:var(--panel);border-radius:14px}
     .ai-points strong{display:block;font-size:16px}.ai-points span{display:block;color:var(--muted);font-size:13px;margin-top:4px}
-    .ai-chat{border:1px solid rgba(74,222,128,.35);background:linear-gradient(150deg,#10241e,#0b1714);border-radius:24px;padding:24px;box-shadow:0 24px 70px rgba(0,0,0,.22)}
-    .ai-chat-head{display:flex;align-items:center;gap:10px;padding-bottom:18px;border-bottom:1px solid var(--border);font-size:13px;font-weight:800}
+    .ai-chat{border:1px solid rgba(74,222,128,.35);background:linear-gradient(150deg,#10241e,#0b1714);border-radius:24px;padding:24px;box-shadow:0 24px 70px rgba(0,0,0,.22);color:#EAFBF3}
+    .ai-chat-head{display:flex;align-items:center;gap:10px;padding-bottom:18px;border-bottom:1px solid #315347;font-size:13px;font-weight:800}
     .ai-chat-head img{width:30px;height:30px;object-fit:contain}
     .chat-bubble{max-width:92%;padding:14px 16px;margin-top:16px;border-radius:16px;font-size:14px;line-height:1.55}
     .chat-question{margin-left:auto;background:#29433a;color:#fff;border-bottom-right-radius:4px}
-    .chat-answer{background:#173028;border:1px solid rgba(74,222,128,.25);border-bottom-left-radius:4px}
+    .chat-answer{background:#173028;border:1px solid rgba(74,222,128,.25);border-bottom-left-radius:4px;color:#EAFBF3}
     .chat-answer b{color:var(--accent)}
-    .ai-note{font-size:11px;color:var(--muted);margin-top:16px}
+    .ai-note{font-size:11px;color:#9AC6B4;margin-top:16px}
 
     @media (max-width:900px){.hero-grid,.pricing,.ai-grid{grid-template-columns:1fr}.phone{margin:20px auto 0}.cards,.value-steps{grid-template-columns:1fr}.feature-grid,.faq{grid-template-columns:1fr}.trial{display:block}.trial .btn{margin-top:20px}.navlinks a:not(.btn){display:none}.hero{padding-top:68px}.showcase,.tri{grid-template-columns:1fr;gap:36px}}
     @media (max-width:560px){.wrap{width:min(100% - 22px,1160px)}.navin{height:64px}.brand span{font-size:21px}.hero{padding:58px 0 46px}h1{font-size:56px}.lead{font-size:15px}.hero-actions .btn{width:100%}.phone{border-radius:26px;padding:12px}.screen{padding:15px}.metrics{grid-template-columns:1fr}.feature{padding:16px}.plan{padding:22px}.trial{padding:24px}.trial h2{font-size:40px}}
@@ -205,7 +189,7 @@
         <div>
           <div class="eyebrow"><span class="dot"></span>Ruletea inteligente. Gana con claridad.</div>
           <h1>Antes de aceptar, <span>sabe si conviene.</span></h1>
-          <p class="lead">En Android, Ruleto Copiloto lee la oferta que aparece en tu pantalla y te muestra si vale la pena para ti. Después, pregúntale a Ruleto IA cuánto ganaste de verdad y qué horarios te han funcionado mejor.</p>
+          <p class="lead">En Android, Ruleto Copiloto lee la oferta que aparece en tu pantalla y la compara con tu meta de ganancia limpia. Después, pregúntale a Ruleto IA cuánto te quedó y en qué horarios o zonas te ha ido mejor.</p>
           <div class="hero-actions">
             <a class="btn primary" href="/crear-cuenta">Probar Pro 14 días</a>
             <a class="btn ghost" href="#copiloto">Ver el Copiloto</a>
@@ -239,11 +223,11 @@
       <div class="wrap">
         <div class="section-head">
           <h2>Un semáforo para decidir en segundos.</h2>
-          <p>Activa Ruleto Copiloto en tu Android. Cuando aparece una oferta en DiDi, Uber o inDrive, lee los datos visibles y los compara con tu gasolina, comisiones y meta de ganancia. Te muestra el resultado encima de la oferta, sin cambiar de app.</p>
+          <p>Activa Ruleto Copiloto en tu Android. Cuando aparece una oferta en DiDi, Uber o inDrive, lee los datos visibles y los compara con tu meta de ganancia limpia. Te muestra el resultado encima de la oferta, sin cambiar de app.</p>
         </div>
         <div class="value-steps">
           <div class="value-step"><b>01 · Aparece una oferta</b><strong>Ves cuánto paga y cuánto vas a recorrer.</strong><p>El Copiloto toma los datos que la app de viajes muestra en pantalla.</p></div>
-          <div class="value-step"><b>02 · Ruleto hace cuentas</b><strong>Resta gasolina y comisión.</strong><p>También considera el trayecto para recoger al pasajero y tu meta por hora o kilómetro.</p></div>
+          <div class="value-step"><b>02 · Ruleto hace cuentas</b><strong>Calcula lo que te quedaría limpio.</strong><p>Resta gasolina, comisión y los gastos del auto que configures, incluida renta o seguro prorrateados por tiempo.</p></div>
           <div class="value-step"><b>03 · Tú decides</b><strong>Verde, amarillo o rojo.</strong><p>Entiendes por qué conviene o no; Ruleto nunca acepta el viaje por ti.</p></div>
         </div>
         <div class="tri">
@@ -318,10 +302,11 @@
         <div>
           <div class="eyebrow"><span class="dot"></span>RULETO IA · TU OPERACIÓN, EXPLICADA</div>
           <h2>Pregúntale a tus números.</h2>
-          <p>Ruleto IA usa los viajes, gastos y jornadas que registras para responderte en español. Escríbele o háblale como a un compañero que conoce tu operación.</p>
+          <p>Ruleto IA usa los viajes, gastos, horarios y ubicaciones que registras para responderte en español. Escríbele o háblale como a un compañero que conoce tu operación.</p>
           <div class="ai-points">
             <div><strong>«¿Cuánto me quedó hoy?»</strong><span>Revisa la ganancia estimada después de los costos registrados.</span></div>
             <div><strong>«¿Qué horas me salen mejor?»</strong><span>Compara tus viajes guardados para encontrar horarios más rentables.</span></div>
+            <div><strong>«¿En qué zonas gano más?»</strong><span>Con GPS activado, compara las ubicaciones de tus viajes por ganancia por hora o por kilómetro.</span></div>
             <div><strong>«¿Me conviene este bono?»</strong><span>Evalúa el avance, tiempo restante y valor del bono con tus datos.</span></div>
           </div>
           <div class="section-action"><a class="btn primary" href="/crear-cuenta">Probar Ruleto IA gratis</a><small>Incluida en Pro durante tus primeros 14 días.</small></div>
@@ -340,13 +325,13 @@
     <section id="como-funciona">
       <div class="wrap">
         <div class="section-head">
-          <h2>Un viaje puede verse bueno y aun así hacerte perder tiempo.</h2>
-          <p>Ruleto Drive toma los datos que sí importan para ayudarte a decidir mejor y llevar control de tu operación.</p>
+          <h2>Tú defines cuánto quieres ganar limpio.</h2>
+          <p>Elige tu meta por hora o por kilómetro. Ruleto estima lo que queda después de comisión, gasolina, desgaste y los gastos fijos que actives, como renta o seguro del auto. Para repartir los gastos fijos, indicas cuántas horas trabajas por semana.</p>
         </div>
         <div class="cards">
           <article class="card"><div class="num">01</div><h3>Registra</h3><p>Captura tarifa, distancia y tiempo. Ruleto Drive también puede apoyarse en GPS para tu seguimiento operativo.</p></article>
           <article class="card"><div class="num">02</div><h3>Calcula</h3><p>Considera comisión, gasolina y los costos configurados de tu vehículo para estimar la ganancia real.</p></article>
-          <article class="card"><div class="num">03</div><h3>Decide</h3><p>Recibe una lectura clara del viaje y construye un historial que te permita dejar de manejar a ciegas.</p></article>
+          <article class="card"><div class="num">03</div><h3>Decide</h3><p>Compara la ganancia estimada con tu meta limpia y construye un historial para mejorar tus decisiones.</p></article>
         </div>
       </div>
     </section>
@@ -407,11 +392,11 @@
         <div class="section-head"><h2>Tu operación, en un solo lugar.</h2><p>Diseñado alrededor del día real de un conductor, no de una hoja de cálculo eterna.</p></div>
         <div class="feature-grid">
           <div class="feature"><div class="tick">✓</div><div><h3>Rentabilidad por viaje</h3><p>Compara tarifa, comisión, combustible, distancia, tiempo y costos configurados.</p></div></div>
-          <div class="feature"><div class="tick">✓</div><div><h3>GPS y kilómetros reales</h3><p>Apoya el seguimiento de distancia y contexto operativo durante tu jornada.</p></div></div>
+          <div class="feature"><div class="tick">✓</div><div><h3>Ubicación de cada viaje</h3><p>Con GPS activado, guarda origen y destino para identificar tus zonas y trayectos más rentables según tu historial.</p></div></div>
           <div class="feature"><div class="tick">✓</div><div><h3>Historial de operación</h3><p>Viajes, cargas, kilómetros sin pasajero, bonos y otros movimientos en un mismo registro.</p></div></div>
           <div class="feature"><div class="tick">✓</div><div><h3>Combustible y autonomía</h3><p>Estima cuánto combustible te queda usando cargas, recorridos y rendimiento configurado.</p></div></div>
           <div class="feature"><div class="tick">✓</div><div><h3>Ruleto Copiloto</h3><p>En Pro, lee tus ofertas entrantes en pantalla y te dice al instante si conviene aceptarlas.</p></div></div>
-          <div class="feature"><div class="tick">✓</div><div><h3>Ruleto IA</h3><p>En Pro, consulta tu operación por voz o texto y recibe ayuda contextual con IA.</p></div></div>
+          <div class="feature"><div class="tick">✓</div><div><h3>Ruleto IA</h3><p>En Pro, pregunta por voz o texto sobre tus ganancias, mejores horarios, zonas y bonos.</p></div></div>
         </div>
       </div>
     </section>

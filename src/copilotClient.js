@@ -1,4 +1,5 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
+import { fixedCostPerHour } from "./fixedCosts";
 
 const NativeCopilot = registerPlugin("RuletoCopilot");
 
@@ -24,6 +25,7 @@ export const copilotConfig = cfg => {
     targetKmRate:Number(cfg?.targetKmRate) || 8,
     earningsMode:cfg?.earningsMode === "km" ? "km" : "hour",
     wearPerKm,
+    fixedCostPerHour:fixedCostPerHour(cfg),
     commissions,
     platformHint:String(cfg?.copilotPlatform||"otra").toLowerCase(),
   });

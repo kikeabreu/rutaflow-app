@@ -45,6 +45,21 @@ public class OfferParserTest {
     }
 
     @Test
+    public void deductsConfiguredRentAndInsuranceFromTheOffer() {
+        Map<String, Double> commissions = new HashMap<>();
+        commissions.put("didi", 12.0);
+        CopilotConfig withFixedCosts = new CopilotConfig(
+            24.0, 12.0, 200.0, 8.0, false, 0.50, 30.0, commissions, "didi"
+        );
+        OfferAnalysis offer = OfferParser.parse(
+            "DiDi\nMX$180.00\nA recoger 3.2 km · 8 min\nViaje 12.5 km · 24 min",
+            withFixedCosts
+        );
+        assertNotNull(offer);
+        assertEquals(103.15, offer.net, 0.01);
+    }
+
+    @Test
     public void usesSelectedPlatformWhenCardDoesNotShowItsName() {
         OfferAnalysis offer = OfferParser.parse(
             "$95.50\n2.0 km 5 min\nDestino 7.8 km 19 min",

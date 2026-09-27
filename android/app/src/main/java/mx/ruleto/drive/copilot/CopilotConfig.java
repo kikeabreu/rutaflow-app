@@ -16,6 +16,7 @@ final class CopilotConfig {
     // Cual de las dos metas decide si una oferta conviene; la otra solo se guarda.
     final boolean perKmGoal;
     final double wearPerKm;
+    final double fixedCostPerHour;
     final Map<String, Double> commissions;
     final String platformHint;
 
@@ -26,12 +27,19 @@ final class CopilotConfig {
 
     CopilotConfig(double gasPrice, double kmPerLiter, double targetHourlyRate, double targetKmRate,
                   boolean perKmGoal, double wearPerKm, Map<String, Double> commissions, String platformHint) {
+        this(gasPrice, kmPerLiter, targetHourlyRate, targetKmRate, perKmGoal, wearPerKm, 0, commissions, platformHint);
+    }
+
+    CopilotConfig(double gasPrice, double kmPerLiter, double targetHourlyRate, double targetKmRate,
+                  boolean perKmGoal, double wearPerKm, double fixedCostPerHour,
+                  Map<String, Double> commissions, String platformHint) {
         this.gasPrice = positiveOr(gasPrice, 24.0);
         this.kmPerLiter = positiveOr(kmPerLiter, 12.0);
         this.targetHourlyRate = positiveOr(targetHourlyRate, 200.0);
         this.targetKmRate = positiveOr(targetKmRate, 8.0);
         this.perKmGoal = perKmGoal;
         this.wearPerKm = Math.max(0, wearPerKm);
+        this.fixedCostPerHour = Math.max(0, fixedCostPerHour);
         this.commissions = commissions == null ? new HashMap<>() : commissions;
         this.platformHint = platformHint == null || platformHint.isEmpty() ? "otra" : platformHint;
     }
@@ -55,6 +63,7 @@ final class CopilotConfig {
                 value.optDouble("targetKmRate", 8.0),
                 "km".equals(value.optString("earningsMode", "hour")),
                 value.optDouble("wearPerKm", 0.0),
+                value.optDouble("fixedCostPerHour", 0.0),
                 commissionMap,
                 value.optString("platformHint", "otra")
             );

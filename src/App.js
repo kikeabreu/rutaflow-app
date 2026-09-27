@@ -27,6 +27,7 @@ import { SupportModal } from "./components/SupportModal";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { PermissionGate, necesitaPuertaDePermisos } from "./components/PermissionGate";
 import { Logo } from "./components/Logo";
+import { fixedCostPerHour } from "./fixedCosts";
 import { C, ACCENT_FILL, useTheme } from "./theme";
 import { DEMO_TRIPS, DEMO_EVENTS } from "./demoData";
 
@@ -119,8 +120,9 @@ const calcTrip=(trip,cfg)=>{
   let fx=0;
   if(cfg.llantasEnabled)fx+=((cfg.llantasMonto||0)/(cfg.llantasKmVida||40000))*km;
   if(cfg.mantenimientoEnabled)fx+=((cfg.mantenimientoMonto||0)/(cfg.mantenimientoKmVida||5000))*km;
-  const net=fare-fee-gas-fx,hrs=min/60;
-  return{km,min,fare,gas,fee,fx,net,hrs,nph:hrs>0?net/hrs:0,npk:km>0?net/km:0,pct:fare>0?(net/fare)*100:0};
+  const hrs=min/60,fixed=hrs*fixedCostPerHour(cfg);
+  const net=fare-fee-gas-fx-fixed;
+  return{km,min,fare,gas,fee,fx,fixed,net,hrs,nph:hrs>0?net/hrs:0,npk:km>0?net/km:0,pct:fare>0?(net/fare)*100:0};
 };
 // ─── META DE GANANCIA (por hora o por km, solo una activa a la vez) ───────────
 const EARNINGS_MODES={
@@ -579,7 +581,8 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
     {l:"Tarifa bruta",v:fmtMXN(c.fare),c:C.text},
     {l:`Comisión ${platformInfo(cfg,editing?form.platform:trip.platform).name} (${platformCommission(cfg,editing?form.platform:trip.platform)}%)`,v:`-${fmtMXN(c.fee)}`,c:C.danger},
     {l:`Gas · ${fmt(c.km,1)}km ÷ ${cfg.kmPerLiter}km/L × $${cfg.gasPricePerLiter}`,v:`-${fmtMXN(c.gas)}`,c:C.danger},
-    ...(c.fx>0?[{l:"Costos fijos amortizados",v:`-${fmtMXN(c.fx)}`,c:C.danger}]:[]),
+    ...(c.fx>0?[{l:"Llantas y mantenimiento",v:`-${fmtMXN(c.fx)}`,c:C.danger}]:[]),
+    ...(c.fixed>0?[{l:"Renta y seguro prorrateados",v:`-${fmtMXN(c.fixed)}`,c:C.danger}]:[]),
     {l:"GANANCIA NETA",v:fmtMXN(c.net),c:c.net>=0?C.teal:C.danger,bold:true},
   ];
 
@@ -2050,6 +2053,8 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
         <button onClick={()=>removePlatform(p.id)} title="Eliminar plataforma" style={{height:34,display:"grid",placeItems:"center"}}><SVG d={IC.trash} size={14} color={C.danger}/></button>
       </div>)}</div>
       <Lbl s={{marginBottom:9}}>Gastos fijos (opcionales)</Lbl>
+      <div style={{fontSize:10,color:C.muted,lineHeight:1.45,marginBottom:10}}>Si activas renta o seguro, Ruleto reparte ese gasto entre tus horas de trabajo estimadas y lo descuenta de cada viaje.</div>
+      <Inp label="Horas que trabajas por semana" type="number" value={local.workHoursPerWeek||48} onChange={v=>set("workHoursPerWeek",Math.max(1,parseFloat(v)||48))} unit="horas"/>
       <FCRow ek="rentaEnabled" mk="rentaMonto" pk="rentaPeriodo" label="🚗 Renta / crédito del auto"/>
       <FCRow ek="seguroEnabled" mk="seguroMonto" pk="seguroPeriodo" label="🛡️ Seguro del auto"/>
       <FCRow ek="llantasEnabled" mk="llantasMonto" xk="llantasKmVida" xl="Vida (km)" label="🔧 Desgaste de llantas"/>
@@ -2126,6 +2131,7 @@ function Auth(){
         {mode!=="forgot"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:20,background:C.card2,borderRadius:11,padding:4}}>{["login","register"].map(m=><button key={m} onClick={()=>{setMode(m);reset();}} style={{padding:"9px",background:mode===m?C.card:"transparent",border:`1px solid ${mode===m?C.bord2:"transparent"}`,borderRadius:8,color:mode===m?C.text:C.muted,fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700}}>{m==="login"?"Iniciar sesión":"Crear cuenta"}</button>)}</div>}
         <form onSubmit={mode==="login"?handleLogin:mode==="register"?handleRegister:handleForgot}>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {mode==="register"&&<div style={{padding:"10px 12px",borderRadius:10,background:`${C.teal}13`,border:`1px solid ${C.teal}45`,color:C.text,fontSize:11,lineHeight:1.5}}>Al crear tu cuenta se activa una prueba de <strong>14 días de Pro sin tarjeta</strong>. Después puedes seguir en Free o contratar Pro. No es un mes de suscripción.</div>}
             {mode==="forgot"&&<button type="button" onClick={()=>{setMode("login");reset();}} style={{color:C.accent,fontSize:11,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><SVG d={IC.back} size={13} color={C.accent}/>Volver</button>}
             {mode==="register"&&<div style={{position:"relative"}}><FI d={IC.user}/><input type="text" placeholder="Tu nombre completo" value={name} onChange={e=>setName(e.target.value)} style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>}
             <div style={{position:"relative"}}><FI d={IC.mail}/><input type="email" placeholder="correo@ejemplo.com" value={email} onChange={e=>setEmail(e.target.value)} required style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>
@@ -2160,6 +2166,7 @@ function Auth(){
 
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 const DCFG={gasPricePerLiter:24,kmPerLiter:12,targetHourlyRate:200,earningsMode:"hour",targetKmRate:8,platformCut:10,platforms:DEFAULT_PLATFORMS,
+  workHoursPerWeek:48,
   rentaEnabled:false,rentaMonto:0,rentaPeriodo:"mensual",
   seguroEnabled:false,seguroMonto:0,seguroPeriodo:"mensual",
   llantasEnabled:false,llantasMonto:0,llantasKmVida:40000,
