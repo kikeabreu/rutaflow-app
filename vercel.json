@@ -1,5 +1,127 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "redirects": [
+    {
+      "source": "/android/ruleto-drive.apk",
+      "destination": "https://github.com/kikeabreu/rutaflow-app/releases/download/v1.4.2-beta/Ruleto-Drive-1.4.2-beta.apk",
+      "permanent": false
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "rutaflow-app.vercel.app"
+        }
+      ],
+      "destination": "https://ruleto.mx/",
+      "permanent": false
+    },
+    {
+      "source": "/landing.html",
+      "has": [
+        {
+          "type": "host",
+          "value": "rutaflow-app.vercel.app"
+        }
+      ],
+      "destination": "https://ruleto.mx/",
+      "permanent": false
+    },
+    {
+      "source": "/carrito",
+      "has": [
+        {
+          "type": "host",
+          "value": "rutaflow-app.vercel.app"
+        }
+      ],
+      "destination": "https://ruleto.mx/carrito",
+      "permanent": false
+    },
+    {
+      "source": "/descargar",
+      "has": [
+        {
+          "type": "host",
+          "value": "rutaflow-app.vercel.app"
+        }
+      ],
+      "destination": "https://ruleto.mx/descargar",
+      "permanent": false
+    },
+    {
+      "source": "/crear-cuenta",
+      "destination": "https://app.ruleto.mx/?auth=register",
+      "permanent": false
+    },
+    {
+      "source": "/iniciar-sesion",
+      "destination": "https://app.ruleto.mx/?auth=login",
+      "permanent": false
+    },
+    {
+      "source": "/app",
+      "destination": "https://app.ruleto.mx/",
+      "permanent": false
+    },
+    {
+      "source": "/terminos.html",
+      "has": [
+        {
+          "type": "host",
+          "value": "rutaflow-app.vercel.app"
+        }
+      ],
+      "destination": "https://ruleto.mx/terminos.html",
+      "permanent": false
+    },
+    {
+      "source": "/privacidad.html",
+      "has": [
+        {
+          "type": "host",
+          "value": "rutaflow-app.vercel.app"
+        }
+      ],
+      "destination": "https://ruleto.mx/privacidad.html",
+      "permanent": false
+    }
+  ],
   "rewrites": [
-    { "source": "/.well-known/assetlinks.json", "destination": "/api/assetlinks" }
+    {
+      "source": "/.well-known/assetlinks.json",
+      "destination": "/api/assetlinks"
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "ruleto.mx"
+        }
+      ],
+      "destination": "/landing.html"
+    },
+    {
+      "source": "/carrito",
+      "has": [
+        {
+          "type": "host",
+          "value": "ruleto.mx"
+        }
+      ],
+      "destination": "/carrito.html"
+    },
+    {
+      "source": "/descargar",
+      "has": [
+        {
+          "type": "host",
+          "value": "ruleto.mx"
+        }
+      ],
+      "destination": "/descargar.html"
+    }
   ]
 }

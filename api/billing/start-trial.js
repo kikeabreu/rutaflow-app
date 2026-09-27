@@ -1,6 +1,8 @@
-const{adminRequest,authenticate}=require("./_shared.cjs");
+const{adminRequest,allowAppOrigin,authenticate}=require("./_shared.cjs");
 
 module.exports=async function handler(req,res){
+  allowAppOrigin(req,res);
+  if(req.method==="OPTIONS")return res.status(204).end();
   if(req.method!=="POST"){res.setHeader("Allow","POST");return res.status(405).json({error:"Método no permitido"});}
   try{
     if(!process.env.SUPABASE_SERVICE_ROLE_KEY)throw Object.assign(new Error("Billing no configurado"),{statusCode:503});

@@ -1,8 +1,8 @@
 import { ANDROID_AUTH_CALLBACK, ANDROID_AUTH_CALLBACK_FALLBACK, googleOAuthOptions, parseOAuthCallback } from "./authFlow";
 
 test("Google vuelve al mismo origen sin abrir un flujo OAuth separado", () => {
-  expect(googleOAuthOptions("https://rutaflow-app.vercel.app")).toEqual({
-    redirectTo: "https://rutaflow-app.vercel.app/?oauth_return=google",
+  expect(googleOAuthOptions("https://app.ruleto.mx")).toEqual({
+    redirectTo: "https://app.ruleto.mx/?oauth_return=google",
   });
 });
 

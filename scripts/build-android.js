@@ -9,7 +9,7 @@ const env = {
   ...process.env,
   REACT_APP_BUILD_TARGET: "android",
   REACT_APP_API_BASE_URL:
-    process.env.REACT_APP_API_BASE_URL || "https://rutaflow-app.vercel.app",
+    process.env.REACT_APP_API_BASE_URL || "https://app.ruleto.mx",
 };
 
 if (!env.REACT_APP_SUPABASE_URL || !env.REACT_APP_SUPABASE_ANON_KEY) {

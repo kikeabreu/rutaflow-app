@@ -1,8 +1,10 @@
-const{appUrl,authenticate,customerForUser,requestKey,sendError,stripeRequest}=require("./_shared.cjs");
+const{allowAppOrigin,appUrl,authenticate,customerForUser,requestKey,sendError,stripeRequest}=require("./_shared.cjs");
 
 const{checkoutGuard}=require("./_checkout-guard.cjs");
 
 module.exports=async function handler(req,res){
+  allowAppOrigin(req,res);
+  if(req.method==="OPTIONS")return res.status(204).end();
   if(req.method!=="POST"){res.setHeader("Allow","POST");return res.status(405).json({error:"Método no permitido"});}
   try{
     const user=await authenticate(req);

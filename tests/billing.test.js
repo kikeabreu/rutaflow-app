@@ -5,7 +5,7 @@ const checkout=require("../api/billing/checkout");
 const webhook=require("../api/billing/webhook");
 const{verifyStripeSignature}=require("../api/billing/_shared.cjs");
 
-function response(){return{statusCode:200,body:null,headers:{},setHeader(k,v){this.headers[k]=v;},status(code){this.statusCode=code;return this;},json(body){this.body=body;return this;}};}
+function response(){return{statusCode:200,body:null,headers:{},setHeader(k,v){this.headers[k]=v;},status(code){this.statusCode=code;return this;},json(body){this.body=body;return this;},end(){return this;}};}
 function configure(){
   process.env.SUPABASE_URL="https://example.supabase.co";process.env.SUPABASE_ANON_KEY="anon";process.env.SUPABASE_SERVICE_ROLE_KEY="service";
   process.env.STRIPE_SECRET_KEY="sk_test_value";process.env.STRIPE_PRICE_ID="price_real_required";process.env.STRIPE_PRICE_ID_MONTHLY="price_real_required";process.env.STRIPE_WEBHOOK_SECRET="whsec_test";process.env.APP_URL="https://ruleto.example";
@@ -55,4 +55,13 @@ test("signed subscription webhook calls the atomic entitlement RPC",async()=>{
     assert.equal(res.statusCode,200);const rpc=calls.find(call=>call.url.includes("rpc/apply_stripe_subscription_event"));assert.ok(rpc);
     const body=JSON.parse(rpc.options.body);assert.equal(body.p_user_id,"11111111-1111-4111-8111-111111111111");assert.equal(body.p_entitled,true);
   }finally{global.fetch=original;}
+});
+
+
+test("Android billing preflight allows its app origin and idempotency header",async()=>{
+  const res=response();
+  await checkout({method:"OPTIONS",headers:{origin:"https://localhost"}},res);
+  assert.equal(res.statusCode,204);
+  assert.equal(res.headers["Access-Control-Allow-Origin"],"https://localhost");
+  assert.match(res.headers["Access-Control-Allow-Headers"],/Idempotency-Key/);
 });

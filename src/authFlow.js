@@ -3,7 +3,7 @@
 // dominio no sirve /.well-known/assetlinks.json y deja al usuario atrapado en el
 // navegador). El App Link https sigue aceptado como respaldo.
 export const ANDROID_AUTH_CALLBACK = "mx.ruleto.drive://auth/callback";
-export const ANDROID_AUTH_CALLBACK_FALLBACK = "https://rutaflow-app.vercel.app/";
+export const ANDROID_AUTH_CALLBACK_FALLBACK = "https://app.ruleto.mx/";
 
 export function googleOAuthOptions(origin, native = false) {
   if (native) {
