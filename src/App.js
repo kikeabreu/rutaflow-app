@@ -1980,7 +1980,7 @@ ULTIMOS ${last3||"s/d"}`;
 }
 
 // ─── CONFIG TAB ───────────────────────────────────────────────────────────────
-function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboarding,themeMode,setThemeMode,isPro,profile,trialDaysLeft,session}){
+function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboarding,themeMode,setThemeMode,isPro,profile,trialDaysLeft,session,onUpgrade}){
   const[portalLoading,setPortalLoading]=useState(false);
   const planLabel=(()=>{
     const status=String(profile?.subscription_status||"").toLowerCase();
@@ -2065,7 +2065,7 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
             <div style={{fontSize:9,color:C.muted,letterSpacing:"0.1em",marginBottom:3}}>TU PLAN</div>
             <div style={{fontSize:14,fontWeight:800,color:isPro?C.teal:C.text}}>{planLabel}</div>
           </div>
-          {!isPro&&<Btn sm onClick={()=>openUpgrade(session,"monthly")} color={C.accent}>Comprar Pro</Btn>}
+          {!isPro&&<Btn sm onClick={onUpgrade} color={C.accent}>Comprar Pro</Btn>}
         </div>
         {isPro&&<button disabled={portalLoading} onClick={async()=>{setPortalLoading(true);await openBillingPortal(session);setPortalLoading(false);}} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.text,fontSize:12,fontWeight:700,cursor:"pointer"}}>{portalLoading?"Abriendo…":"Gestionar o cancelar suscripción"}</button>}
         <div style={{fontSize:9,color:C.dim,marginTop:10,display:"flex",gap:12,flexWrap:"wrap"}}>
@@ -2200,6 +2200,7 @@ export default function RuletoDriveApp(){
   const[showSupport,setShowSupport]=useState(false);
   const[showOnboarding,setShowOnboarding]=useState(()=>LS.get("rf_onboarding_dismissed",false)!==true);
   const[billingModal,setBillingModal]=useState(null);
+  const[showPlanPicker,setShowPlanPicker]=useState(false);
   const[copilotState,setCopilotState]=useState({supported:false,running:false,busy:false,message:"",lastOffer:null,offerHistory:[],selectedOfferIndex:0});
   const[copilotPlatform,setCopilotPlatform]=useState(()=>LS.get("rf_copilot_platform","didi"));
   const authUserRef=useRef(null);
@@ -2868,14 +2869,14 @@ export default function RuletoDriveApp(){
             <div style={{fontWeight:800,marginBottom:4}}>🎁 {trialDaysLeft} día{trialDaysLeft===1?"":"s"} de PRUEBA GRATIS</div>
             <div style={{fontSize:11,color:C.text,lineHeight:1.3}}>Caduca el {new Date(new Date(profile?.pro_until).getTime()).toLocaleDateString("es-MX",{weekday:"short",month:"short",day:"numeric"})}</div>
           </div>
-          <button onClick={()=>openUpgrade(session,"monthly")} style={{background:C.accent,color:"#000",border:"none",borderRadius:7,padding:"8px 13px",fontSize:11,fontWeight:800,cursor:"pointer",flexShrink:0}}>COMPRAR PRO</button>
+          <button onClick={()=>setShowPlanPicker(true)} style={{background:C.accent,color:"#000",border:"none",borderRadius:7,padding:"8px 13px",fontSize:11,fontWeight:800,cursor:"pointer",flexShrink:0}}>COMPRAR PRO</button>
         </div>}
 
-        {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} onUpgrade={()=>openUpgrade(session)} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer} onSelectCopilotOfferIndex={idx=>setCopilotState(p=>({...p,selectedOfferIndex:idx}))}/>}
+        {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer} onSelectCopilotOfferIndex={idx=>setCopilotState(p=>({...p,selectedOfferIndex:idx}))}/>}
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
-        {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} isPro={isPro} onUpgrade={()=>openUpgrade(session)}/>}
-        {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} onUpgrade={()=>openUpgrade(session)} userId={session.user.id}/>}
-        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode} isPro={isPro} profile={profile} trialDaysLeft={trialDaysLeft} session={session}/>}
+        {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)}/>}
+        {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)} userId={session.user.id}/>}
+        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode} isPro={isPro} profile={profile} trialDaysLeft={trialDaysLeft} session={session} onUpgrade={()=>setShowPlanPicker(true)}/>}
 
         {/* NAVEGACIÓN FIJA */}
         <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100,paddingBottom:"calc(10px + env(safe-area-inset-bottom))",paddingTop:"10px"}}>
@@ -2890,7 +2891,7 @@ export default function RuletoDriveApp(){
       </div>{/* ← CIERRE DEL DIV PRINCIPAL */}
 
       {/* MODALES FUERA DEL DIV — flotan sobre todo incluyendo la NAV */}
-      {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} activeBonuses={bonuses.filter(b=>String(b.status||"")==="active")} onClose={()=>{setShowNew(false);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_CLOSED);}} isPro={isPro} onUpgrade={()=>openUpgrade(session)} copilotState={copilotState} userId={session.user.id}/>}
+      {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} activeBonuses={bonuses.filter(b=>String(b.status||"")==="active")} onClose={()=>{setShowNew(false);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_CLOSED);}} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)} copilotState={copilotState} userId={session.user.id}/>}
       {showOperation&&<OperationModal cfg={cfg} initial={editingEvent} initialKind={editingKind} onClose={()=>{setShowOperation(false);setEditingEvent(null);setEditingKind("event");emitTourEvent(TOUR_EVENTS.QUICK_CLOSED);}} onSaveOperation={saveOperation} onUpdateOperation={updateOperation} onSaveTrip={saveTrip} onSaveBonus={saveBonus} onUpdateBonus={updateBonus}/>}
       {selectedRecord&&<RecordDetail kind={selectedRecord.kind} record={selectedRecord.record} cfg={cfg} onClose={()=>setSelectedRecord(null)} onEdit={()=>{setEditingEvent(selectedRecord.record);setEditingKind(selectedRecord.kind);setSelectedRecord(null);setShowOperation(true);}} onDelete={async()=>{const deleted=selectedRecord.kind==="bonus"?await deleteBonus(selectedRecord.record.id):await deleteOperation(selectedRecord.record.id);if(deleted)setSelectedRecord(null);}}/>}
       {selectedClosure&&<ClosureModal closure={selectedClosure} cfg={cfg} trips={trips} events={events} bonuses={bonuses} onClose={()=>setSelectedClosure(null)} onSelectTrip={trip=>{setSelectedClosure(null);setSelTrip(trip);}} onSelectRecord={(kind,record)=>{setSelectedClosure(null);setSelectedRecord({kind,record});}}/>}
@@ -2917,6 +2918,30 @@ export default function RuletoDriveApp(){
             </div>
             <button onClick={()=>{setBillingModal(null);}} style={{background:C.accent,color:"#000",border:"none",borderRadius:8,padding:"11px 16px",fontSize:12,fontWeight:800,width:"100%",cursor:"pointer"}}>VOLVER</button>
           </>}
+        </div>
+      </div>}
+
+      {showPlanPicker&&<div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:16}} onClick={()=>setShowPlanPicker(false)}>
+        <div style={{background:C.card,borderRadius:16,padding:20,maxWidth:340,width:"100%",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}} onClick={e=>e.stopPropagation()}>
+          <div style={{fontSize:18,fontWeight:800,color:C.accent,marginBottom:4,textAlign:"center"}}>RULETO PRO</div>
+          <div style={{fontSize:12,color:C.muted,textAlign:"center",marginBottom:18}}>Elige tu plan</div>
+          <button onClick={()=>{setShowPlanPicker(false);openUpgrade(session,"annual");}} style={{width:"100%",textAlign:"left",background:`${C.accent}14`,border:`2px solid ${C.accent}`,borderRadius:12,padding:"14px 15px",marginBottom:10,cursor:"pointer",position:"relative"}}>
+            <div style={{position:"absolute",top:-9,left:14,background:C.accent,color:"#000",fontSize:9,fontWeight:900,letterSpacing:"0.06em",padding:"3px 8px",borderRadius:5}}>MEJOR PRECIO · AHORRA 40%</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
+              <div>
+                <div style={{fontSize:14,fontWeight:800,color:C.text}}>Anual</div>
+                <div style={{fontSize:10,color:C.muted,marginTop:2}}>$58 MXN/mes equivalente</div>
+              </div>
+              <div style={{fontSize:20,fontWeight:900,color:C.accent}}>$697<span style={{fontSize:10,color:C.muted,fontWeight:600}}>/año</span></div>
+            </div>
+          </button>
+          <button onClick={()=>{setShowPlanPicker(false);openUpgrade(session,"monthly");}} style={{width:"100%",textAlign:"left",background:"transparent",border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 15px",marginBottom:14,cursor:"pointer"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{fontSize:14,fontWeight:800,color:C.text}}>Mensual</div>
+              <div style={{fontSize:20,fontWeight:900,color:C.text}}>$97<span style={{fontSize:10,color:C.muted,fontWeight:600}}>/mes</span></div>
+            </div>
+          </button>
+          <button onClick={()=>setShowPlanPicker(false)} style={{width:"100%",background:"transparent",border:"none",color:C.muted,fontSize:12,padding:"6px",cursor:"pointer"}}>Cancelar</button>
         </div>
       </div>}
     </>
