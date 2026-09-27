@@ -206,7 +206,7 @@
               <button style="flex:1;padding:8px;border:1px solid var(--accent);background:transparent;color:var(--accent);border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;">Anual</button>
             </div>
             <div class="price">$97 <small>MXN / mes</small></div>
-            <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">O $697/año (40% descuento)</div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">O $497/año (57% descuento)</div>
             <ul>
               <li>Todo lo incluido en Free</li>
               <li>Ruleto Copiloto: análisis de ofertas en tiempo real</li>
@@ -266,15 +266,15 @@
         localStorage.setItem('ruleto_plan', plan);
 
         if (plan === 'annual') {
-          priceEl.innerHTML = '$697 <small>MXN / año</small>';
-          discountEl.textContent = '40% menos que pago mensual';
+          priceEl.innerHTML = '$497 <small>MXN / año</small>';
+          discountEl.textContent = '57% menos que pago mensual';
           btns[0].style.background = 'transparent';
           btns[0].style.color = 'var(--accent)';
           btns[1].style.background = 'var(--accent)';
           btns[1].style.color = '#000';
         } else {
           priceEl.innerHTML = '$97 <small>MXN / mes</small>';
-          discountEl.innerHTML = 'O $697/año (40% descuento)';
+          discountEl.innerHTML = 'O $497/año (57% descuento)';
           btns[0].style.background = 'var(--accent)';
           btns[0].style.color = '#000';
           btns[1].style.background = 'transparent';

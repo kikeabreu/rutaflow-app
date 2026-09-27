@@ -2926,13 +2926,13 @@ export default function RuletoDriveApp(){
           <div style={{fontSize:18,fontWeight:800,color:C.accent,marginBottom:4,textAlign:"center"}}>RULETO PRO</div>
           <div style={{fontSize:12,color:C.muted,textAlign:"center",marginBottom:18}}>Elige tu plan</div>
           <button onClick={()=>{setShowPlanPicker(false);openUpgrade(session,"annual");}} style={{width:"100%",textAlign:"left",background:`${C.accent}14`,border:`2px solid ${C.accent}`,borderRadius:12,padding:"14px 15px",marginBottom:10,cursor:"pointer",position:"relative"}}>
-            <div style={{position:"absolute",top:-9,left:14,background:"#0A1F1A",color:"#4ADE80",fontSize:9,fontWeight:900,letterSpacing:"0.06em",padding:"3px 8px",borderRadius:5}}>MEJOR PRECIO · AHORRA 40%</div>
+            <div style={{position:"absolute",top:-9,left:14,background:"#0A1F1A",color:"#4ADE80",fontSize:9,fontWeight:900,letterSpacing:"0.06em",padding:"3px 8px",borderRadius:5}}>MEJOR PRECIO · AHORRA 57%</div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
               <div>
                 <div style={{fontSize:14,fontWeight:800,color:C.text}}>Anual</div>
-                <div style={{fontSize:10,color:C.muted,marginTop:2}}>$58 MXN/mes equivalente</div>
+                <div style={{fontSize:10,color:C.muted,marginTop:2}}>$41 MXN/mes equivalente</div>
               </div>
-              <div style={{fontSize:20,fontWeight:900,color:C.accent}}>$697<span style={{fontSize:10,color:C.muted,fontWeight:600}}>/año</span></div>
+              <div style={{fontSize:20,fontWeight:900,color:C.accent}}>$497<span style={{fontSize:10,color:C.muted,fontWeight:600}}>/año</span></div>
             </div>
           </button>
           <button onClick={()=>{setShowPlanPicker(false);openUpgrade(session,"monthly");}} style={{width:"100%",textAlign:"left",background:"transparent",border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 15px",marginBottom:14,cursor:"pointer"}}>
