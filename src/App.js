@@ -520,15 +520,16 @@ function DateRangeControl({value,onChange}){
     </div>}
   </div>;
 }
-const UpgradeCard=({onUpgrade=openUpgrade,s})=>(
-  <div style={{background:`${C.accent}12`,border:`1px solid ${C.accent}3d`,borderRadius:12,padding:"12px 13px",display:"flex",alignItems:"center",gap:12,...s}}>
+const UpgradeCard=({onUpgrade=openUpgrade,s,daysLeft=null})=>(
+  <div style={{background:`${C.accent}12`,border:`1px solid ${C.accent}3d`,borderRadius:12,padding:"15px 16px",display:"flex",alignItems:"center",gap:15,...s}}>
     <div style={{flex:1}}>
-      <div className="B" style={{fontSize:17,fontWeight:800,color:C.accent,letterSpacing:1}}>RULETO PRO</div>
-      <div style={{fontSize:11,color:C.text,lineHeight:1.45,marginTop:3}}>
-        Ruleto Copiloto, Ruleto IA, GPS, Foto IA y gráficas avanzadas.
+      <div className="B" style={{fontSize:18,fontWeight:800,color:C.accent,letterSpacing:1}}>RULETO PRO</div>
+      <div style={{fontSize:12,color:C.text,lineHeight:1.5,marginTop:4}}>
+        {daysLeft!==null?`${daysLeft} día${daysLeft===1?"":"s"} de prueba gratuita — Caduca ${new Date(Date.now()+daysLeft*24*60*60*1000).toLocaleDateString("es-MX",{month:"short",day:"numeric"})}`:
+        "Copiloto IA, GPS, Fotos IA y análisis avanzados."}
       </div>
     </div>
-    <button onClick={onUpgrade} style={{background:ACCENT_FILL,color:"#000",borderRadius:8,padding:"9px 11px",fontSize:10,fontWeight:900,letterSpacing:"0.12em"}}>VER PRO</button>
+    <button onClick={onUpgrade} style={{background:ACCENT_FILL,color:"#000",borderRadius:8,padding:"11px 13px",fontSize:11,fontWeight:900,letterSpacing:"0.12em",whiteSpace:"nowrap",flexShrink:0}}>COMPRAR</button>
   </div>
 );
 
@@ -904,7 +905,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
           {mode==="gps"&&(
             <div data-tour="trip-gps-panel" style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:12,padding:15,marginBottom:12}}>
               <Lbl s={{marginBottom:10}}>Rastreo GPS en tiempo real</Lbl>
-              {!isPro&&<UpgradeCard onUpgrade={onUpgrade} s={{marginBottom:12}}/>}
+              {!isPro&&<UpgradeCard onUpgrade={onUpgrade} daysLeft={trialDaysLeft||null} s={{marginBottom:12}}/>}
               {gpsOn&&<div className="B" style={{fontSize:46,fontWeight:900,color:C.teal,textAlign:"center",marginBottom:8}}>{fmtClock(gpsMs)}</div>}
               {gpsStatus&&<div style={{fontSize:13,color:gpsOn?C.teal:C.muted,textAlign:"center",marginBottom:10}}>{gpsStatus}{gpsStatus.includes("Error")&&<div style={{marginTop:8}}><button onClick={openSettings} style={{color:C.danger,textDecoration:"underline",fontWeight:700,fontSize:11}}>Abrir ajustes de ubicación</button></div>}</div>}
               {!gpsOn?(
@@ -934,7 +935,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
           {mode==="photo"&&(
             <div data-tour="trip-photo-panel" style={{marginBottom:12}}>
               <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}}/>
-              {!isPro&&<UpgradeCard onUpgrade={onUpgrade} s={{marginBottom:12}}/>}
+              {!isPro&&<UpgradeCard onUpgrade={onUpgrade} daysLeft={trialDaysLeft||null} s={{marginBottom:12}}/>}
               {proc?(
                 <div style={{textAlign:"center",padding:"28px 0"}}>
                   <div className="sp" style={{width:28,height:28,border:`2px solid ${C.border}`,borderTopColor:C.accent,borderRadius:"50%",margin:"0 auto 10px"}}/>
@@ -2150,6 +2151,7 @@ export default function RuletoDriveApp(){
   const[selectedClosure,setSelectedClosure]=useState(null);
   const[showSupport,setShowSupport]=useState(false);
   const[showOnboarding,setShowOnboarding]=useState(()=>LS.get("rf_onboarding_dismissed",false)!==true);
+  const[billingModal,setBillingModal]=useState(null);
   const[copilotState,setCopilotState]=useState({supported:false,running:false,busy:false,message:"",lastOffer:null,offerHistory:[],selectedOfferIndex:0});
   const[copilotPlatform,setCopilotPlatform]=useState(()=>LS.get("rf_copilot_platform","didi"));
   const authUserRef=useRef(null);
@@ -2168,6 +2170,26 @@ export default function RuletoDriveApp(){
       writeScoped(window.localStorage,uid,"ui",{tab,tripsSection,extraType:tripsExtraType});
     }
   },[session?.user?.id,tab,tripsSection,tripsExtraType]);
+
+  useEffect(()=>{
+    const params=new URLSearchParams(window.location.search);
+    if(params.has("billing")){
+      const status=params.get("billing");
+      if(status==="return"){
+        setTimeout(()=>setBillingModal("success"),300);
+        (async()=>{
+          try{
+            const{data:pr}=await supabase.from("profiles").select("*").eq("id",session?.user?.id).single();
+            if(pr)setProfile(pr);
+          }catch(e){console.warn("Refresh profile after billing",e);}
+        })();
+        window.history.replaceState({},document.title,window.location.pathname);
+      }else if(status==="cancelled"){
+        setBillingModal("cancelled");
+        window.history.replaceState({},document.title,window.location.pathname);
+      }
+    }
+  },[session?.user?.id]);
 
   const showToast=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
   const isPro=!paymentUrl()||isProProfile(profile);
@@ -2782,7 +2804,13 @@ export default function RuletoDriveApp(){
           </div>
         </div>
 
-        {trialDaysLeft>0&&<div style={{background:`${C.accent}1a`,borderBottom:`1px solid ${C.accent}33`,padding:"9px 15px",fontSize:11,color:C.accent,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>🎁 {trialDaysLeft} día{trialDaysLeft===1?"":"s"} de prueba — Mejora a Pro</span><button onClick={()=>openUpgrade(session,"monthly")} style={{background:C.accent,color:"#000",border:"none",borderRadius:6,padding:"5px 10px",fontSize:9,fontWeight:700,cursor:"pointer"}}>VER</button></div>}
+        {trialDaysLeft>0&&<div style={{background:`linear-gradient(135deg, ${C.accent}1a, ${C.accent}0d)`,borderBottom:`2px solid ${C.accent}`,padding:"14px 16px",fontSize:13,color:C.accent,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:800,marginBottom:4}}>🎁 {trialDaysLeft} día{trialDaysLeft===1?"":"s"} de PRUEBA GRATIS</div>
+            <div style={{fontSize:11,color:C.text,lineHeight:1.3}}>Caduca el {new Date(new Date(profile?.pro_until).getTime()).toLocaleDateString("es-MX",{weekday:"short",month:"short",day:"numeric"})}</div>
+          </div>
+          <button onClick={()=>openUpgrade(session,"monthly")} style={{background:C.accent,color:"#000",border:"none",borderRadius:7,padding:"8px 13px",fontSize:11,fontWeight:800,cursor:"pointer",flexShrink:0}}>COMPRAR PRO</button>
+        </div>}
 
         {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} onUpgrade={()=>openUpgrade(session)} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer} onSelectCopilotOfferIndex={idx=>setCopilotState(p=>({...p,selectedOfferIndex:idx}))}/>}
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
@@ -2812,6 +2840,26 @@ export default function RuletoDriveApp(){
         onDelete={async id=>{await deleteTrip(id);setSelTrip(null);}}/>}
       {showSupport&&<SupportModal isOpen={showSupport} onClose={()=>setShowSupport(false)} userId={session?.user?.id} userEmail={session?.user?.email} onReportSent={sent=>showToast(sent?"Reporte enviado con éxito":"Reporte guardado; se enviará al recuperar la conexión",sent?"ok":"warn")}/>}
       {showOnboarding&&<OnboardingWizard isOpen={showOnboarding} onComplete={()=>setShowOnboarding(false)} onDismissNever={()=>{setShowOnboarding(false);LS.set("rf_onboarding_dismissed",true);}} currentTab={tab}/>}
+
+      {billingModal&&<div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}}>
+        <div style={{background:C.card,borderRadius:16,padding:20,maxWidth:320,textAlign:"center",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          {billingModal==="success"?<>
+            <div style={{fontSize:48,marginBottom:12}}>🎉</div>
+            <div style={{fontSize:18,fontWeight:800,color:C.teal,marginBottom:8}}>¡Bienvenido a Pro!</div>
+            <div style={{fontSize:13,color:C.text,lineHeight:1.6,marginBottom:20}}>
+              Ahora tienes acceso a Ruleto IA, Copiloto, GPS y todas las gráficas avanzadas.
+            </div>
+            <button onClick={()=>{setBillingModal(null);}} style={{background:C.accent,color:"#000",border:"none",borderRadius:8,padding:"11px 16px",fontSize:12,fontWeight:800,width:"100%",cursor:"pointer"}}>CONTINUAR</button>
+          </>:<>
+            <div style={{fontSize:48,marginBottom:12}}>❌</div>
+            <div style={{fontSize:18,fontWeight:800,color:C.danger,marginBottom:8}}>Compra cancelada</div>
+            <div style={{fontSize:13,color:C.text,lineHeight:1.6,marginBottom:20}}>
+              Puedes intentar más tarde o contactarnos si necesitas ayuda.
+            </div>
+            <button onClick={()=>{setBillingModal(null);}} style={{background:C.accent,color:"#000",border:"none",borderRadius:8,padding:"11px 16px",fontSize:12,fontWeight:800,width:"100%",cursor:"pointer"}}>VOLVER</button>
+          </>}
+        </div>
+      </div>}
     </>
   );
 }
