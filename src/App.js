@@ -44,6 +44,10 @@ const isProProfile=profile=>{
   const until=profile.pro_until?new Date(profile.pro_until).getTime():0;
   return plan==="pro"||status==="active"||status==="trialing"||until>Date.now();
 };
+const openExternalUrl=async url=>{
+  if(Capacitor.isNativePlatform()){await Browser.open({url}).catch(()=>{window.location.href=url;});return;}
+  window.location.href=url;
+};
 const openUpgrade=async(session,plan='monthly')=>{
   try{
     const token=session?.access_token;
@@ -54,7 +58,7 @@ const openUpgrade=async(session,plan='monthly')=>{
       body:JSON.stringify({plan:plan==='annual'?'annual':'monthly'})
     });
     const data=await res.json();
-    if(data?.url){window.location.href=data.url;return;}
+    if(data?.url){await openExternalUrl(data.url);return;}
     alert(data?.error||"Error al abrir el checkout.");
   }catch(e){
     console.warn("Billing checkout error",e);
@@ -72,7 +76,7 @@ const openBillingPortal=async(session)=>{
       headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`,'Idempotency-Key':`ruleto-portal-${session?.user?.id}-${Date.now()}`},
     });
     const data=await res.json();
-    if(data?.url){window.location.href=data.url;return;}
+    if(data?.url){await openExternalUrl(data.url);return;}
     alert(data?.error||"No se pudo abrir la gestión de tu suscripción. Escríbenos a soporte si el problema continúa.");
   }catch(e){
     console.warn("Billing portal error",e);
@@ -1985,6 +1989,7 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
   const planLabel=(()=>{
     const status=String(profile?.subscription_status||"").toLowerCase();
     if(status==="trialing")return trialDaysLeft>0?`Prueba gratuita · ${trialDaysLeft} día${trialDaysLeft===1?"":"s"} restante${trialDaysLeft===1?"":"s"}`:"Prueba gratuita vencida";
+    if(isPro&&profile?.cancel_at_period_end&&profile?.pro_until)return `Pro hasta el ${new Date(profile.pro_until).toLocaleDateString("es-MX",{day:"numeric",month:"short",year:"numeric"})} (cancelado)`;
     if(isPro)return "Pro activo";
     return "Gratis";
   })();
@@ -2252,6 +2257,18 @@ export default function RuletoDriveApp(){
         window.history.replaceState({},document.title,window.location.pathname);
       }
     }
+  },[session?.user?.id]);
+
+  useEffect(()=>{
+    if(!Capacitor.isNativePlatform()||!session?.user?.id)return;
+    const uid=session.user.id;
+    const listenerPromise=CapacitorApp.addListener("resume",async()=>{
+      try{
+        const{data:pr}=await supabase.from("profiles").select("*").eq("id",uid).single();
+        if(pr)setProfile(pr);
+      }catch(e){console.warn("Refresh profile on resume",e);}
+    });
+    return()=>{listenerPromise.then(l=>l.remove?.());};
   },[session?.user?.id]);
 
   const showToast=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
@@ -2876,6 +2893,14 @@ export default function RuletoDriveApp(){
             <div style={{fontSize:11,color:C.text,lineHeight:1.3}}>Caduca el {new Date(new Date(profile?.pro_until).getTime()).toLocaleDateString("es-MX",{weekday:"short",month:"short",day:"numeric"})}</div>
           </div>
           <button onClick={()=>setShowPlanPicker(true)} style={{background:ACCENT_FILL,color:"#000",border:"none",borderRadius:7,padding:"8px 13px",fontSize:11,fontWeight:800,cursor:"pointer",flexShrink:0}}>COMPRAR PRO</button>
+        </div>}
+
+        {isPro&&profile?.cancel_at_period_end&&profile?.pro_until&&<div style={{background:`${C.warn}1a`,borderBottom:`2px solid ${C.warn}`,padding:"14px 16px",fontSize:13,color:C.warn,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:800,marginBottom:4}}>⚠️ Tu suscripción está cancelada</div>
+            <div style={{fontSize:11,color:C.text,lineHeight:1.3}}>Tienes Pro hasta el {new Date(profile.pro_until).toLocaleDateString("es-MX",{day:"numeric",month:"long",year:"numeric"})}. No se renovará.</div>
+          </div>
+          <button onClick={()=>openBillingPortal(session)} style={{background:"transparent",color:C.warn,border:`1px solid ${C.warn}`,borderRadius:7,padding:"8px 13px",fontSize:11,fontWeight:800,cursor:"pointer",flexShrink:0}}>REACTIVAR</button>
         </div>}
 
         {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer} onSelectCopilotOfferIndex={idx=>setCopilotState(p=>({...p,selectedOfferIndex:idx}))}/>}
