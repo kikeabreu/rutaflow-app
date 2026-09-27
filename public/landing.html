@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Ruleto Drive | Maneja con números, no con intuición</title>
-  <meta name="description" content="Ruleto Drive ayuda a conductores de DiDi, Uber, inDrive y viajes particulares a saber si un viaje conviene, registrar su operación y conocer su ganancia real." />
+  <title>Ruleto Drive | Copiloto para decidir mejor cada viaje</title>
+  <meta name="description" content="Ruleto Copiloto te muestra si una oferta conviene antes de aceptarla. Ruleto IA responde preguntas sobre tus viajes, gastos y mejores horarios. Prueba Pro 14 días sin tarjeta." />
   <meta name="theme-color" content="#0A1F1A" />
   <script>
     // Preserve existing email/OAuth callbacks while the former Vercel host migrates.
@@ -159,8 +159,27 @@
     .ride-metrics span{display:block;font-size:8.5px;color:var(--muted);text-transform:uppercase;margin-bottom:2px}
     .ride-metrics b{font-size:12px;color:var(--vc)}
     .ride-label{margin-top:14px;text-align:center;font-size:12px;font-weight:800;color:var(--vc)}
+    .value-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:0 0 30px}
+    .value-step{padding:20px;border:1px solid var(--border);border-radius:16px;background:var(--panel)}
+    .value-step b{display:block;color:var(--accent);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}
+    .value-step strong{display:block;font-size:19px;line-height:1.3}
+    .value-step p{margin:8px 0 0;color:var(--muted);font-size:13px}
+    .section-action{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:30px}
+    .section-action small{color:var(--muted);font-size:12px}
+    .ai-grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:28px;align-items:center}
+    .ai-points{display:grid;gap:13px;margin:24px 0}
+    .ai-points div{padding:16px 18px;border:1px solid var(--border);background:var(--panel);border-radius:14px}
+    .ai-points strong{display:block;font-size:16px}.ai-points span{display:block;color:var(--muted);font-size:13px;margin-top:4px}
+    .ai-chat{border:1px solid rgba(74,222,128,.35);background:linear-gradient(150deg,#10241e,#0b1714);border-radius:24px;padding:24px;box-shadow:0 24px 70px rgba(0,0,0,.22)}
+    .ai-chat-head{display:flex;align-items:center;gap:10px;padding-bottom:18px;border-bottom:1px solid var(--border);font-size:13px;font-weight:800}
+    .ai-chat-head img{width:30px;height:30px;object-fit:contain}
+    .chat-bubble{max-width:92%;padding:14px 16px;margin-top:16px;border-radius:16px;font-size:14px;line-height:1.55}
+    .chat-question{margin-left:auto;background:#29433a;color:#fff;border-bottom-right-radius:4px}
+    .chat-answer{background:#173028;border:1px solid rgba(74,222,128,.25);border-bottom-left-radius:4px}
+    .chat-answer b{color:var(--accent)}
+    .ai-note{font-size:11px;color:var(--muted);margin-top:16px}
 
-    @media (max-width:900px){.hero-grid,.pricing{grid-template-columns:1fr}.phone{margin:20px auto 0}.cards{grid-template-columns:1fr}.feature-grid,.faq{grid-template-columns:1fr}.trial{display:block}.trial .btn{margin-top:20px}.navlinks a:not(.btn){display:none}.hero{padding-top:68px}.showcase,.tri{grid-template-columns:1fr;gap:36px}}
+    @media (max-width:900px){.hero-grid,.pricing,.ai-grid{grid-template-columns:1fr}.phone{margin:20px auto 0}.cards,.value-steps{grid-template-columns:1fr}.feature-grid,.faq{grid-template-columns:1fr}.trial{display:block}.trial .btn{margin-top:20px}.navlinks a:not(.btn){display:none}.hero{padding-top:68px}.showcase,.tri{grid-template-columns:1fr;gap:36px}}
     @media (max-width:560px){.wrap{width:min(100% - 22px,1160px)}.navin{height:64px}.brand span{font-size:21px}.hero{padding:58px 0 46px}h1{font-size:56px}.lead{font-size:15px}.hero-actions .btn{width:100%}.phone{border-radius:26px;padding:12px}.screen{padding:15px}.metrics{grid-template-columns:1fr}.feature{padding:16px}.plan{padding:22px}.trial{padding:24px}.trial h2{font-size:40px}}
   </style>
 </head>
@@ -172,6 +191,7 @@
         <a href="#como-funciona">Cómo funciona</a>
         <a href="#plataforma">Por dentro</a>
         <a href="#copiloto">Copiloto</a>
+        <a href="#ruleto-ia">Ruleto IA</a>
         <a href="#planes">Planes</a>
         <a href="/descargar">Descargar</a>
         <a class="btn primary" href="/crear-cuenta">Probar Ruleto Drive</a>
@@ -184,13 +204,13 @@
       <div class="wrap hero-grid">
         <div>
           <div class="eyebrow"><span class="dot"></span>Ruletea inteligente. Gana con claridad.</div>
-          <h1>Maneja con <span>números.</span><br />No con intuición.</h1>
-          <p class="lead">Ruleto Drive te ayuda a saber si un viaje realmente conviene, registrar lo que haces y entender cuánto dinero te queda después de gasolina, comisión y costos del auto.</p>
+          <h1>Antes de aceptar, <span>sabe si conviene.</span></h1>
+          <p class="lead">En Android, Ruleto Copiloto lee la oferta que aparece en tu pantalla y te muestra si vale la pena para ti. Después, pregúntale a Ruleto IA cuánto ganaste de verdad y qué horarios te han funcionado mejor.</p>
           <div class="hero-actions">
             <a class="btn primary" href="/crear-cuenta">Probar Pro 14 días</a>
-            <a class="btn ghost" href="#como-funciona">Ver cómo funciona</a>
+            <a class="btn ghost" href="#copiloto">Ver el Copiloto</a>
           </div>
-          <div class="micro">Para Android. Sin tarjeta para iniciar. Al terminar la prueba puedes seguir usando Ruleto Drive Free.</div>
+          <div class="micro">14 días de Pro sin tarjeta · Copiloto disponible en Android · Tú decides qué viajes aceptar.</div>
         </div>
 
         <div class="phone" aria-label="Ejemplo de análisis de viaje en Ruleto Drive">
@@ -198,19 +218,121 @@
             <div class="screen-top"><span>RULETO DRIVE</span><span>ANÁLISIS DE VIAJE</span></div>
             <div class="offer">
               <div style="color:var(--muted);font-size:11px">OFERTA</div>
-              <div class="amount">$84.00</div>
-              <div class="route"><span>11.2 km</span><span>31 min</span></div>
+              <div class="amount">$145.00</div>
+              <div class="route"><span>10.9 km con recolección</span><span>22 min</span></div>
             </div>
             <div class="verdict">
               <span style="font-size:10px;color:var(--muted)">VEREDICTO RULETO</span>
               <strong>Buen viaje</strong>
               <div class="metrics">
-                <div class="metric"><b>$2.11</b><span>neto/km</span></div>
-                <div class="metric"><b>$45.7</b><span>neto/hora</span></div>
-                <div class="metric"><b>$23.62</b><span>neto estimado</span></div>
+                <div class="metric"><b>$9.71</b><span>neto/km</span></div>
+                <div class="metric"><b>$288.50</b><span>neto/hora</span></div>
+                <div class="metric"><b>$105.80</b><span>neto estimado</span></div>
               </div>
             </div>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="copiloto">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Un semáforo para decidir en segundos.</h2>
+          <p>Activa Ruleto Copiloto en tu Android. Cuando aparece una oferta en DiDi, Uber o inDrive, lee los datos visibles y los compara con tu gasolina, comisiones y meta de ganancia. Te muestra el resultado encima de la oferta, sin cambiar de app.</p>
+        </div>
+        <div class="value-steps">
+          <div class="value-step"><b>01 · Aparece una oferta</b><strong>Ves cuánto paga y cuánto vas a recorrer.</strong><p>El Copiloto toma los datos que la app de viajes muestra en pantalla.</p></div>
+          <div class="value-step"><b>02 · Ruleto hace cuentas</b><strong>Resta gasolina y comisión.</strong><p>También considera el trayecto para recoger al pasajero y tu meta por hora o kilómetro.</p></div>
+          <div class="value-step"><b>03 · Tú decides</b><strong>Verde, amarillo o rojo.</strong><p>Entiendes por qué conviene o no; Ruleto nunca acepta el viaje por ti.</p></div>
+        </div>
+        <div class="tri">
+          <div class="show-col">
+            <div class="phone">
+              <div class="screen">
+                <div class="ride-top"><span>DiDi · oferta entrante</span><span>00:04</span></div>
+                <div class="ride" style="--vc:var(--teal)">
+                  <div class="ride-pill">🟢 BUEN VIAJE · $145 · $288/h</div>
+                  <div class="ride-fare">$145.00</div>
+                  <div class="ride-route">📍 Recolección · 1.1 km · 3 min<br>🏁 Viaje · 9.8 km · 19 min</div>
+                  <div class="ride-actions"><button>Rechazar</button><button class="accept">Aceptar</button></div>
+                  <div class="ride-note">Copiloto: “Dejaría $106 netos en 22 minutos.”</div>
+                  <div class="ride-metrics">
+                    <div><span>Neto</span><b>$105.80</b></div>
+                    <div><span>$/hora</span><b>$288.50</b></div>
+                    <div><span>$/km</span><b>$9.71</b></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="ride-label" style="color:var(--teal)">Buen viaje</div>
+          </div>
+          <div class="show-col">
+            <div class="phone">
+              <div class="screen">
+                <div class="ride-top"><span>DiDi · oferta entrante</span><span>00:04</span></div>
+                <div class="ride" style="--vc:var(--warn)">
+                  <div class="ride-pill">🟡 VIAJE ACEPTABLE · $95 · $182/h</div>
+                  <div class="ride-fare">$95.00</div>
+                  <div class="ride-route">📍 Recolección · 2.0 km · 5 min<br>🏁 Viaje · 6.5 km · 17 min</div>
+                  <div class="ride-actions"><button>Rechazar</button><button class="accept">Aceptar</button></div>
+                  <div class="ride-note">Copiloto: “Dejaría $67 netos en 22 minutos, por debajo de tu meta.”</div>
+                  <div class="ride-metrics">
+                    <div><span>Neto</span><b>$66.60</b></div>
+                    <div><span>$/hora</span><b>$181.60</b></div>
+                    <div><span>$/km</span><b>$7.84</b></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="ride-label" style="color:var(--warn)">Viaje aceptable</div>
+          </div>
+          <div class="show-col">
+            <div class="phone">
+              <div class="screen">
+                <div class="ride-top"><span>DiDi · oferta entrante</span><span>00:04</span></div>
+                <div class="ride" style="--vc:var(--danger)">
+                  <div class="ride-pill">🔴 NO CONVIENE · $70 · $99/h</div>
+                  <div class="ride-fare">$70.00</div>
+                  <div class="ride-route">📍 Recolección · 5.4 km · 14 min<br>🏁 Viaje · 4.0 km · 12 min</div>
+                  <div class="ride-actions"><button>Rechazar</button><button class="accept">Aceptar</button></div>
+                  <div class="ride-note">Copiloto: “La recogida es larga: 5.4 km y 14 min.”</div>
+                  <div class="ride-metrics">
+                    <div><span>Neto</span><b>$42.80</b></div>
+                    <div><span>$/hora</span><b>$98.80</b></div>
+                    <div><span>$/km</span><b>$4.55</b></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="ride-label" style="color:var(--danger)">No conviene</div>
+          </div>
+        </div>
+        <div class="show-cap" style="margin:26px auto 0;max-width:640px">Ejemplos ilustrativos con gasolina a $24/L, comisión DiDi de 12% y meta de $200/hora. El resultado cambia según tus costos y la información visible en cada oferta.</div>
+        <div class="section-action"><a class="btn primary" href="/crear-cuenta">Probar Copiloto 14 días</a><small>Sin tarjeta. Requiere instalar la app Android y activar los permisos del Copiloto.</small></div>
+      </div>
+    </section>
+
+    <section id="ruleto-ia">
+      <div class="wrap ai-grid">
+        <div>
+          <div class="eyebrow"><span class="dot"></span>RULETO IA · TU OPERACIÓN, EXPLICADA</div>
+          <h2>Pregúntale a tus números.</h2>
+          <p>Ruleto IA usa los viajes, gastos y jornadas que registras para responderte en español. Escríbele o háblale como a un compañero que conoce tu operación.</p>
+          <div class="ai-points">
+            <div><strong>«¿Cuánto me quedó hoy?»</strong><span>Revisa la ganancia estimada después de los costos registrados.</span></div>
+            <div><strong>«¿Qué horas me salen mejor?»</strong><span>Compara tus viajes guardados para encontrar horarios más rentables.</span></div>
+            <div><strong>«¿Me conviene este bono?»</strong><span>Evalúa el avance, tiempo restante y valor del bono con tus datos.</span></div>
+          </div>
+          <div class="section-action"><a class="btn primary" href="/crear-cuenta">Probar Ruleto IA gratis</a><small>Incluida en Pro durante tus primeros 14 días.</small></div>
+        </div>
+        <div class="ai-chat" aria-label="Ejemplo ilustrativo de una conversación con Ruleto IA">
+          <div class="ai-chat-head"><img src="/icons/mark-light-dashes.png" alt="" /> Ruleto IA <span style="margin-left:auto;color:var(--accent);font-size:11px">EJEMPLO</span></div>
+          <div class="chat-bubble chat-question">¿En qué horario me está yendo mejor?</div>
+          <div class="chat-bubble chat-answer">Con los viajes que registraste, entre <b>7 y 9 de la mañana</b> has ganado más por viaje que entre 2 y 4 de la tarde. Si mantienes esos costos, ese horario parece rendirte mejor.</div>
+          <div class="chat-bubble chat-question">¿Y cuánto se me fue en gasolina esta semana?</div>
+          <div class="chat-bubble chat-answer">Puedo estimarlo con tus kilómetros y el rendimiento que configuraste, y compararlo con las cargas que registraste.</div>
+          <div class="ai-note">Conversación ilustrativa. Las respuestas dependen de los datos que registres; algunas funciones de voz dependen del dispositivo y la conexión.</div>
         </div>
       </div>
     </section>
@@ -277,78 +399,6 @@
             <div class="show-cap"><b>Desglose del viaje.</b> Tarifa, comisión, gasolina y ganancia neta desglosadas al momento de cerrar cada viaje.</div>
           </div>
         </div>
-      </div>
-    </section>
-
-    <section id="copiloto">
-      <div class="wrap">
-        <div class="section-head">
-          <h2>El Copiloto lee la oferta antes que tú.</h2>
-          <p>Ruleto Copiloto (Pro) analiza la oferta entrante en apps como DiDi, Uber o inDrive y dibuja un recuadro de color sobre la pantalla: verde si conviene, ámbar si es al límite, rojo si no. Estos tres ejemplos usan tus metas reales (comisión DiDi 12%, $24/L de gasolina, meta de $200/hora).</p>
-        </div>
-        <div class="tri">
-          <div class="show-col">
-            <div class="phone">
-              <div class="screen">
-                <div class="ride-top"><span>DiDi · oferta entrante</span><span>00:04</span></div>
-                <div class="ride" style="--vc:var(--teal)">
-                  <div class="ride-pill">🟢 BUEN VIAJE · $145 · $288/h</div>
-                  <div class="ride-fare">$145.00</div>
-                  <div class="ride-route">📍 Recolección · 1.1 km · 3 min<br>🏁 Viaje · 9.8 km · 19 min</div>
-                  <div class="ride-actions"><button>Rechazar</button><button class="accept">Aceptar</button></div>
-                  <div class="ride-note">Copiloto: “Dejaría $106 netos en 22 minutos.”</div>
-                  <div class="ride-metrics">
-                    <div><span>Neto</span><b>$105.80</b></div>
-                    <div><span>$/hora</span><b>$288.50</b></div>
-                    <div><span>$/km</span><b>$9.71</b></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="ride-label" style="color:var(--teal)">Buen viaje</div>
-          </div>
-          <div class="show-col">
-            <div class="phone">
-              <div class="screen">
-                <div class="ride-top"><span>DiDi · oferta entrante</span><span>00:04</span></div>
-                <div class="ride" style="--vc:var(--warn)">
-                  <div class="ride-pill">🟡 VIAJE ACEPTABLE · $95 · $182/h</div>
-                  <div class="ride-fare">$95.00</div>
-                  <div class="ride-route">📍 Recolección · 2.0 km · 5 min<br>🏁 Viaje · 6.5 km · 17 min</div>
-                  <div class="ride-actions"><button>Rechazar</button><button class="accept">Aceptar</button></div>
-                  <div class="ride-note">Copiloto: “Dejaría $67 netos en 22 minutos, por debajo de tu meta.”</div>
-                  <div class="ride-metrics">
-                    <div><span>Neto</span><b>$66.60</b></div>
-                    <div><span>$/hora</span><b>$181.60</b></div>
-                    <div><span>$/km</span><b>$7.84</b></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="ride-label" style="color:var(--warn)">Viaje aceptable</div>
-          </div>
-          <div class="show-col">
-            <div class="phone">
-              <div class="screen">
-                <div class="ride-top"><span>DiDi · oferta entrante</span><span>00:04</span></div>
-                <div class="ride" style="--vc:var(--danger)">
-                  <div class="ride-pill">🔴 NO CONVIENE · $70 · $99/h</div>
-                  <div class="ride-fare">$70.00</div>
-                  <div class="ride-route">📍 Recolección · 5.4 km · 14 min<br>🏁 Viaje · 4.0 km · 12 min</div>
-                  <div class="ride-actions"><button>Rechazar</button><button class="accept">Aceptar</button></div>
-                  <div class="ride-note">Copiloto: “La recogida es larga: 5.4 km y 14 min.”</div>
-                  <div class="ride-metrics">
-                    <div><span>Neto</span><b>$42.80</b></div>
-                    <div><span>$/hora</span><b>$98.80</b></div>
-                    <div><span>$/km</span><b>$4.55</b></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="ride-label" style="color:var(--danger)">No conviene</div>
-          </div>
-        </div>
-        <div class="show-cap" style="margin:26px auto 0;max-width:640px">Simulación ilustrativa de la interfaz del Copiloto sobre una oferta tipo DiDi. Los colores, etiquetas y umbrales (recolección &gt;4 km o &gt;10 min, meta de $200/hora) son los mismos que usa la app.</div>
       </div>
     </section>
 
