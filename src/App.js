@@ -63,6 +63,22 @@ const openUpgrade=async(session,plan='monthly')=>{
     else alert("No se pudo abrir el pago. Recarga e intenta de nuevo.");
   }
 };
+const openBillingPortal=async(session)=>{
+  try{
+    const token=session?.access_token;
+    if(!token){alert("Sesión no válida. Recarga la página.");return;}
+    const res=await fetch('/api/billing/portal',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`,'Idempotency-Key':`ruleto-portal-${session?.user?.id}-${Date.now()}`},
+    });
+    const data=await res.json();
+    if(data?.url){window.location.href=data.url;return;}
+    alert(data?.error||"No se pudo abrir la gestión de tu suscripción. Escríbenos a soporte si el problema continúa.");
+  }catch(e){
+    console.warn("Billing portal error",e);
+    alert("No se pudo abrir la gestión de tu suscripción. Escríbenos a soporte si el problema continúa.");
+  }
+};
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const fmt=(n,d=2)=>(parseFloat(n)||0).toFixed(d);
@@ -1964,7 +1980,14 @@ ULTIMOS ${last3||"s/d"}`;
 }
 
 // ─── CONFIG TAB ───────────────────────────────────────────────────────────────
-function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboarding,themeMode,setThemeMode}){
+function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboarding,themeMode,setThemeMode,isPro,profile,trialDaysLeft,session}){
+  const[portalLoading,setPortalLoading]=useState(false);
+  const planLabel=(()=>{
+    const status=String(profile?.subscription_status||"").toLowerCase();
+    if(status==="trialing")return trialDaysLeft>0?`Prueba gratuita · ${trialDaysLeft} día${trialDaysLeft===1?"":"s"} restante${trialDaysLeft===1?"":"s"}`:"Prueba gratuita vencida";
+    if(isPro)return "Pro activo";
+    return "Gratis";
+  })();
   const[local,setLocal]=useState(cfg);
   const[saved,setSaved]=useState(false);
   useEffect(()=>setLocal(cfg),[cfg]);
@@ -2034,6 +2057,23 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
       <FCRow ek="llantasEnabled" mk="llantasMonto" xk="llantasKmVida" xl="Vida (km)" label="🔧 Desgaste de llantas"/>
       <FCRow ek="mantenimientoEnabled" mk="mantenimientoMonto" xk="mantenimientoKmVida" xl="Cada (km)" label="🔩 Mantenimiento"/>
       <Btn tour="config-save" full onClick={save} color={saved?C.teal:C.accent} s={{marginTop:6,marginBottom:9}}><SVG d={IC.check} size={13} color={saved?C.teal:C.accent}/>{saved?"¡Guardado!":"Guardar cambios"}</Btn>
+
+      <Lbl s={{marginBottom:9}}>Suscripción</Lbl>
+      <Card s={{marginBottom:13}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:isPro?12:0}}>
+          <div>
+            <div style={{fontSize:9,color:C.muted,letterSpacing:"0.1em",marginBottom:3}}>TU PLAN</div>
+            <div style={{fontSize:14,fontWeight:800,color:isPro?C.teal:C.text}}>{planLabel}</div>
+          </div>
+          {!isPro&&<Btn sm onClick={()=>openUpgrade(session,"monthly")} color={C.accent}>Comprar Pro</Btn>}
+        </div>
+        {isPro&&<button disabled={portalLoading} onClick={async()=>{setPortalLoading(true);await openBillingPortal(session);setPortalLoading(false);}} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.text,fontSize:12,fontWeight:700,cursor:"pointer"}}>{portalLoading?"Abriendo…":"Gestionar o cancelar suscripción"}</button>}
+        <div style={{fontSize:9,color:C.dim,marginTop:10,display:"flex",gap:12,flexWrap:"wrap"}}>
+          <a href="/terminos.html" target="_blank" rel="noopener noreferrer" style={{color:C.dim,textDecoration:"underline"}}>Términos y condiciones</a>
+          <a href="/privacidad.html" target="_blank" rel="noopener noreferrer" style={{color:C.dim,textDecoration:"underline"}}>Aviso de privacidad</a>
+        </div>
+      </Card>
+
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:9}}>
         <Btn full onClick={onOpenSupport} color={C.teal} outline>❓ Ayuda & Soporte</Btn>
         <Btn full onClick={onOpenOnboarding} color={C.accent} outline>📖 Ver Tutorial</Btn>
@@ -2055,10 +2095,11 @@ function Auth(){
   const[loading,setLoading]=useState(false);
   const[error,setError]=useState("");
   const[success,setSuccess]=useState("");
+  const[acceptedTerms,setAcceptedTerms]=useState(false);
   const reset=()=>{setError("");setSuccess("");};
   const redir=()=>`${window.location.origin}/`;
   const handleLogin=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.signInWithPassword({email,password:pass});if(err)setError("Correo o contraseña incorrectos");setLoading(false);};
-  const handleRegister=async e=>{e.preventDefault();reset();if(!name.trim()){setError("Ingresa tu nombre completo");return;}if(pass.length<6){setError("Contraseña mínima: 6 caracteres");return;}if(pass!==confirm){setError("Las contraseñas no coinciden");return;}setLoading(true);const{data,error:err}=await supabase.auth.signUp({email,password:pass,options:{data:{full_name:name},emailRedirectTo:redir()}});if(err){setError(err.message);setLoading(false);return;}if(data?.user){
+  const handleRegister=async e=>{e.preventDefault();reset();if(!name.trim()){setError("Ingresa tu nombre completo");return;}if(pass.length<6){setError("Contraseña mínima: 6 caracteres");return;}if(pass!==confirm){setError("Las contraseñas no coinciden");return;}if(!acceptedTerms){setError("Debes aceptar los Términos y el Aviso de Privacidad para continuar.");return;}setLoading(true);const{data,error:err}=await supabase.auth.signUp({email,password:pass,options:{data:{full_name:name},emailRedirectTo:redir()}});if(err){setError(err.message);setLoading(false);return;}if(data?.user){
         await supabase.from("profiles").upsert({id:data.user.id,full_name:name,email,config:{}});
         // Start 14-day trial without credit card
         await fetch('/api/billing/start-trial',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:data.user.id})}).catch(()=>{});
@@ -2092,6 +2133,10 @@ function Auth(){
             <div style={{position:"relative"}}><FI d={IC.mail}/><input type="email" placeholder="correo@ejemplo.com" value={email} onChange={e=>setEmail(e.target.value)} required style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>
             {mode!=="forgot"&&<div style={{position:"relative"}}><FI d={IC.lock}/><input type={showPw?"text":"password"} placeholder="Contraseña (mín. 6 caracteres)" value={pass} onChange={e=>setPass(e.target.value)} required style={{...inp,paddingRight:44}} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/><button type="button" onClick={()=>setShowPw(!showPw)} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",color:C.muted}}><SVG d={IC.eye} size={15} color={C.muted}/></button></div>}
             {mode==="register"&&<div style={{position:"relative"}}><FI d={IC.lock}/><input type={showPw?"text":"password"} placeholder="Confirmar contraseña" value={confirm} onChange={e=>setConfirm(e.target.value)} required style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>}
+            {mode==="register"&&<label style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:11,color:C.muted,lineHeight:1.5,cursor:"pointer"}}>
+              <input type="checkbox" checked={acceptedTerms} onChange={e=>setAcceptedTerms(e.target.checked)} style={{marginTop:2,accentColor:C.accent}}/>
+              <span>Acepto los <a href="/terminos.html" target="_blank" rel="noopener noreferrer" style={{color:C.accent,textDecoration:"underline"}}>Términos y Condiciones</a> y el <a href="/privacidad.html" target="_blank" rel="noopener noreferrer" style={{color:C.accent,textDecoration:"underline"}}>Aviso de Privacidad</a>.</span>
+            </label>}
             {mode==="login"&&<div style={{textAlign:"right"}}><button type="button" onClick={()=>{setMode("forgot");reset();}} style={{color:C.accent,fontSize:10,textDecoration:"underline"}}>¿Olvidaste tu contraseña?</button></div>}
             {error&&<div style={{background:`${C.danger}12`,border:`1px solid ${C.danger}33`,borderRadius:8,padding:"9px 13px",fontSize:12,color:C.danger}}>⚠️ {error}</div>}
             {success&&<div style={{background:`${C.teal}12`,border:`1px solid ${C.teal}33`,borderRadius:8,padding:"9px 13px",fontSize:12,color:C.teal}}>✅ {success}</div>}
@@ -2104,6 +2149,9 @@ function Auth(){
                 <svg width="17" height="17" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
                 Continuar con Google
               </button>
+              <div style={{textAlign:"center",fontSize:9.5,color:C.dim,lineHeight:1.5}}>
+                Al continuar, aceptas nuestros <a href="/terminos.html" target="_blank" rel="noopener noreferrer" style={{color:C.dim,textDecoration:"underline"}}>Términos</a> y <a href="/privacidad.html" target="_blank" rel="noopener noreferrer" style={{color:C.dim,textDecoration:"underline"}}>Aviso de Privacidad</a>.
+              </div>
             </>}
           </div>
         </form>
@@ -2186,6 +2234,14 @@ export default function RuletoDriveApp(){
         window.history.replaceState({},document.title,window.location.pathname);
       }else if(status==="cancelled"){
         setBillingModal("cancelled");
+        window.history.replaceState({},document.title,window.location.pathname);
+      }else if(status==="portal-return"){
+        (async()=>{
+          try{
+            const{data:pr}=await supabase.from("profiles").select("*").eq("id",session?.user?.id).single();
+            if(pr)setProfile(pr);
+          }catch(e){console.warn("Refresh profile after portal",e);}
+        })();
         window.history.replaceState({},document.title,window.location.pathname);
       }
     }
@@ -2819,7 +2875,7 @@ export default function RuletoDriveApp(){
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} isPro={isPro} onUpgrade={()=>openUpgrade(session)}/>}
         {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} onUpgrade={()=>openUpgrade(session)} userId={session.user.id}/>}
-        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode}/>}
+        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode} isPro={isPro} profile={profile} trialDaysLeft={trialDaysLeft} session={session}/>}
 
         {/* NAVEGACIÓN FIJA */}
         <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100,paddingBottom:"calc(10px + env(safe-area-inset-bottom))",paddingTop:"10px"}}>
