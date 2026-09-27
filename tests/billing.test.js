@@ -2,6 +2,7 @@ const test=require("node:test");
 const assert=require("node:assert/strict");
 const crypto=require("node:crypto");
 const checkout=require("../api/billing/checkout");
+const portalStatus=require("../api/billing/portal-status");
 const webhook=require("../api/billing/webhook");
 const{verifyStripeSignature}=require("../api/billing/_shared.cjs");
 
@@ -23,6 +24,26 @@ test("checkout requires an authenticated user and client idempotency key",async(
   try{
     let res=response();await checkout({method:"POST",headers:{},body:{}},res);assert.equal(res.statusCode,401);
     res=response();await checkout({method:"POST",headers:{authorization:"Bearer token"},body:{}},res);assert.equal(res.statusCode,400);assert.match(res.body.error,/Idempotency-Key/);
+  }finally{global.fetch=original;}
+});
+
+test("portal is available only with a live Stripe subscription",async()=>{
+  configure();const original=global.fetch;
+  const user={id:"11111111-1111-4111-8111-111111111111"};
+  let subscriptions=[];
+  global.fetch=async url=>{
+    const path=String(url);
+    if(path.includes("/auth/v1/user"))return{ok:true,json:async()=>user};
+    if(path.includes("/billing_customers"))return{ok:true,json:async()=>[{stripe_customer_id:"cus_test"}]};
+    if(path.includes("/billing_subscriptions"))return{ok:true,json:async()=>subscriptions};
+    throw new Error(`Unexpected fetch: ${path}`);
+  };
+  try{
+    let res=response();await portalStatus({method:"GET",headers:{authorization:"Bearer token"}},res);
+    assert.equal(res.statusCode,200);assert.equal(res.body.manageable,false);
+    subscriptions=[{stripe_subscription_id:"sub_test"}];
+    res=response();await portalStatus({method:"GET",headers:{authorization:"Bearer token"}},res);
+    assert.equal(res.body.manageable,true);
   }finally{global.fetch=original;}
 });
 

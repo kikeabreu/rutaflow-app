@@ -1982,6 +1982,17 @@ ULTIMOS ${last3||"s/d"}`;
 // ─── CONFIG TAB ───────────────────────────────────────────────────────────────
 function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboarding,themeMode,setThemeMode,isPro,planTier,profile,trialDaysLeft,session,onUpgrade}){
   const[portalLoading,setPortalLoading]=useState(false);
+  const[portalManageable,setPortalManageable]=useState(null);
+  useEffect(()=>{
+    if(!isPro||!session?.access_token){setPortalManageable(false);return;}
+    let active=true;
+    setPortalManageable(null);
+    fetch(apiUrl("/api/billing/portal-status"),{headers:{Authorization:`Bearer ${session.access_token}`}})
+      .then(async response=>response.ok?(await response.json()).manageable:null)
+      .then(manageable=>{if(active)setPortalManageable(manageable===null?null:Boolean(manageable));})
+      .catch(()=>{if(active)setPortalManageable(null);});
+    return()=>{active=false;};
+  },[isPro,session?.access_token]);
   const planLabel=(()=>{
     const status=String(profile?.subscription_status||"").toLowerCase();
     if(planTier==="TRIAL")return `TRIAL · ${trialDaysLeft} día${trialDaysLeft===1?"":"s"} restante${trialDaysLeft===1?"":"s"}`;
@@ -2070,7 +2081,8 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
           </div>
           {!isPro&&<Btn sm onClick={onUpgrade} color={C.accent}>Actualizar a PRO</Btn>}
         </div>
-        {isPro&&<button disabled={portalLoading} onClick={async()=>{setPortalLoading(true);await openBillingPortal(session);setPortalLoading(false);}} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.text,fontSize:12,fontWeight:700,cursor:"pointer"}}>{portalLoading?"Abriendo…":"Gestionar o cancelar suscripción"}</button>}
+        {isPro&&portalManageable&&<button disabled={portalLoading} onClick={async()=>{setPortalLoading(true);await openBillingPortal(session);setPortalLoading(false);}} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.text,fontSize:12,fontWeight:700,cursor:"pointer"}}>{portalLoading?"Abriendo…":"Gestionar o cancelar suscripción"}</button>}
+        {isPro&&portalManageable===false&&<div style={{fontSize:10,color:C.muted,lineHeight:1.45}}>No tienes una suscripción de Stripe que gestionar o cancelar desde aquí.</div>}
         <div style={{fontSize:9,color:C.dim,marginTop:10,display:"flex",gap:12,flexWrap:"wrap"}}>
           <a href="/terminos.html" target="_blank" rel="noopener noreferrer" style={{color:C.dim,textDecoration:"underline"}}>Términos y condiciones</a>
           <a href="/privacidad.html" target="_blank" rel="noopener noreferrer" style={{color:C.dim,textDecoration:"underline"}}>Aviso de privacidad</a>
