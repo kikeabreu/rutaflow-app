@@ -1,6 +1,8 @@
 const{stripeRequest}=require('./_shared.cjs');
 
 // Use Stripe directly: webhook delivery can lag behind a completed payment.
+// The production restricted key needs Subscriptions: Read and Checkout Sessions:
+// Write (which also permits the list request below).
 async function checkoutGuard(customer,price){
   let after='';
   do{

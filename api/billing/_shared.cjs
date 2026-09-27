@@ -24,8 +24,11 @@ async function stripeRequest(path,{method="POST",params,idempotencyKey}={}){
   const response=await fetch(`https://api.stripe.com/v1/${path}`,{method,headers,body});
   const data=await response.json().catch(()=>({}));
   if(!response.ok){
-    const error=new Error(data?.error?.message||"Stripe rechazó la operación");
-    error.statusCode=response.status>=400&&response.status<500?400:502;
+    // Stripe's raw message can include an API key prefix, account ID and a
+    // dashboard link. Never return that diagnostic to the mobile or web app.
+    const error=new Error("No se pudo abrir el servicio de cobro en este momento. Intenta de nuevo más tarde.");
+    error.statusCode=502;
+    error.stripeCode=String(data?.error?.code||data?.error?.type||"unknown").slice(0,80);
     throw error;
   }
   return data;
@@ -79,7 +82,7 @@ function allowAppOrigin(req,res){
 
 function sendError(res,error){
   const status=error?.statusCode||500;
-  if(status>=500)console.error("Ruleto billing error",error?.message||error);
+  if(status>=500)console.error("Ruleto billing error",error?.stripeCode||error?.message||error);
   return res.status(status).json({error:status===503?"Billing no está configurado.":status===401?"Sesión no válida.":error?.message||"No se pudo procesar billing."});
 }
 
