@@ -25,12 +25,13 @@ module.exports=async function handler(req,res){
     const priceId=subscription.items?.data?.[0]?.price?.id||null;
     const validPrices=[process.env.STRIPE_PRICE_ID_MONTHLY,process.env.STRIPE_PRICE_ID_ANNUAL,process.env.STRIPE_PRICE_ID].filter(Boolean);
     const active=validPrices.includes(priceId)&&["active","trialing"].includes(subscription.status);
-    console.log("Ruleto webhook priceId=",priceId,"validPrices=",validPrices,"active=",active,"status=",subscription.status);
+    const periodEndUnix=subscription.current_period_end??subscription.items?.data?.[0]?.current_period_end??null;
+    console.log("Ruleto webhook priceId=",priceId,"validPrices=",validPrices,"active=",active,"status=",subscription.status,"periodEndUnix=",periodEndUnix);
     const rpcResult=await adminRequest("rpc/apply_stripe_subscription_event",{method:"POST",body:{
       p_event_id:event.id,p_event_type:event.type,p_event_created:Number(event.created)||0,p_user_id:userId,
       p_customer_id:typeof subscription.customer==="string"?subscription.customer:subscription.customer?.id,
       p_subscription_id:subscription.id,p_status:subscription.status,p_price_id:priceId,
-      p_current_period_end:subscription.current_period_end?new Date(subscription.current_period_end*1000).toISOString():null,
+      p_current_period_end:periodEndUnix?new Date(periodEndUnix*1000).toISOString():null,
       p_cancel_at_period_end:Boolean(subscription.cancel_at_period_end),p_entitled:active,p_payload:event,
     }});
     console.log("Ruleto webhook rpcResult=",JSON.stringify(rpcResult));
