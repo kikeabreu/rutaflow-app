@@ -40,6 +40,7 @@
       radial-gradient(circle at 85% 10%,rgba(74,222,128,.12),transparent 28%),
       radial-gradient(circle at 15% 35%,rgba(0,201,167,.08),transparent 26%),
       var(--bg);color:var(--text);font-family:"Inter",sans-serif;line-height:1.6}
+    p strong,.micro strong,.show-cap strong{color:var(--text);font-weight:800}
     a{color:inherit;text-decoration:none}
     .wrap{width:min(1160px,calc(100% - 32px));margin:auto}
     .nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--border)}
@@ -146,7 +147,7 @@
     .value-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:0 0 30px}
     .value-step{padding:20px;border:1px solid var(--border);border-radius:16px;background:var(--panel)}
     .value-step b{display:block;color:var(--accent);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}
-    .value-step strong{display:block;font-size:19px;line-height:1.3}
+    .value-step>strong{display:block;font-size:19px;line-height:1.3}
     .value-step p{margin:8px 0 0;color:var(--muted);font-size:13px}
     .section-action{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:30px}
     .section-action small{color:var(--muted);font-size:12px}
@@ -189,12 +190,12 @@
         <div>
           <div class="eyebrow"><span class="dot"></span>Para quienes salen a ruletear</div>
           <h1>Antes de aceptar, <span>sabe si conviene.</span></h1>
-          <p class="lead">Cuando sales a ruletear, haciendo taxi o plataforma, Ruleto va contigo como un amigo: te ayuda a escoger viajes que sí te convienen y a llevar tus cuentas claras. El Copiloto evalúa ofertas en Android; Ruleto IA te explica tus ganancias, horarios y zonas.</p>
+          <p class="lead">Cuando sales a ruletear, haciendo taxi o plataforma, Ruleto va contigo como un amigo: te ayuda a <strong>escoger viajes que sí te convienen</strong> y a <strong>llevar tus cuentas claras</strong>. El Copiloto evalúa ofertas en Android; Ruleto IA te explica tus ganancias, horarios y zonas.</p>
           <div class="hero-actions">
             <a class="btn primary" href="/crear-cuenta">Probar Pro 14 días</a>
             <a class="btn ghost" href="#copiloto">Ver el Copiloto</a>
           </div>
-          <div class="micro">14 días de Pro sin tarjeta · Copiloto disponible en Android · Tú decides qué viajes aceptar.</div>
+          <div class="micro"><strong>14 días de Pro sin tarjeta</strong> · Copiloto disponible en Android · Tú decides qué viajes aceptar.</div>
         </div>
 
         <div class="phone" aria-label="Ejemplo de análisis de viaje en Ruleto Drive">
@@ -223,12 +224,12 @@
       <div class="wrap">
         <div class="section-head">
           <h2>Tu amigo te dice si ese viaje conviene.</h2>
-          <p>Activa Ruleto Copiloto en tu Android. Cuando aparece una oferta en DiDi, Uber o inDrive, lee los datos visibles y los compara con tu meta de ganancia limpia. Un semáforo aparece encima de la oferta, sin cambiar de app, para que elijas mejor mientras ruleteas.</p>
+          <p>Activa Ruleto Copiloto en tu Android. Cuando aparece una oferta en DiDi, Uber o inDrive, lee los datos visibles y los compara con <strong>tu meta de ganancia limpia</strong>. Un semáforo aparece encima de la oferta, <strong>sin cambiar de app</strong>, para que elijas mejor mientras ruleteas.</p>
         </div>
         <div class="value-steps">
-          <div class="value-step"><b>01 · Aparece una oferta</b><strong>Ves cuánto paga y cuánto vas a recorrer.</strong><p>El Copiloto toma los datos que la app de viajes muestra en pantalla.</p></div>
-          <div class="value-step"><b>02 · Ruleto hace cuentas</b><strong>Calcula lo que te quedaría limpio.</strong><p>Resta gasolina, comisión y los gastos del auto que configures, incluida renta o seguro prorrateados por tiempo.</p></div>
-          <div class="value-step"><b>03 · Tú decides</b><strong>Verde, amarillo o rojo.</strong><p>Entiendes por qué conviene o no; Ruleto nunca acepta el viaje por ti.</p></div>
+          <div class="value-step"><b>01 · Aparece una oferta</b><strong>Ves cuánto paga y cuánto vas a recorrer.</strong><p>El Copiloto toma <strong>los datos visibles</strong> de la app de viajes.</p></div>
+          <div class="value-step"><b>02 · Ruleto hace cuentas</b><strong>Calcula lo que te quedaría limpio.</strong><p>Resta <strong>gasolina, comisión y gastos configurados</strong>, incluida renta o seguro prorrateados por tiempo.</p></div>
+          <div class="value-step"><b>03 · Tú decides</b><strong>Verde, amarillo o rojo.</strong><p>Entiendes por qué conviene o no; <strong>Ruleto nunca acepta el viaje por ti.</strong></p></div>
         </div>
         <div class="tri">
           <div class="show-col">
@@ -292,7 +293,7 @@
             <div class="ride-label" style="color:var(--danger)">No conviene</div>
           </div>
         </div>
-        <div class="show-cap" style="margin:26px auto 0;max-width:640px">Ejemplos ilustrativos con gasolina a $24/L, comisión DiDi de 12% y meta de $200/hora. El resultado cambia según tus costos y la información visible en cada oferta.</div>
+        <div class="show-cap" style="margin:26px auto 0;max-width:640px">Ejemplos ilustrativos con gasolina a $24/L, comisión DiDi de 12% y meta de $200/hora. <strong>El resultado cambia según tus costos</strong> y la información visible en cada oferta.</div>
         <div class="section-action"><a class="btn primary" href="/crear-cuenta">Probar Copiloto 14 días</a><small>Sin tarjeta. Requiere instalar la app Android y activar los permisos del Copiloto.</small></div>
       </div>
     </section>
@@ -302,7 +303,7 @@
         <div>
           <div class="eyebrow"><span class="dot"></span>RULETO IA · TU OPERACIÓN, EXPLICADA</div>
           <h2>Pregúntale a Ruleto cómo te fue ruleteando.</h2>
-          <p>Ruleto IA usa los viajes, gastos, horarios y ubicaciones que registras para responderte en español. Escríbele o háblale como a un compañero que conoce tu operación.</p>
+          <p>Ruleto IA usa <strong>tus viajes, gastos, horarios y ubicaciones</strong> para responderte en español. Escríbele o háblale como a un compañero que conoce tu operación.</p>
           <div class="ai-points">
             <div><strong>«¿Cuánto me quedó hoy?»</strong><span>Revisa la ganancia estimada después de los costos registrados.</span></div>
             <div><strong>«¿Qué horas me salen mejor?»</strong><span>Compara tus viajes guardados para encontrar horarios más rentables.</span></div>
@@ -326,7 +327,7 @@
       <div class="wrap">
         <div class="section-head">
           <h2>Tú defines cuánto quieres ganar limpio.</h2>
-          <p>Elige tu meta por hora o por kilómetro. Ruleto estima lo que queda después de comisión, gasolina, desgaste y los gastos fijos que actives, como renta o seguro del auto. Para repartir los gastos fijos, indicas cuántas horas trabajas por semana.</p>
+          <p>Elige <strong>cuánto quieres ganar limpio por hora o por kilómetro</strong>. Ruleto estima lo que queda después de comisión, gasolina, desgaste y los gastos fijos que actives, como renta o seguro del auto. Para repartirlos, indicas cuántas horas trabajas por semana.</p>
         </div>
         <div class="cards">
           <article class="card"><div class="num">01</div><h3>Registra</h3><p>Captura tarifa, distancia y tiempo. Ruleto Drive también puede apoyarse en GPS para tu seguimiento operativo.</p></article>
@@ -391,8 +392,8 @@
       <div class="wrap">
         <div class="section-head"><h2>Todo para ruletear con claridad.</h2><p>Primero eliges mejores viajes; después entiendes cuánto te quedó y dónde te conviene trabajar.</p></div>
         <div class="feature-grid">
-          <div class="feature"><div class="tick">✓</div><div><h3>Ruleto Copiloto</h3><p>En Android, lee la oferta visible y te muestra si supera tu meta de ganancia limpia antes de que decidas aceptarla.</p></div></div>
-          <div class="feature"><div class="tick">✓</div><div><h3>Ruleto IA</h3><p>Pregúntale por voz o texto cuánto ganaste, qué horarios te rindieron y qué zonas han sido mejores para ti.</p></div></div>
+          <div class="feature"><div class="tick">✓</div><div><h3>Ruleto Copiloto</h3><p>En Android, lee la oferta visible y te muestra si <strong>supera tu meta de ganancia limpia</strong> antes de aceptarla.</p></div></div>
+          <div class="feature"><div class="tick">✓</div><div><h3>Ruleto IA</h3><p>Pregúntale por voz o texto <strong>cuánto ganaste y dónde te fue mejor</strong>, según tus viajes registrados.</p></div></div>
           <div class="feature"><div class="tick">✓</div><div><h3>Rentabilidad por viaje</h3><p>Compara tarifa, comisión, combustible, distancia, tiempo y costos configurados.</p></div></div>
           <div class="feature"><div class="tick">✓</div><div><h3>Ubicación de cada viaje</h3><p>Con GPS activado, guarda origen y destino para identificar tus zonas y trayectos más rentables según tu historial.</p></div></div>
           <div class="feature"><div class="tick">✓</div><div><h3>Historial de operación</h3><p>Viajes, cargas, kilómetros sin pasajero, bonos y otros movimientos en un mismo registro.</p></div></div>
@@ -403,7 +404,7 @@
 
     <section id="planes">
       <div class="wrap">
-        <div class="section-head"><h2>Empieza completo. Después decides.</h2><p>Los primeros 14 días tienes Ruleto Drive Pro. Después puedes continuar gratis o conservar las funciones avanzadas.</p></div>
+        <div class="section-head"><h2>Empieza completo. Después decides.</h2><p><strong>Prueba Ruleto Drive Pro 14 días sin tarjeta.</strong> Después puedes continuar gratis o conservar las funciones avanzadas.</p></div>
         <div class="pricing">
           <article class="plan">
             <h3>Ruleto Drive Free</h3>
@@ -455,7 +456,7 @@
         <div class="section-head"><h2>Preguntas rápidas.</h2></div>
         <div class="faq">
           <div class="faqitem"><h3>¿Es solo para DiDi?</h3><p>No. Ruleto Drive contempla Uber, DiDi, inDrive y viajes particulares, además de permitir configuración de comisiones.</p></div>
-          <div class="faqitem"><h3>¿Tengo que pagar desde el primer día?</h3><p>No. La propuesta actual es darte 14 días de Ruleto Drive Pro y luego dejarte elegir entre Free y Pro.</p></div>
+          <div class="faqitem"><h3>¿Tengo que pagar desde el primer día?</h3><p>No. Tienes <strong>14 días de Ruleto Drive Pro sin tarjeta</strong> y después eliges entre Free y Pro.</p></div>
           <div class="faqitem"><h3>¿Free deja de funcionar?</h3><p>No. La versión Free está pensada para mantener el registro manual, GPS, cálculo y evaluación básica de viajes.</p></div>
           <div class="faqitem"><h3>¿Hay versión para iPhone?</h3><p>Sí, puedes abrir la versión web en Safari y añadirla a tu pantalla de inicio. El Copiloto que lee ofertas de otras apps y algunas funciones de fondo requieren Android.</p></div>
           <div class="faqitem"><h3>¿Ruleto Drive acepta viajes por mí?</h3><p>No. Ruleto Drive te da información para que tú tomes la decisión. El control siempre sigue siendo tuyo.</p></div>
