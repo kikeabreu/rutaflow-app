@@ -2794,7 +2794,10 @@ export default function RuletoDriveApp(){
       <div style={{background:C.bg,minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative"}}>
         <div style={{background:C.card,padding:`calc(10px + env(safe-area-inset-top)) 15px 10px`,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10,borderBottom:`1px solid ${C.border}`}}>
           <div>
-            <Logo size={15} iconSize={24}/>
+            <div style={{display:"flex",alignItems:"center",gap:7}}>
+              <Logo size={15} iconSize={24}/>
+              {isPro&&<span style={{background:ACCENT_FILL,color:"#000",fontSize:9,fontWeight:900,letterSpacing:"0.08em",padding:"2px 6px",borderRadius:5}}>PRO</span>}
+            </div>
             <div style={{fontSize:9,color:C.dim,letterSpacing:"0.18em"}}>{uname.toUpperCase()}</div>
             {pendingCount>0&&<button onClick={()=>syncPendingFor(session.user.id)} style={{fontSize:9,color:syncError?C.danger:C.accent,marginTop:4,textAlign:"left"}} title={syncError||"Toca para sincronizar"}>{pendingCount} registro{pendingCount===1?"":"s"} pendiente{pendingCount===1?"":"s"} · {syncError?"reintentar":"sincronizando"}</button>}
           </div>
