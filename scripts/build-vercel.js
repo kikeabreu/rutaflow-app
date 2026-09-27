@@ -12,7 +12,9 @@ if (result.status !== 0) process.exit(result.status ?? 1);
 fs.renameSync(path.join(__dirname, "..", "build", "index.html"), path.join(__dirname, "..", "build", "app.html"));
 
 const serviceWorkerPath = path.join(__dirname, "..", "build", "sw.js");
+const deploymentVersion = (process.env.VERCEL_GIT_COMMIT_SHA || process.env.VERCEL_GIT_COMMIT_REF || "local-build")
+  .replace(/[^a-zA-Z0-9-]/g, "").slice(0, 20);
 const serviceWorker = fs.readFileSync(serviceWorkerPath, "utf8")
-  .replace('const VERSION = "ruleto-v1";', 'const VERSION = "ruleto-v2";')
+  .replace('const VERSION = "ruleto-v1";', `const VERSION = "ruleto-${deploymentVersion}";`)
   .replaceAll('"/index.html"', '"/app.html"');
 fs.writeFileSync(serviceWorkerPath, serviceWorker);

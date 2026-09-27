@@ -4,7 +4,7 @@
   "redirects": [
     {
       "source": "/android/ruleto-drive.apk",
-      "destination": "https://github.com/kikeabreu/rutaflow-app/releases/download/v1.4.2-beta/Ruleto-Drive-1.4.2-beta.apk",
+      "destination": "https://github.com/kikeabreu/rutaflow-app/releases/download/v1.4.3-beta/Ruleto-Drive-1.4.3-beta.apk",
       "permanent": false
     },
     {
