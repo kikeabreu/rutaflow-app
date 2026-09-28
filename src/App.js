@@ -41,7 +41,7 @@ const K={DAYGPS:"rf_daygps",CHATS:"rf_ai_conversations",LOCATIONS:"rf_location_c
 const isStandaloneApp=()=>typeof window!=="undefined"&&(window.matchMedia?.("(display-mode: standalone)").matches||window.navigator.standalone===true);
 
 const openExternalUrl=async url=>{
-  if(Capacitor.isNativePlatform()){await Browser.open({url}).catch(()=>{window.location.href=url;});return;}
+  if(Capacitor.isNativePlatform()){await Browser.open({url});return;}
   window.location.href=url;
 };
 const openUpgrade=async(session,plan='monthly')=>{
@@ -2401,6 +2401,30 @@ export default function RuletoDriveApp(){
       const isWebCallback=url?.startsWith(ANDROID_AUTH_CALLBACK_FALLBACK);
       const isAppCallback=url?.startsWith(ANDROID_AUTH_CALLBACK);
       if(!isWebCallback&&!isAppCallback)return;
+      let parsed;
+      try{parsed=new URL(url);}catch{return;}
+      if(isWebCallback&&parsed.searchParams.has("billing")){
+        const billing=parsed.searchParams.get("billing");
+        Browser.close().catch(()=>{});
+        if(billing==="cancelled")setBillingModal("cancelled");
+        if(billing==="return"){
+          setBillingModal("success");
+          const uid=authUserRef.current;
+          if(uid){
+            for(let attempt=0;attempt<8;attempt++){
+              const{data:pr}=await supabase.from("profiles").select("*").eq("id",uid).single();
+              if(pr){setProfile(pr);if(isProProfile(pr))break;}
+              await new Promise(resolve=>setTimeout(resolve,2000));
+            }
+          }
+        }
+        if(billing==="portal-return"){
+          const uid=authUserRef.current;
+          if(uid){const{data:pr}=await supabase.from("profiles").select("*").eq("id",uid).single();if(pr)setProfile(pr);}
+        }
+        return;
+      }
+      if(!parsed.searchParams.has("code")&&!parsed.searchParams.has("error")&&!parsed.hash.includes("access_token")&&!parsed.hash.includes("error"))return;
       try{
         const nextSession=await restoreOAuthSession(supabase,url);
         if(nextSession)acceptSession(nextSession);

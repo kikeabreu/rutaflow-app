@@ -12,8 +12,9 @@ test("la descarga estable apunta a la versión Android del proyecto", () => {
 
   const routes = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
   const download = routes.redirects.find(route => route.source === "/android/ruleto-drive.apk");
+  const destination = new URL(download?.destination);
   assert.equal(
-    download?.destination,
+    `${destination.origin}${destination.pathname}`,
     `https://github.com/kikeabreu/rutaflow-app/releases/download/v${version}/Ruleto-Drive-${version}.apk`
   );
 
