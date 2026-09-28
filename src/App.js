@@ -18,7 +18,7 @@ import { App as CapacitorApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 import { NativeSettings, AndroidSettings, IOSSettings } from 'capacitor-native-settings';
 import { Capacitor } from "@capacitor/core";
-import { ANDROID_AUTH_CALLBACK, ANDROID_AUTH_CALLBACK_FALLBACK, googleOAuthOptions, restoreOAuthSession } from "./authFlow";
+import { ANDROID_AUTH_CALLBACK, ANDROID_AUTH_CALLBACK_FALLBACK, WEB_APP_ORIGIN, googleOAuthOptions, restoreOAuthSession } from "./authFlow";
 import { TOUR_EVENTS, emitTourEvent } from "./tourBus";
 import { normalizeUiState, readScoped, removeScoped, resolveActiveDay, writeScoped } from "./localState";
 import { acknowledge, enqueue, pendingFor, readSnapshot, saveSnapshot } from "./offlineStore";
@@ -2102,6 +2102,7 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 function Auth(){
   const[mode,setMode]=useState(()=>new URLSearchParams(window.location.search).get("auth")==="register"||new URLSearchParams(window.location.search).has("buy")?"register":"login");
+  const migrated=new URLSearchParams(window.location.search).has("actualizado");
   const[name,setName]=useState("");
   const[email,setEmail]=useState("");
   const[pass,setPass]=useState("");
@@ -2112,7 +2113,7 @@ function Auth(){
   const[success,setSuccess]=useState("");
   const[acceptedTerms,setAcceptedTerms]=useState(false);
   const reset=()=>{setError("");setSuccess("");};
-  const redir=()=>Capacitor.isNativePlatform()?"https://app.ruleto.mx/":`${window.location.origin}/`;
+  const redir=()=>["localhost","127.0.0.1"].includes(window.location.hostname)?`${window.location.origin}/`:`${WEB_APP_ORIGIN}/`;
   const handleLogin=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.signInWithPassword({email,password:pass});if(err)setError("Correo o contraseña incorrectos");setLoading(false);};
   const handleRegister=async e=>{e.preventDefault();reset();if(!name.trim()){setError("Ingresa tu nombre completo");return;}if(pass.length<6){setError("Contraseña mínima: 6 caracteres");return;}if(pass!==confirm){setError("Las contraseñas no coinciden");return;}if(!acceptedTerms){setError("Debes aceptar los Términos y el Aviso de Privacidad para continuar.");return;}setLoading(true);const{data,error:err}=await supabase.auth.signUp({email,password:pass,options:{data:{full_name:name},emailRedirectTo:redir()}});if(err){setError(err.message);setLoading(false);return;}if(data?.user){
         await supabase.from("profiles").upsert({id:data.user.id,full_name:name,email,config:{}});
@@ -2124,6 +2125,10 @@ function Auth(){
     reset();setLoading(true);
     try{
       const native=Capacitor.isNativePlatform();
+      if(!native&&window.location.hostname==="rutaflow-app.vercel.app"){
+        window.location.replace(`${WEB_APP_ORIGIN}/?auth=login`);
+        return;
+      }
       const{data,error:err}=await supabase.auth.signInWithOAuth({provider:"google",options:googleOAuthOptions(window.location.origin,native)});
       if(err)throw err;
       if(native){
@@ -2140,6 +2145,7 @@ function Auth(){
     <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div style={{width:"100%",maxWidth:400}}>
         <div style={{textAlign:"center",marginBottom:28}}><Logo size={38} iconSize={72} stacked tagline={false} s={{marginBottom:10}}/><div style={{fontSize:13,color:C.accent,fontWeight:700,marginTop:4}}>Tu copiloto financiero para cada viaje.</div></div>
+        {migrated&&<div style={{padding:"10px 12px",borderRadius:10,background:`${C.teal}13`,border:`1px solid ${C.teal}45`,color:C.text,fontSize:12,lineHeight:1.5,marginBottom:16}}>Ruleto ahora vive en <strong>app.ruleto.mx</strong>. Inicia sesión aquí una vez y después agrégalo a la pantalla de inicio.</div>}
         {mode!=="forgot"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:20,background:C.card2,borderRadius:11,padding:4}}>{["login","register"].map(m=><button key={m} onClick={()=>{setMode(m);reset();}} style={{padding:"9px",background:mode===m?C.card:"transparent",border:`1px solid ${mode===m?C.bord2:"transparent"}`,borderRadius:8,color:mode===m?C.text:C.muted,fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700}}>{m==="login"?"Iniciar sesión":"Crear cuenta"}</button>)}</div>}
         <form onSubmit={mode==="login"?handleLogin:mode==="register"?handleRegister:handleForgot}>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -2372,6 +2378,10 @@ export default function RuletoDriveApp(){
     let appUrlListener=null;
     const acceptSession=nextSession=>{
       if(!active)return;
+      if(!Capacitor.isNativePlatform()&&window.location.hostname==="rutaflow-app.vercel.app"&&nextSession?.user?.id){
+        window.location.replace(`${WEB_APP_ORIGIN}/?auth=login&actualizado=1`);
+        return;
+      }
       setSession(nextSession);
       const uid=nextSession?.user?.id||null;
       const oauthReturn=new URLSearchParams(window.location.search).get("oauth_return")==="google";

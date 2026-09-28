@@ -6,9 +6,15 @@ test("Google vuelve al mismo origen sin abrir un flujo OAuth separado", () => {
   });
 });
 
-test("conserva el dominio exacto donde se instaló la PWA", () => {
-  expect(googleOAuthOptions("https://instalada.example").redirectTo).toBe(
-    "https://instalada.example/?oauth_return=google",
+test("Google vuelve al dominio único de la PWA incluso desde el enlace antiguo", () => {
+  expect(googleOAuthOptions("https://rutaflow-app.vercel.app").redirectTo).toBe(
+    "https://app.ruleto.mx/?oauth_return=google",
+  );
+});
+
+test("el desarrollo local conserva su propio callback", () => {
+  expect(googleOAuthOptions("http://localhost:3000").redirectTo).toBe(
+    "http://localhost:3000/?oauth_return=google",
   );
 });
 

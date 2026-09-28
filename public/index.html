@@ -23,6 +23,15 @@
     (() => {
       const page = new URL(window.location.href);
       const fragment = new URLSearchParams(page.hash.replace(/^#/, ""));
+      if (page.hostname === "rutaflow-app.vercel.app" && !page.searchParams.has("code") && !fragment.has("access_token")) {
+        const canonical = new URL("https://app.ruleto.mx/");
+        for (const key of ["auth", "buy"]) {
+          const value = page.searchParams.get(key);
+          if (value) canonical.searchParams.set(key, value);
+        }
+        window.location.replace(canonical.toString());
+        return;
+      }
       const isAndroid = /Android/i.test(navigator.userAgent);
       const hasOAuthResult = (
         (fragment.has("access_token") && fragment.has("refresh_token")) ||
