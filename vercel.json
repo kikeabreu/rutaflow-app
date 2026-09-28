@@ -24,7 +24,7 @@
           "value": "rutaflow-app.vercel.app"
         }
       ],
-      "destination": "https://ruleto.mx/",
+      "destination": "https://app.ruleto.mx/",
       "permanent": false,
       "missing": [
         {

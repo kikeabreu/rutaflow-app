@@ -4,12 +4,15 @@
 // navegador). El App Link https sigue aceptado como respaldo.
 export const ANDROID_AUTH_CALLBACK = "mx.ruleto.drive://auth/callback";
 export const ANDROID_AUTH_CALLBACK_FALLBACK = "https://app.ruleto.mx/";
+export const WEB_APP_ORIGIN = "https://app.ruleto.mx";
 
 export function googleOAuthOptions(origin, native = false) {
   if (native) {
     return { redirectTo: ANDROID_AUTH_CALLBACK, skipBrowserRedirect: true };
   }
-  const redirect = new URL("/", origin);
+  const current = new URL(origin);
+  const base = ["localhost", "127.0.0.1"].includes(current.hostname) ? current.origin : WEB_APP_ORIGIN;
+  const redirect = new URL("/", base);
   redirect.searchParams.set("oauth_return", "google");
   return { redirectTo: redirect.toString() };
 }
