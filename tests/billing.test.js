@@ -4,13 +4,23 @@ const crypto=require("node:crypto");
 const checkout=require("../api/billing/checkout");
 const portalStatus=require("../api/billing/portal-status");
 const webhook=require("../api/billing/webhook");
-const{verifyStripeSignature}=require("../api/billing/_shared.cjs");
+const{appUrl,verifyStripeSignature}=require("../api/billing/_shared.cjs");
 
 function response(){return{statusCode:200,body:null,headers:{},setHeader(k,v){this.headers[k]=v;},status(code){this.statusCode=code;return this;},json(body){this.body=body;return this;},end(){return this;}};}
 function configure(){
   process.env.SUPABASE_URL="https://example.supabase.co";process.env.SUPABASE_ANON_KEY="anon";process.env.SUPABASE_SERVICE_ROLE_KEY="service";
   process.env.STRIPE_SECRET_KEY="sk_test_value";process.env.STRIPE_PRICE_ID="price_real_required";process.env.STRIPE_PRICE_ID_MONTHLY="price_real_required";process.env.STRIPE_WEBHOOK_SECRET="whsec_test";process.env.APP_URL="https://ruleto.example";
 }
+
+test("billing callbacks use app.ruleto.mx even with the old Vercel URL configured",()=>{
+  const previous=process.env.APP_URL;
+  try{
+    process.env.APP_URL="https://rutaflow-app.vercel.app";
+    assert.equal(appUrl(),"https://app.ruleto.mx");
+    process.env.APP_URL="https://ruleto.mx";
+    assert.equal(appUrl(),"https://app.ruleto.mx");
+  }finally{if(previous===undefined)delete process.env.APP_URL;else process.env.APP_URL=previous;}
+});
 
 test("verifies Stripe signature over the exact raw body and rejects tampering",()=>{
   const raw=Buffer.from('{"id":"evt_1"}');const t=1700000000;
@@ -86,6 +96,32 @@ for(const [plan,price] of [["monthly","price_monthly"],["annual","price_annual"]
     }finally{global.fetch=original;}
   });
 }
+
+test("switching from an abandoned annual checkout creates a monthly checkout",async()=>{
+  configure();process.env.STRIPE_PRICE_ID_MONTHLY="price_monthly";process.env.STRIPE_PRICE_ID_ANNUAL="price_annual";
+  process.env.APP_URL="https://rutaflow-app.vercel.app";
+  const original=global.fetch;const calls=[];
+  global.fetch=async(url,options={})=>{
+    const path=String(url);calls.push({path,options});
+    if(path.includes("/auth/v1/user"))return{ok:true,json:async()=>({id:"11111111-1111-4111-8111-111111111111"})};
+    if(path.includes("billing_customers?"))return{ok:true,json:async()=>[{stripe_customer_id:"cus_test"}]};
+    if(path.includes("/subscriptions?"))return{ok:true,json:async()=>({data:[],has_more:false})};
+    if(path.includes("/checkout/sessions?"))return{ok:true,json:async()=>({data:[{id:"cs_annual",mode:"subscription",status:"open",metadata:{price_id:"price_annual"}}],has_more:false})};
+    if(path.endsWith("/checkout/sessions/cs_annual/expire"))return{ok:true,json:async()=>({id:"cs_annual",status:"expired"})};
+    if(path.endsWith("/checkout/sessions"))return{ok:true,json:async()=>({url:"https://checkout.stripe.com/monthly"})};
+    throw new Error(`Unexpected fetch: ${path}`);
+  };
+  try{
+    const res=response();await checkout({method:"POST",headers:{authorization:"Bearer token","idempotency-key":"checkout-monthly-123"},body:{plan:"monthly"}},res);
+    assert.equal(res.statusCode,200);assert.equal(res.body.url,"https://checkout.stripe.com/monthly");
+    const expireIndex=calls.findIndex(call=>call.path.endsWith("/expire"));
+    const createIndex=calls.findIndex(call=>call.path.endsWith("/checkout/sessions"));
+    assert.ok(expireIndex>=0&&createIndex>expireIndex);
+    const body=new URLSearchParams(calls[createIndex].options.body);
+    assert.equal(body.get("line_items[0][price]"),"price_monthly");
+    assert.equal(body.get("cancel_url"),"https://app.ruleto.mx/?billing=cancelled");
+  }finally{global.fetch=original;}
+});
 
 test("Stripe permission errors never disclose key or account details to the client",async()=>{
   configure();const original=global.fetch;

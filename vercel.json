@@ -4,7 +4,16 @@
   "redirects": [
     {
       "source": "/android/ruleto-drive.apk",
-      "destination": "https://github.com/kikeabreu/rutaflow-app/releases/download/v1.4.4-beta/Ruleto-Drive-1.4.4-beta.apk",
+      "destination": "https://github.com/kikeabreu/rutaflow-app/releases/download/v1.4.5-beta/Ruleto-Drive-1.4.5-beta.apk",
+      "permanent": false
+    },
+    {
+      "source": "/",
+      "has": [
+        { "type": "host", "value": "rutaflow-app.vercel.app" },
+        { "type": "query", "key": "billing", "value": "(?<billing>return|cancelled|portal-return)" }
+      ],
+      "destination": "https://app.ruleto.mx/?billing=:billing",
       "permanent": false
     },
     {

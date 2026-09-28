@@ -67,7 +67,14 @@ function requestKey(req,userId,purpose){
 
 function appUrl(){
   const raw=process.env.APP_URL||process.env.PUBLIC_APP_URL||"";
-  try{const url=new URL(raw);return /^https?:$/.test(url.protocol)?url.origin:"";}catch{return "";}
+  try{
+    const url=new URL(raw);
+    if(!/^https?:$/.test(url.protocol))return "";
+    // Older deployments used the Vercel hostname, which now redirects to the
+    // marketing landing. Billing callbacks must always return to the PWA.
+    if(["rutaflow-app.vercel.app","ruleto.mx","www.ruleto.mx"].includes(url.hostname))return "https://app.ruleto.mx";
+    return url.origin;
+  }catch{return "";}
 }
 
 function allowAppOrigin(req,res){

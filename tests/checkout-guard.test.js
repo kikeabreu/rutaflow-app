@@ -25,10 +25,23 @@ test('reuses open checkout for the same price',async()=>{
     assert.deepEqual(await checkoutGuard('cus_1','price_1'),{url:'https://checkout.stripe.com/existing'});
   });
 });
-test('blocks another plan while checkout is open',async()=>{
-  await withStripe([{data:[]},{data:[{mode:'subscription',status:'open',metadata:{price_id:'price_2'}}]}],async()=>{
-    await assert.rejects(checkoutGuard('cus_1','price_1'),e=>e.statusCode===409);
+test('expires an abandoned annual checkout before opening monthly',async()=>{
+  await withStripe([{data:[]},{data:[{id:'cs_annual',mode:'subscription',status:'open',metadata:{price_id:'price_annual'}}]},{id:'cs_annual',status:'expired'}],async calls=>{
+    const result=await checkoutGuard('cus_1','price_monthly');
+    assert.equal(result.idempotencyKey,'ruleto-checkout-cus_1-cs_annual');
+    assert.match(calls[2].url,/\/checkout\/sessions\/cs_annual\/expire$/);
+    assert.equal(calls[2].options.method,'POST');
   });
+});
+test('does not create a new checkout when expiring the prior one fails',async()=>{
+  const original=global.fetch;process.env.STRIPE_SECRET_KEY='sk_test';let calls=0;
+  global.fetch=async()=>{
+    calls++;
+    if(calls===1)return{ok:true,json:async()=>({data:[]})};
+    if(calls===2)return{ok:true,json:async()=>({data:[{id:'cs_annual',mode:'subscription',status:'open',metadata:{price_id:'price_annual'}}]})};
+    return{ok:false,json:async()=>({error:{code:'checkout_session_expired'}})};
+  };
+  try{await assert.rejects(checkoutGuard('cus_1','price_monthly'),e=>e.statusCode===502);assert.equal(calls,3);}finally{global.fetch=original;}
 });
 test('concurrent first checkouts use the same server idempotency key across prices',async()=>{
   await withStripe([{data:[]},{data:[]},{data:[]},{data:[]}],async()=>{

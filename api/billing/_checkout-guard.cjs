@@ -19,6 +19,8 @@ async function checkoutGuard(customer,price){
   // Include completed/expired sessions to derive a stable generation key.
   // Concurrent requests with different client keys must not create two checkouts.
   let latest=null;
+  let reusable=null;
+  const obsolete=[];
   after='';
   do{
     const query=new URLSearchParams({customer,limit:'100',...(after?{starting_after:after}:{})});
@@ -29,15 +31,24 @@ async function checkoutGuard(customer,price){
       latest ||= session;
       if(session.status==='open'){
         if(session.metadata?.price_id!==price){
-          throw Object.assign(new Error('Ya tienes un checkout abierto. Complétalo o espera a que venza antes de elegir otro plan.'),{statusCode:409});
+          obsolete.push(session);
+          continue;
         }
         if(!session.url)throw new Error('El checkout pendiente no tiene enlace.');
-        return{url:session.url};
+        reusable ||= session;
       }
     }
     after=page.has_more?page.data.at(-1)?.id:'';
     if(page.has_more&&!after)throw new Error('Respuesta incompleta de Stripe.');
   }while(after);
+  // Closing the hosted page does not expire its Stripe session. When the
+  // customer selects another plan, expire the old checkout before opening a
+  // new one so the abandoned plan cannot still be purchased.
+  for(const session of obsolete){
+    if(!session.id)throw new Error('El checkout pendiente no tiene identificador.');
+    await stripeRequest(`checkout/sessions/${encodeURIComponent(session.id)}/expire`);
+  }
+  if(reusable)return{url:reusable.url};
   return{idempotencyKey:`ruleto-checkout-${customer}-${latest?.id||'initial'}`};
 }
 module.exports={checkoutGuard};
