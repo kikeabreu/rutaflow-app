@@ -2110,14 +2110,16 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
           <Inp label="Combustible (MXN/L)" type="number" value={local.gasPricePerLiter} onChange={v=>set("gasPricePerLiter",Number(v))} unit="$/L"/>
           <Inp label="Rendimiento" type="number" value={local.kmPerLiter} onChange={v=>set("kmPerLiter",Number(v))} unit="km/L"/>
         </div>}
-        {["electric","phev"].includes(local.vehicleType)&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11,marginBottom:10}}>
-          <Inp label="Electricidad (MXN/kWh)" type="number" value={local.electricityPricePerKwh} onChange={v=>set("electricityPricePerKwh",Number(v))} unit="$/kWh"/>
+        {["electric","phev"].includes(local.vehicleType)&&<div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:11,marginBottom:10}}>
+          <Inp label="Electricidad" type="number" value={local.electricityPricePerKwh} onChange={v=>set("electricityPricePerKwh",Number(v))} unit="$/kWh"/>
           <Inp label={local.energyUnit==="kmperkwh"?"Rendimiento":"Consumo"} type="number" value={local.energyUnit==="kmperkwh"?(100/local.kwhPer100Km).toFixed(2):local.kwhPer100Km} onChange={v=>set("kwhPer100Km",local.energyUnit==="kmperkwh"?kwhPer100FromKmPerKwh(v):Number(v))} unit={local.energyUnit==="kmperkwh"?"km/kWh":"kWh/100 km"}/>
         </div>}
         {local.vehicleType==="phev"&&<div style={{marginBottom:10}}><Lbl s={{marginBottom:5}}>¿Cómo usas normalmente tu vehículo?</Lbl><select value={[80,50,20].includes(Number(local.electricSharePct))?local.electricSharePct:"custom"} onChange={e=>set("electricSharePct",e.target.value==="custom"?50:Number(e.target.value))}><option value="80">Principalmente eléctrico · 80%</option><option value="50">Mitad y mitad · 50%</option><option value="20">Principalmente gasolina · 20%</option><option value="custom">Personalizado</option></select><Inp label="Porcentaje de kilómetros eléctricos" type="number" value={local.electricSharePct} onChange={v=>set("electricSharePct",Number(v))} unit="%"/></div>}
-        <button onClick={()=>setAdvancedEnergy(p=>!p)} style={{fontSize:10,color:C.accent,marginBottom:7}}>Opciones avanzadas de energía</button>
-        {advancedEnergy&&<div style={{marginBottom:10}}><select value={local.energyUnit} onChange={e=>set("energyUnit",e.target.value)}><option value="kwh100">kWh/100 km</option><option value="kmperkwh">km/kWh</option></select><Inp label="Energía adicional al cargar" type="number" value={local.chargingLossPct} onChange={v=>set("chargingLossPct",Number(v))} unit="%"/><div style={{fontSize:9,color:C.muted}}>Si tu consumo ya incluye energía tomada de la red, deja 0%.</div></div>}
-        <div style={{fontSize:13,color:C.accent,fontWeight:700,marginBottom:5}}>Tu costo de energía: {safeEnergyCost({...ENERGY_DEFAULTS,...local})}/km</div>
+        {["electric","phev"].includes(local.vehicleType)&&<>
+          <button type="button" onClick={()=>setAdvancedEnergy(p=>!p)} aria-expanded={advancedEnergy} style={{fontSize:10,color:C.teal,fontWeight:700,textDecoration:"underline",textUnderlineOffset:3,textDecorationThickness:"1.5px",marginBottom:7}}>Opciones avanzadas de energía</button>
+          {advancedEnergy&&<div style={{marginBottom:10}}><select value={local.energyUnit} onChange={e=>set("energyUnit",e.target.value)}><option value="kwh100">kWh/100 km</option><option value="kmperkwh">km/kWh</option></select><Inp label="Energía adicional al cargar" type="number" value={local.chargingLossPct} onChange={v=>set("chargingLossPct",Number(v))} unit="%"/><div style={{fontSize:9,color:C.muted}}>Si tu consumo ya incluye energía tomada de la red, deja 0%.</div></div>}
+        </>}
+        {local.vehicleType!=="combustion"&&<div style={{fontSize:13,color:C.accent,fontWeight:700,marginBottom:5}}>Tu costo de energía: {safeEnergyCost({...ENERGY_DEFAULTS,...local})}/km</div>}
         <div style={{fontSize:9,color:C.muted,marginBottom:14}}>Valores aproximados para empezar; puedes ajustarlos según tu vehículo y tarifas.</div>
         <Lbl s={{marginBottom:7}}>¿Cómo quieres ganar?</Lbl>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:11}}>
