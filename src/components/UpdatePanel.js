@@ -29,7 +29,7 @@ export function UpdatePanel({ onClose }) {
         if (action === 'draft') setDraft(initialDraft);
         if (action === 'minimum') setMinimum(null);
         setFeedback(action === 'send' ? (result.eligible
-          ? `${details.test ? 'Prueba' : 'Aviso'} en cola para ${result.eligible} instalación${result.eligible === 1 ? '' : 'es'}. Consulta el resultado en Campañas.`
+          ? `${details.test ? 'Prueba' : 'Aviso'} en cola para ${result.eligible} ${result.eligible === 1 ? 'instalación' : 'instalaciones'}. Consulta el resultado en Campañas.`
           : 'No hay instalaciones elegibles. No se enviará ninguna notificación.')
           : ({ draft: 'Borrador guardado.', publish: 'Versión publicada.', minimum: 'Mínimo actualizado.', withdraw: 'Versión retirada.', cancel: 'Envíos pendientes cancelados.' }[action] || 'Cambios guardados.'));
         await load();
@@ -53,7 +53,7 @@ export function UpdatePanel({ onClose }) {
     <header style={{ position: 'sticky', top: 0, zIndex: 2, background: C.bg, borderBottom: `1px solid ${C.border}`, padding: 'calc(10px + env(safe-area-inset-top)) 16px 12px' }}>
       <div style={{ maxWidth: 760, margin: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
         <div><div style={{ fontSize: 11, fontWeight: 800, color: C.muted, textTransform: 'uppercase', letterSpacing: '.08em' }}>Administración</div><h1 style={{ fontSize: 22, lineHeight: 1.2, marginTop: 3 }}>Versiones y avisos</h1></div>
-        <button type="button" onClick={onClose} aria-label="Volver a Configuración" style={{ ...secondary, flexShrink: 0, minHeight: 44 }}>← Volver a Configuración</button>
+        <button type="button" onClick={onClose} aria-label="Volver a Configuración" style={{ ...secondary, flexShrink: 0, minHeight: 44 }}>← Configuración</button>
       </div>
     </header>
     <main style={{ maxWidth: 760, margin: 'auto', padding: '20px 16px' }}>
@@ -86,7 +86,7 @@ export function UpdatePanel({ onClose }) {
           {r.status === 'draft' && <><p style={hint}>Publicar activa el aviso dentro de la app. Se comprobará que la PWA ya está desplegada o que la APK está disponible en la ruta pública.</p><div style={row}><button disabled={busy} onClick={() => act('publish', { release_id: r.id })} style={primary}>Publicar versión</button></div></>}
           {r.status === 'published' && <>
             <div style={row}><button disabled={busy} onClick={() => act('preview', { release_id: r.id })} style={secondary}>Vista previa y destinatarios</button></div>
-            {preview?.release === r.id && <div style={{ ...card, marginTop: 12, marginBottom: 0, background: C.card2 }}><small style={{ color: C.muted }}>Así se verá la notificación</small><strong style={{ display: 'block', marginTop: 7 }}>Nueva versión de Ruleto Drive</strong><p style={{ fontSize: 13, marginTop: 5 }}>{r.notes?.slice(0, 120) || `Actualiza a ${r.version_label}`}</p><p style={{ ...hint, marginTop: 10 }}>{preview.count} instalación{preview.count === 1 ? '' : 'es'} con permiso push y una compilación anterior.</p></div>}
+            {preview?.release === r.id && <div style={{ ...card, marginTop: 12, marginBottom: 0, background: C.card2 }}><small style={{ color: C.muted }}>Así se verá la notificación</small><strong style={{ display: 'block', marginTop: 7 }}>Nueva versión de Ruleto Drive</strong><p style={{ fontSize: 13, marginTop: 5 }}>{r.notes?.slice(0, 120) || `Actualiza a ${r.version_label}`}</p><p style={{ ...hint, marginTop: 10 }}>{preview.count} {preview.count === 1 ? 'instalación' : 'instalaciones'} con permiso push y una compilación anterior.</p></div>}
             <p style={{ ...hint, marginTop: 16 }}><strong>Enviar prueba:</strong> solo a tus dispositivos elegibles. Si el total es 0, activa avisos en Configuración desde esta cuenta y una compilación anterior.</p>
             <div style={row}><button disabled={busy} onClick={() => act('send', { release_id: r.id, test: true })} style={secondary}>Enviar prueba a mis dispositivos</button></div>
             <p style={{ ...hint, marginTop: 16 }}><strong>Enviar aviso:</strong> agrega a la cola todas las instalaciones elegibles. Solo puede enviarse una campaña general por versión; comprueba primero la prueba.</p>

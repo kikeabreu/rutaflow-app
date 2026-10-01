@@ -2153,12 +2153,12 @@ function ConfigTab({cfg,saveConfig,onLogout,onChangePhone,onCheckUpdates,onOpenU
         {isPro&&portalManageable===false&&<div style={{fontSize:10,color:C.muted,lineHeight:1.45}}>No tienes una suscripción de Stripe que gestionar o cancelar desde aquí.</div>}
         {profile?.phone&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
           <div><div style={{fontSize:9,color:C.muted,letterSpacing:"0.1em",marginBottom:3}}>CELULAR</div><div style={{fontSize:13,fontWeight:700,color:C.text}}>{formatPhone(profile.phone)}</div></div>
-          <button onClick={onChangePhone} style={{fontSize:11,color:C.accent,textDecoration:"underline"}}>Cambiar</button>
+          <button className="text-link" onClick={onChangePhone} style={{fontSize:11}}>Cambiar</button>
         </div>}
         {profile?.active_device_label&&<div style={{fontSize:10,color:C.muted,marginTop:8,lineHeight:1.45}}>Ruleto está activo en <strong style={{color:C.text}}>{profile.active_device_label}</strong>. Tu cuenta solo puede usarse en un dispositivo a la vez.</div>}
         <div style={{fontSize:9,color:C.dim,marginTop:10,display:"flex",gap:12,flexWrap:"wrap"}}>
-          <a href="/terminos.html" target="_blank" rel="noopener noreferrer" style={{color:C.dim,textDecoration:"underline"}}>Términos y condiciones</a>
-          <a href="/privacidad.html" target="_blank" rel="noopener noreferrer" style={{color:C.dim,textDecoration:"underline"}}>Aviso de privacidad</a>
+          <a href="/terminos.html" target="_blank" rel="noopener noreferrer">Términos y condiciones</a>
+          <a href="/privacidad.html" target="_blank" rel="noopener noreferrer">Aviso de privacidad</a>
         </div>
       </Card>
 
@@ -2246,7 +2246,7 @@ function Auth(){
         <form onSubmit={mode==="login"?handleLogin:mode==="register"?handleRegister:handleForgot}>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             {mode==="register"&&<div style={{padding:"10px 12px",borderRadius:10,background:`${C.teal}13`,border:`1px solid ${C.teal}45`,color:C.text,fontSize:11,lineHeight:1.5}}>Al entrar por primera vez se activa una prueba de <strong>14 días de Pro sin tarjeta</strong> (una por celular y por número). Después puedes seguir en Free o contratar Pro.</div>}
-            {mode==="forgot"&&<button type="button" onClick={()=>{setMode("login");reset();}} style={{color:C.accent,fontSize:11,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><SVG d={IC.back} size={13} color={C.accent}/>Volver</button>}
+            {mode==="forgot"&&<button type="button" className="text-link" onClick={()=>{setMode("login");reset();}} style={{fontSize:11,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><SVG d={IC.back} size={13} color={C.accent}/>Volver</button>}
             {mode==="register"&&<div style={{position:"relative"}}><FI d={IC.user}/><input type="text" placeholder="Tu nombre completo" value={name} onChange={e=>setName(e.target.value)} style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>}
             {mode==="register"&&<PhoneField country={phoneCountry} onCountry={setPhoneCountry} value={phoneLocal} onChange={setPhoneLocal}/>}
             <div style={{position:"relative"}}><FI d={IC.mail}/><input type="email" placeholder="correo@ejemplo.com" value={email} onChange={e=>setEmail(e.target.value)} required style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>
@@ -2254,9 +2254,9 @@ function Auth(){
             {mode==="register"&&<div style={{position:"relative"}}><FI d={IC.lock}/><input type={showPw?"text":"password"} placeholder="Confirmar contraseña" value={confirm} onChange={e=>setConfirm(e.target.value)} required style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>}
             {mode==="register"&&<label style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:11,color:C.muted,lineHeight:1.5,cursor:"pointer"}}>
               <input type="checkbox" checked={acceptedTerms} onChange={e=>setAcceptedTerms(e.target.checked)} style={{marginTop:2,accentColor:C.accent}}/>
-              <span>Acepto los <a href="/terminos.html" target="_blank" rel="noopener noreferrer" style={{color:C.accent,textDecoration:"underline"}}>Términos y Condiciones</a> y el <a href="/privacidad.html" target="_blank" rel="noopener noreferrer" style={{color:C.accent,textDecoration:"underline"}}>Aviso de Privacidad</a>.</span>
+              <span>Acepto los <a href="/terminos.html" target="_blank" rel="noopener noreferrer">Términos y Condiciones</a> y el <a href="/privacidad.html" target="_blank" rel="noopener noreferrer">Aviso de Privacidad</a>.</span>
             </label>}
-            {mode==="login"&&<div style={{textAlign:"right"}}><button type="button" onClick={()=>{setMode("forgot");reset();}} style={{color:C.accent,fontSize:10,textDecoration:"underline"}}>¿Olvidaste tu contraseña?</button></div>}
+            {mode==="login"&&<div style={{textAlign:"right"}}><button type="button" className="text-link" onClick={()=>{setMode("forgot");reset();}} style={{fontSize:10}}>¿Olvidaste tu contraseña?</button></div>}
             {error&&<div style={{background:`${C.danger}12`,border:`1px solid ${C.danger}33`,borderRadius:8,padding:"9px 13px",fontSize:12,color:C.danger}}>⚠️ {error}</div>}
             {success&&<div style={{background:`${C.teal}12`,border:`1px solid ${C.teal}33`,borderRadius:8,padding:"9px 13px",fontSize:12,color:C.teal}}>✅ {success}</div>}
             <button type="submit" disabled={loading} style={{padding:"13px",background:`${C.accent}1e`,border:`2px solid ${C.accent}`,borderRadius:11,color:C.accent,fontSize:12,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",marginTop:2,display:"flex",alignItems:"center",justifyContent:"center",gap:9}}>
@@ -2269,7 +2269,7 @@ function Auth(){
                 Continuar con Google
               </button>
               <div style={{textAlign:"center",fontSize:9.5,color:C.dim,lineHeight:1.5}}>
-                Al continuar, aceptas nuestros <a href="/terminos.html" target="_blank" rel="noopener noreferrer" style={{color:C.dim,textDecoration:"underline"}}>Términos</a> y <a href="/privacidad.html" target="_blank" rel="noopener noreferrer" style={{color:C.dim,textDecoration:"underline"}}>Aviso de Privacidad</a>.
+                Al continuar, aceptas nuestros <a href="/terminos.html" target="_blank" rel="noopener noreferrer">Términos</a> y <a href="/privacidad.html" target="_blank" rel="noopener noreferrer">Aviso de Privacidad</a>.
               </div>
             </>}
           </div>
@@ -3156,7 +3156,7 @@ export default function RuletoDriveApp(){
     <>
       <style>{buildCSS(C,themeMode)}</style>
       {toast&&<Toast msg={toast.msg} type={toast.type}/>}
-      {updateState?.available&&(!postponed(updateState.release.id)||updateState.required)&&!noticeDismissed&&<div role="status" style={{position:'fixed',top:8,left:'50%',transform:'translateX(-50%)',maxWidth:460,width:'calc(100% - 24px)',zIndex:15000,background:C.card,border:`2px solid ${updateState.required?C.danger:C.accent}`,borderRadius:12,padding:16,boxShadow:'0 12px 35px #0008'}}><strong>{updateState.required?'Actualización necesaria':'Nueva versión disponible'}: {updateState.release.version_label}</strong><p style={{whiteSpace:'pre-wrap',fontSize:12}}>{updateState.release.notes}</p>{updateState.required&&activeDay?.running&&<p style={{fontSize:12}}>Termina y guarda tu jornada antes de actualizar.</p>}<button onClick={doUpdate} style={{color:C.accent,marginRight:16}}>Actualizar</button>{!updateState.required&&<button onClick={()=>{postpone(updateState.release.id);setNoticeDismissed(true);}}>Después</button>}{updateState.required&&<button onClick={()=>setShowSupport(true)} style={{marginLeft:16}}>Soporte</button>}</div>}
+      {updateState?.available&&(!postponed(updateState.release.id)||updateState.required)&&!noticeDismissed&&<div role="status" style={{position:'fixed',top:8,left:'50%',transform:'translateX(-50%)',maxWidth:460,width:'calc(100% - 24px)',zIndex:15000,background:C.card,border:`2px solid ${updateState.required?C.danger:C.accent}`,borderRadius:12,padding:16,boxShadow:'0 12px 35px #0008'}}><strong>{updateState.required?'Actualización necesaria':'Nueva versión disponible'}: {updateState.release.version_label}</strong><p style={{whiteSpace:'pre-wrap',fontSize:12}}>{updateState.release.notes}</p>{updateState.required&&activeDay?.running&&<p style={{fontSize:12}}>Termina y guarda tu jornada antes de actualizar.</p>}<button className="text-link" onClick={doUpdate} style={{marginRight:16}}>Actualizar</button>{!updateState.required&&<button className="text-link" onClick={()=>{postpone(updateState.release.id);setNoticeDismissed(true);}}>Después</button>}{updateState.required&&<button className="text-link" onClick={()=>setShowSupport(true)} style={{marginLeft:16}}>Soporte</button>}</div>}
       {updateError&&tab==='config'&&<div role="alert" style={{padding:8,color:C.danger}}>{updateError}</div>}
       {showUpdatesAdmin&&platform==='web'&&session?.user?.app_metadata?.support_role==='admin'&&<div style={{position:'fixed',inset:0,zIndex:16000,overflowY:'auto',background:C.bg,color:C.text}}><UpdatePanel onClose={()=>setShowUpdatesAdmin(false)}/></div>}
       <div style={{background:C.bg,minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative"}}>
@@ -3167,7 +3167,7 @@ export default function RuletoDriveApp(){
               <span style={{background:planTier==="FREE"?C.card2:ACCENT_FILL,color:planTier==="FREE"?C.muted:"#000",border:planTier==="FREE"?`1px solid ${C.border}`:"none",fontSize:9,fontWeight:900,letterSpacing:"0.08em",padding:"2px 6px",borderRadius:5}}>{planTier}</span>
             </div>
             <div style={{fontSize:9,color:C.dim,letterSpacing:"0.18em"}}>{uname.toUpperCase()}</div>
-            {pendingCount>0&&<button onClick={()=>syncPendingFor(session.user.id)} style={{fontSize:9,color:syncError?C.danger:C.accent,marginTop:4,textAlign:"left"}} title={syncError||"Toca para sincronizar"}>{pendingCount} registro{pendingCount===1?"":"s"} pendiente{pendingCount===1?"":"s"} · {syncError?"reintentar":"sincronizando"}</button>}
+            {pendingCount>0&&<button className="text-link" onClick={()=>syncPendingFor(session.user.id)} style={{fontSize:9,marginTop:4,textAlign:"left"}} title={syncError||"Toca para sincronizar"}>{pendingCount} registro{pendingCount===1?"":"s"} pendiente{pendingCount===1?"":"s"} · {syncError?"reintentar":"sincronizando"}</button>}
           </div>
           <div style={{textAlign:"right"}}>
             <div style={{fontSize:10,color:C.muted}}>hoy neto</div>
