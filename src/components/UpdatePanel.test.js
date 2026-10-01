@@ -30,7 +30,7 @@ test('explica cada paso y conserva una salida visible', async () => {
   await act(async () => { root.render(<UpdatePanel onClose={onClose} />); });
   expect(container.textContent).toContain('Cómo funciona');
   expect(container.textContent).toContain('Mínimo admitido');
-  expect(container.textContent).toContain('solo a tus dispositivos elegibles');
+  expect(container.textContent).toContain('aunque ya estén actualizados');
   expect(container.textContent).toContain('no confirma entrega ni lectura');
   await click('Configuración');
   expect(onClose).toHaveBeenCalledTimes(1);
