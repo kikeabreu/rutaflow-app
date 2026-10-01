@@ -360,6 +360,8 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 input[type=date]::-webkit-calendar-picker-indicator,input[type=datetime-local]::-webkit-calendar-picker-indicator{filter:${mode==="light"?"none":"invert(1)"};opacity:1;cursor:pointer;}
 button{cursor:pointer;font-family:'Inter',sans-serif;border:none;background:none;}
 button:active{transform:scale(0.97);}
+#root a:not(.btn):not(.button),#root .text-link{color:${mode==='light'?'#087A70':C.accent};text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1.5px;font-weight:700;}
+#root a:not(.btn):not(.button):focus-visible,#root .text-link:focus-visible{outline:2px solid ${C.teal};outline-offset:3px;border-radius:3px;}
 .B{font-family:'Inter',sans-serif;font-weight:800;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
@@ -2070,10 +2072,10 @@ function ConfigTab({cfg,saveConfig,onLogout,onChangePhone,onCheckUpdates,onOpenU
       <div className="B" style={{fontSize:22,fontWeight:800,color:C.accent,marginBottom:16,letterSpacing:1}}>CONFIGURACIÓN</div>
       <div style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:10,padding:14,marginBottom:16}}>
         <strong>Actualizaciones</strong><p style={{fontSize:12,color:C.muted}}>Versión instalada: {buildLabel} ({buildNumber})</p>
-        <button onClick={onCheckUpdates} style={{color:C.accent,marginRight:12}}>Buscar actualizaciones</button>
-        <button onClick={toggleUpdates} style={{color:C.accent}}>{updateConsent?'Desactivar avisos':'Activar avisos de nuevas versiones'}</button>
+        <button className="text-link" onClick={onCheckUpdates} style={{marginRight:12}}>Buscar actualizaciones</button>
+        <button className="text-link" onClick={toggleUpdates}>{updateConsent?'Desactivar avisos':'Activar avisos de nuevas versiones'}</button>
         {updateError&&<p role="alert" style={{fontSize:12,color:C.danger}}>{updateError}</p>}
-        {onOpenUpdatesAdmin&&<p><button onClick={onOpenUpdatesAdmin} style={{color:C.accent}}>Versiones y avisos (admin)</button></p>}
+        {onOpenUpdatesAdmin&&<p style={{marginTop:10}}><button className="text-link" onClick={onOpenUpdatesAdmin}>Versiones y avisos (admin) →</button></p>}
       </div>
       {installApp?.available&&<div style={{background:`${C.teal}10`,border:`1px solid ${C.teal}33`,borderRadius:10,padding:"12px 13px",display:"flex",alignItems:"center",gap:11,marginBottom:14}}><SVG d={IC.home} size={18} color={C.teal}/><div style={{flex:1}}><div style={{fontSize:12,color:C.text,fontWeight:700}}>Instalar Ruleto Drive</div><div style={{fontSize:10,color:C.muted,marginTop:3}}>Acceso directo a pantalla completa</div></div><button onClick={installApp.install} style={{padding:"8px 10px",border:`1px solid ${C.teal}`,borderRadius:7,color:C.teal,fontSize:9,fontWeight:800}}>INSTALAR</button></div>}
       <Lbl s={{marginBottom:9}}>Apariencia</Lbl>
@@ -3156,7 +3158,7 @@ export default function RuletoDriveApp(){
       {toast&&<Toast msg={toast.msg} type={toast.type}/>}
       {updateState?.available&&(!postponed(updateState.release.id)||updateState.required)&&!noticeDismissed&&<div role="status" style={{position:'fixed',top:8,left:'50%',transform:'translateX(-50%)',maxWidth:460,width:'calc(100% - 24px)',zIndex:15000,background:C.card,border:`2px solid ${updateState.required?C.danger:C.accent}`,borderRadius:12,padding:16,boxShadow:'0 12px 35px #0008'}}><strong>{updateState.required?'Actualización necesaria':'Nueva versión disponible'}: {updateState.release.version_label}</strong><p style={{whiteSpace:'pre-wrap',fontSize:12}}>{updateState.release.notes}</p>{updateState.required&&activeDay?.running&&<p style={{fontSize:12}}>Termina y guarda tu jornada antes de actualizar.</p>}<button onClick={doUpdate} style={{color:C.accent,marginRight:16}}>Actualizar</button>{!updateState.required&&<button onClick={()=>{postpone(updateState.release.id);setNoticeDismissed(true);}}>Después</button>}{updateState.required&&<button onClick={()=>setShowSupport(true)} style={{marginLeft:16}}>Soporte</button>}</div>}
       {updateError&&tab==='config'&&<div role="alert" style={{padding:8,color:C.danger}}>{updateError}</div>}
-      {showUpdatesAdmin&&platform==='web'&&session?.user?.app_metadata?.support_role==='admin'&&<div style={{position:'fixed',inset:0,zIndex:16000,overflowY:'auto',background:C.bg,color:C.text}}><button onClick={()=>setShowUpdatesAdmin(false)} style={{padding:14,color:C.accent}}>← Cerrar</button><UpdatePanel/></div>}
+      {showUpdatesAdmin&&platform==='web'&&session?.user?.app_metadata?.support_role==='admin'&&<div style={{position:'fixed',inset:0,zIndex:16000,overflowY:'auto',background:C.bg,color:C.text}}><UpdatePanel onClose={()=>setShowUpdatesAdmin(false)}/></div>}
       <div style={{background:C.bg,minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative"}}>
         <div style={{background:C.card,padding:`calc(10px + env(safe-area-inset-top)) 15px 10px`,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10,borderBottom:`1px solid ${C.border}`}}>
           <div>

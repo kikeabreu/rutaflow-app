@@ -129,7 +129,6 @@ export function PhoneGate({ session, onDone, onLogout, onCancel }) {
     if (autoTried.current || !meta.phone || onCancel) return;
     autoTried.current = true;
     submit();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (result) {
