@@ -43,3 +43,16 @@ test('la vista previa muestra el texto y el número de instalaciones', async () 
   expect(container.textContent).toContain('2 instalaciones con permiso push');
   expect(authorized).toHaveBeenCalledWith('/api/updates/admin', expect.objectContaining({ method: 'POST' }));
 });
+
+test('puede completar el borrador PWA con la compilación publicada', async () => {
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ build_number: 123, version_label: '2026-10-01-07-00' }) });
+  try {
+    await act(async () => { root.render(<UpdatePanel onClose={() => {}} />); });
+    await act(async () => { const select = container.querySelector('select'); select.value = 'web'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    await click('Usar versión web publicada');
+    expect(container.querySelectorAll('input')[0].value).toBe('2026-10-01-07-00');
+    expect(container.querySelectorAll('input')[1].value).toBe('123');
+    expect(global.fetch).toHaveBeenCalledWith('/build-info.json', { cache: 'no-store' });
+  } finally { global.fetch = originalFetch; }
+});

@@ -20,6 +20,19 @@ export function UpdatePanel({ onClose }) {
   }
   useEffect(() => { load(); }, []);
 
+  async function fillWebBuild() {
+    setBusy(true); setError('');
+    try {
+      const response = await fetch('/build-info.json', { cache: 'no-store' });
+      if (!response.ok) throw new Error('No se pudo leer la compilación web publicada');
+      const info = await response.json();
+      if (!Number.isSafeInteger(Number(info.build_number)) || !info.version_label) throw new Error('Los datos de la compilación web están incompletos');
+      setDraft(p => ({ ...p, platform: 'web', build_number: String(info.build_number), version_label: String(info.version_label) }));
+      setFeedback('Completé versión y número con la PWA que está publicada ahora. Revisa el mínimo y las novedades antes de guardar.');
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
+
   async function act(action, details = {}) {
     setBusy(true); setError(''); setFeedback('');
     try {
@@ -71,6 +84,8 @@ export function UpdatePanel({ onClose }) {
           <select style={input} value={draft.platform} onChange={e => setDraft(p => ({ ...p, platform: e.target.value }))}><option value="android">Android (APK)</option><option value="web">PWA (web, iPhone y computadoras)</option></select>
           <span style={{ ...hint, display: 'block', fontWeight: 400 }}>Elige dónde se instaló esta compilación. Cada plataforma tiene su propio catálogo.</span>
         </label>
+        {draft.platform === 'web' ? <p style={hint}><button type="button" className="text-link" disabled={busy} onClick={fillWebBuild}>Usar versión web publicada</button> · <a href="/build-info.json" target="_blank" rel="noopener noreferrer">Ver datos de compilación</a></p>
+          : <p style={hint}>Última versión Android publicada: {data?.releases?.find(r => r.platform === 'android' && r.status === 'published')?.version_label || 'ninguna'}. Usa el versionCode y versionName de la nueva APK, después de subirla a GitHub Releases.</p>}
         {field('version_label', 'Versión visible', 'Android: versionName de la APK, por ejemplo 1.4.8-beta. PWA: version_label de build-info.json.')}
         {field('build_number', 'Número de compilación', 'Android: versionCode de la APK. PWA: build_number de build-info.json. Debe aumentar en cada publicación.', 'number')}
         {field('minimum_build', 'Mínimo admitido', '0 significa actualización opcional. Un número mayor impide iniciar otra jornada a las compilaciones inferiores.', 'number')}
