@@ -28,12 +28,13 @@ export const resolveActiveDay=({localDay,cloudDay,cloudError})=>{
     date:cloudDay.date,
     startTime:new Date(cloudDay.start_time).getTime(),
     running:true,
+    ...(cloudDay.calculation_snapshot?{calculation_snapshot:cloudDay.calculation_snapshot}:{}),
   };
 };
 
 const TABS=new Set(["home","trips","stats","ai","config"]);
 const TRIP_SECTIONS=new Set(["trips","extras","shifts"]);
-const EXTRA_TYPES=new Set(["all","dead_km","refuel","tank_checkpoint","tip","bonus"]);
+const EXTRA_TYPES=new Set(["all","dead_km","refuel","charge","tank_checkpoint","tip","bonus"]);
 
 export const normalizeUiState=value=>({
   tab:TABS.has(value?.tab)?value.tab:"home",

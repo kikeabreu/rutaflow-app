@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import { fixedCostPerHour } from "./fixedCosts";
+import { energyCostPerKm } from "./energy";
 
 const NativeCopilot = registerPlugin("RuletoCopilot");
 
@@ -19,6 +20,8 @@ export const copilotConfig = cfg => {
   if(cfg?.llantasEnabled) wearPerKm += (Number(cfg.llantasMonto) || 0) / (Number(cfg.llantasKmVida) || 40000);
   if(cfg?.mantenimientoEnabled) wearPerKm += (Number(cfg.mantenimientoMonto) || 0) / (Number(cfg.mantenimientoKmVida) || 5000);
   return JSON.stringify({
+    contractVersion:2,vehicleType:cfg?.vehicleType||"combustion",
+    operatingEnergyCostPerKm:energyCostPerKm(cfg),
     gasPricePerLiter:Number(cfg?.gasPricePerLiter) || 24,
     kmPerLiter:Number(cfg?.kmPerLiter) || 12,
     targetHourlyRate:Number(cfg?.targetHourlyRate) || 200,

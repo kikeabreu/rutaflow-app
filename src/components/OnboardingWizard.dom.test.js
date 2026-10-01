@@ -51,12 +51,12 @@ test("arranca en la bienvenida y no adivina pasos", () => {
 test("un paso de acción NO salta solo: marca hecho y espera al conductor", () => {
   render({ currentTab: "config" });
   llegarA("variables");
-  expect(textoGlobo()).toContain("Gasolina, rendimiento y meta");
+  expect(textoGlobo()).toContain("Vehículo, energía y meta");
 
   emitir(TOUR_EVENTS.CONFIG_CHANGED);
 
   // Sigue en el mismo paso — el conductor puede seguir escribiendo.
-  expect(textoGlobo()).toContain("Gasolina, rendimiento y meta");
+  expect(textoGlobo()).toContain("Vehículo, energía y meta");
   // Pero ya se ve cumplido y el botón invita a seguir.
   expect(textoGlobo()).toContain(TOUR_STEPS[idxDe("variables")].doneHint);
   expect(botonPrincipal().textContent).toContain("SIGUIENTE");
@@ -85,7 +85,7 @@ test("un paso de navegación sí avanza solo al llegar a la pestaña", () => {
   emitir(TOUR_EVENTS.TAB_CHANGED, "config");
   act(() => { jest.advanceTimersByTime(600); });
   render({ currentTab: "config" });
-  expect(textoGlobo()).toContain("Gasolina, rendimiento y meta");
+  expect(textoGlobo()).toContain("Vehículo, energía y meta");
   jest.useRealTimers();
 });
 

@@ -28,6 +28,7 @@ import { OnboardingWizard } from "./components/OnboardingWizard";
 import { PermissionGate, necesitaPuertaDePermisos } from "./components/PermissionGate";
 import { Logo } from "./components/Logo";
 import { fixedCostPerHour } from "./fixedCosts";
+import { ENERGY_DEFAULTS, energyCostPerKm, validateEnergy, calculationSnapshot, kwhPer100FromKmPerKwh } from "./energy";
 import { C, ACCENT_FILL, useTheme } from "./theme";
 import { DEMO_TRIPS, DEMO_EVENTS } from "./demoData";
 
@@ -103,6 +104,19 @@ const normalizeConfig=raw=>{
   if(Array.isArray(raw?.platforms)&&raw.platforms.length)return{...base,platforms:raw.platforms.map(p=>({...p,id:String(p.id||p.name).toLowerCase().replace(/\s+/g,"-"),commission:Number(p.commission)||0,enabled:p.enabled!==false}))};
   return{...base,platforms:DEFAULT_PLATFORMS.map(p=>({...p}))};
 };
+const safeEnergyCost=cfg=>{try{return fmtMXN(energyCostPerKm(cfg));}catch{return "—";}};
+const energyRow=cfg=>({
+  vehicle_type:cfg.vehicleType,fuel_kind:cfg.fuelKind,
+  gas_price_per_liter:cfg.gasPricePerLiter,km_per_liter:cfg.kmPerLiter,
+  electricity_price_per_kwh:cfg.electricityPricePerKwh,kwh_per_100_km:cfg.kwhPer100Km,
+  charging_loss_pct:cfg.chargingLossPct,electric_share_pct:cfg.electricSharePct,energy_unit:cfg.energyUnit,
+});
+const energyFromRow=row=>({
+  vehicleType:row.vehicle_type,fuelKind:row.fuel_kind,
+  gasPricePerLiter:Number(row.gas_price_per_liter),kmPerLiter:Number(row.km_per_liter),
+  electricityPricePerKwh:Number(row.electricity_price_per_kwh),kwhPer100Km:Number(row.kwh_per_100_km),
+  chargingLossPct:Number(row.charging_loss_pct),electricSharePct:Number(row.electric_share_pct),energyUnit:row.energy_unit,
+});
 const platformList=cfg=>(cfg?.platforms?.length?cfg.platforms:DEFAULT_PLATFORMS);
 const enabledPlatforms=cfg=>platformList(cfg).filter(p=>p.enabled!==false);
 const platformInfo=(cfg,id)=>platformList(cfg).find(p=>p.id===String(id||"").toLowerCase())||platformList(cfg).find(p=>p.name.toLowerCase()===String(id||"").toLowerCase())||{id:id||"otra",name:id||"Otra",commission:Number(cfg?.platformCut)||0,color:C.muted,enabled:true};
@@ -114,13 +128,18 @@ const calcTrip=(trip,cfg)=>{
   const km=gKm>0?gKm:(parseFloat(trip.pickup_km)||0)+(parseFloat(trip.dest_km)||0);
   const min=gMin>0?gMin:(parseFloat(trip.pickup_min)||0)+(parseFloat(trip.dest_min)||0);
   const fare=parseFloat(trip.fare)||0;
-  const gas=km/(cfg.kmPerLiter||12)*(cfg.gasPricePerLiter||24);
-  const fee=fare*platformCommission(cfg,trip.platform)/100;
+  const snap=trip.calculation_snapshot;
+  const historicCfg=snap?.legacyConfig?normalizeConfig(snap.legacyConfig):cfg;
+  const gas=km*(snap?.operatingEnergyCostPerKm ?? energyCostPerKm(historicCfg));
+  const fee=fare*(snap?.commissionPct ?? platformCommission(historicCfg,trip.platform))/100;
   const p2d={diario:1,semanal:7,mensual:30,trimestral:90,semestral:180,anual:365};
   let fx=0;
-  if(cfg.llantasEnabled)fx+=((cfg.llantasMonto||0)/(cfg.llantasKmVida||40000))*km;
-  if(cfg.mantenimientoEnabled)fx+=((cfg.mantenimientoMonto||0)/(cfg.mantenimientoKmVida||5000))*km;
-  const hrs=min/60,fixed=hrs*fixedCostPerHour(cfg);
+  if(snap?.wearPerKm != null)fx=snap.wearPerKm*km;
+  else {
+    if(historicCfg.llantasEnabled)fx+=((historicCfg.llantasMonto||0)/(historicCfg.llantasKmVida||40000))*km;
+    if(historicCfg.mantenimientoEnabled)fx+=((historicCfg.mantenimientoMonto||0)/(historicCfg.mantenimientoKmVida||5000))*km;
+  }
+  const hrs=min/60,fixed=hrs*(snap?.fixedCostPerHour ?? fixedCostPerHour(historicCfg));
   const net=fare-fee-gas-fx-fixed;
   return{km,min,fare,gas,fee,fx,fixed,net,hrs,nph:hrs>0?net/hrs:0,npk:km>0?net/km:0,pct:fare>0?(net/fare)*100:0};
 };
@@ -144,7 +163,7 @@ const calcBonus=(bonus,cfg)=>{
   const extraMin=Number(bonus.extra_min)||0;
   const completed=Number(bonus.completed_trips)||0;
   const required=Number(bonus.required_trips)||0;
-  const cost=distanceCost(extraKm,cfg);
+  const cost=distanceCost(extraKm,cfg,bonus.calculation_snapshot);
   const gas=cost.gas,wear=cost.wear;
   const net=amount-gas-wear;
   const mode=earningsMode(cfg),target=goalTarget(cfg);
@@ -187,15 +206,19 @@ const closureIncludes=(closure,time,fallbackDate)=>{
 };
 const closureMovements=(closure,trips,events,bonuses,cfg)=>[
   ...trips.filter(t=>closureIncludes(closure,t.end_time||t.created_at,dateOf(t))).map(t=>{const c=calcTrip(t,cfg);return{kind:"trip",id:t.id,record:t,time:t.end_time||t.created_at,title:`Viaje · ${platformInfo(cfg,t.platform).name}`,detail:`${fmtMXN(t.fare)} · ${fmt(c.km,1)} km · ${fmt(c.min,0)} min`,value:c.net,color:c.net>=0?C.teal:C.danger,icon:IC.trips};}),
-  ...events.filter(e=>closureIncludes(closure,e.occurred_at||e.created_at,dateOf(e))).map(e=>{const meta=eventMeta(e.type);const value=e.type==="tip"?Number(e.amount)||0:e.type==="refuel"?-(Number(e.amount)||0):null;return{kind:"event",id:e.id,record:e,time:e.occurred_at||e.created_at,title:meta.label,detail:`${eventDescription(e)}${e.platform?` · ${platformInfo(cfg,e.platform).name}`:""}${e.note?` · ${e.note}`:""}`,value,color:meta.color,icon:meta.icon};}),
+  ...events.filter(e=>closureIncludes(closure,e.occurred_at||e.created_at,dateOf(e))).map(e=>{const meta=eventMeta(e.type);const value=e.type==="tip"?Number(e.amount)||0:["refuel","charge"].includes(e.type)&&e.amount!=null?-(Number(e.amount)||0):null;return{kind:"event",id:e.id,record:e,time:e.occurred_at||e.created_at,title:meta.label,detail:`${eventDescription(e)}${e.platform?` · ${platformInfo(cfg,e.platform).name}`:""}${e.note?` · ${e.note}`:""}`,value,color:meta.color,icon:meta.icon};}),
   ...bonuses.filter(b=>["paid","earned"].includes(String(b.status||""))&&closureIncludes(closure,b.paid_at||b.created_at,dateOf(b))).map(b=>{const c=calcBonus(b,cfg);return{kind:"bonus",id:b.id,record:b,time:b.paid_at||b.created_at,title:`Bono · ${platformInfo(cfg,b.platform).name}`,detail:b.bonus_type||"Bono cobrado",value:c.net,color:c.net>=0?C.teal:C.danger,icon:IC.flag};}),
 ].sort((a,b)=>new Date(a.time)-new Date(b.time));
-const distanceCost=(km,cfg)=>{
+const distanceCost=(km,cfg,snapshot)=>{
+  const historicCfg=snapshot?.legacyConfig?normalizeConfig(snapshot.legacyConfig):cfg;
   const n=Number(km)||0;
   let wear=0;
-  if(cfg.llantasEnabled)wear+=((cfg.llantasMonto||0)/(cfg.llantasKmVida||40000))*n;
-  if(cfg.mantenimientoEnabled)wear+=((cfg.mantenimientoMonto||0)/(cfg.mantenimientoKmVida||5000))*n;
-  return{gas:n/(cfg.kmPerLiter||12)*(cfg.gasPricePerLiter||24),wear};
+  if(snapshot?.wearPerKm != null)wear=snapshot.wearPerKm*n;
+  else {
+    if(historicCfg.llantasEnabled)wear+=((historicCfg.llantasMonto||0)/(historicCfg.llantasKmVida||40000))*n;
+    if(historicCfg.mantenimientoEnabled)wear+=((historicCfg.mantenimientoMonto||0)/(historicCfg.mantenimientoKmVida||5000))*n;
+  }
+  return{gas:n*(snapshot?.operatingEnergyCostPerKm ?? energyCostPerKm(historicCfg)),wear};
 };
 const numFrom=(...values)=>{
   for(const value of values){
@@ -213,8 +236,9 @@ const normalizeVisionTrip=data=>({
   dest_min:numFrom(data.dest_min,data.destMin,data.destination_min,data.trip_min,data.duration_min,data.duracion_min,data.min),
 });
 const estimateTank=(trips,events,cfg)=>{
-  const checkpoints=events.filter(e=>e.type==="tank_checkpoint"&&Number(e.tank_liters)>0).sort((a,b)=>eventMs(b)-eventMs(a));
-  const refuels=events.filter(e=>e.type==="refuel"&&Number(e.liters)>0).sort((a,b)=>eventMs(b)-eventMs(a));
+  if(cfg.vehicleType==="electric")return{liters:null,rangeKm:null,confidence:"sin datos",status:"",statusColor:C.dim,basis:""};
+  const checkpoints=events.filter(e=>e.type==="tank_checkpoint"&&Number(e.tank_liters)>0&&(!cfg.vehicleTypeChangedAt||eventMs(e)>=new Date(cfg.vehicleTypeChangedAt).getTime())).sort((a,b)=>eventMs(b)-eventMs(a));
+  const refuels=events.filter(e=>e.type==="refuel"&&Number(e.liters)>0&&(!cfg.vehicleTypeChangedAt||eventMs(e)>=new Date(cfg.vehicleTypeChangedAt).getTime())).sort((a,b)=>eventMs(b)-eventMs(a));
   const base=checkpoints[0]||refuels[0];
   if(!base)return{liters:null,rangeKm:null,confidence:"sin datos",status:"Sin referencia",statusColor:C.dim,basis:"Registra una carga o el nivel actual del tanque"};
   const start=eventMs(base);
@@ -222,7 +246,7 @@ const estimateTank=(trips,events,cfg)=>{
   const added=events.filter(e=>e.type==="refuel"&&eventMs(e)>start).reduce((s,e)=>s+(Number(e.liters)||0),0);
   const tripKm=trips.filter(t=>tripMs(t)>start).reduce((s,t)=>s+calcTrip(t,cfg).km,0);
   const deadKm=events.filter(e=>e.type==="dead_km"&&eventMs(e)>start).reduce((s,e)=>s+(Number(e.km)||0),0);
-  const liters=Math.max(0,baseLiters+added-(tripKm+deadKm)/(cfg.kmPerLiter||12));
+  const liters=Math.max(0,baseLiters+added-(tripKm+deadKm)/(cfg.kmPerLiter||12)*(cfg.vehicleType==="phev"?(1-Number(cfg.electricSharePct)/100):1));
   const rangeKm=liters*(cfg.kmPerLiter||12);
   const urgent=liters<=2||rangeKm<35;
   const low=!urgent&&(liters<=6||rangeKm<80);
@@ -235,7 +259,7 @@ const estimateTank=(trips,events,cfg)=>{
     basis:base.type==="tank_checkpoint"?"Desde tu ultimo punto de control":"Desde tu ultima carga; no cuenta el combustible anterior",
   };
 };
-const operationalSummary=(trips,events,cfg,date,trackedKm=0,bonuses=[])=>{
+const operationalSummary=(trips,events,cfg,date,trackedKm=0,bonuses=[],residualSnapshot=null)=>{
   const dayTrips=trips.filter(t=>dateOf(t)===date);
   const dayEvents=events.filter(e=>dateOf(e)===date);
   const dayBonuses=bonuses.filter(b=>dateOf(b)===date&&["paid","earned"].includes(String(b.status||"")));
@@ -244,18 +268,28 @@ const operationalSummary=(trips,events,cfg,date,trackedKm=0,bonuses=[])=>{
   const explicitDeadKm=dayEvents.filter(e=>e.type==="dead_km").reduce((s,e)=>s+(Number(e.km)||0),0);
   const totalKm=Math.max(tripStats.km+explicitDeadKm,Number(trackedKm)||0);
   const deadKm=Math.max(explicitDeadKm,totalKm-tripStats.km);
-  const deadCost=distanceCost(deadKm,cfg);
+  const explicitDeadCost=dayEvents.filter(e=>e.type==="dead_km").reduce((a,e)=>{
+    const c=distanceCost(e.km,cfg,e.calculation_snapshot);return{gas:a.gas+c.gas,wear:a.wear+c.wear};
+  },{gas:0,wear:0});
+  const residualCost=distanceCost(Math.max(0,deadKm-explicitDeadKm),cfg,residualSnapshot);
+  const deadCost={gas:explicitDeadCost.gas+residualCost.gas,wear:explicitDeadCost.wear+residualCost.wear};
   const refuels=dayEvents.filter(e=>e.type==="refuel");
   const fuelPurchased=refuels.reduce((s,e)=>s+(Number(e.amount)||0),0);
+  const charges=dayEvents.filter(e=>e.type==="charge");
+  const electricityPurchased=charges.reduce((s,e)=>s+(Number(e.amount)||0),0);
+  const kwhPurchased=charges.reduce((s,e)=>s+(Number(e.kwh)||0),0);
+  const cashIncomplete=charges.some(e=>e.amount==null);
   const litersPurchased=refuels.reduce((s,e)=>s+(Number(e.liters)||0),0);
   const tips=dayEvents.filter(e=>e.type==="tip");
   const tipIncome=tips.reduce((s,e)=>s+(Number(e.amount)||0),0);
-  const consumedGas=distanceCost(totalKm,cfg).gas;
+  const consumedGas=dayTrips.reduce((sum,t)=>sum+calcTrip(t,cfg).gas,0)
+    + dayEvents.filter(e=>e.type==="dead_km").reduce((sum,e)=>sum+distanceCost(e.km,cfg,e.calculation_snapshot).gas,0)
+    + Math.max(0,deadKm-explicitDeadKm)*(residualSnapshot?.operatingEnergyCostPerKm ?? energyCostPerKm(cfg));
   return{
-    ...tripStats,gross:tripStats.gross+tipIncome,totalKm,deadKm,fuelPurchased,litersPurchased,consumedGas,tipIncome,tipCount:tips.length,
+    ...tripStats,gross:tripStats.gross+tipIncome,totalKm,deadKm,fuelPurchased,litersPurchased,electricityPurchased,kwhPurchased,cashIncomplete,consumedGas,tipIncome,tipCount:tips.length,
     bonusGross:bonusStats.gross,bonusNet:bonusStats.net,bonusCount:bonusStats.n,
     net:tripStats.net+bonusStats.net+tipIncome-deadCost.gas-deadCost.wear,
-    cash:tripStats.gross+bonusStats.gross+tipIncome-tripStats.fee-fuelPurchased,
+    cash:tripStats.gross+bonusStats.gross+tipIncome-tripStats.fee-fuelPurchased-electricityPurchased,
     productivePct:totalKm>0?tripStats.km/totalKm*100:0,
   };
 };
@@ -297,10 +331,11 @@ const IC={
 const eventMeta=type=>({
   dead_km:{label:"Sin pasaje",icon:IC.road,color:C.accent},
   refuel:{label:"Gasolina",icon:IC.fuel,color:C.danger},
+  charge:{label:"Carga eléctrica",icon:IC.fuel,color:C.accent},
   tank_checkpoint:{label:"Tanque",icon:IC.gauge,color:C.teal},
   tip:{label:"Propina",icon:IC.tip,color:C.teal},
 }[type]||{label:"Movimiento",icon:IC.trips,color:C.muted});
-const eventDescription=e=>e.type==="dead_km"?`${fmt(e.km,1)} km sin pasaje`:e.type==="refuel"?`${fmt(e.liters,2)} L · ${fmtMXN(e.amount)}`:e.type==="tank_checkpoint"?`Tanque ajustado a ${fmt(e.tank_liters,1)} L`:`${fmtMXN(e.amount)} de propina`;
+const eventDescription=e=>e.type==="dead_km"?`${fmt(e.km,1)} km sin pasaje`:e.type==="refuel"?`${fmt(e.liters,2)} L · ${fmtMXN(e.amount)}`:e.type==="charge"?`${e.kwh==null?"kWh no indicados":`${fmt(e.kwh,2)} kWh`} · ${e.amount==null?"importe pendiente":fmtMXN(e.amount)}`:e.type==="tank_checkpoint"?`Tanque ajustado a ${fmt(e.tank_liters,1)} L`:`${fmtMXN(e.amount)} de propina`;
 
 const buildCSS=(C,mode)=>`
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
@@ -552,7 +587,7 @@ const UpgradeCard=({onUpgrade=openUpgrade,s,daysLeft=null})=>(
 function TripDetail({trip,cfg,onClose,onSave,onDelete}){
   const[editing,setEditing]=useState(false);
   const[form,setForm]=useState({
-    fare:String(trip.fare||""),platform:trip.platform||"uber",
+    fare:String(trip.fare||""),platform:trip.platform||"uber",calculation_snapshot:trip.calculation_snapshot,
     pickup_km:String(trip.pickup_km||""),pickup_min:String(trip.pickup_min||""),
     dest_km:String(trip.dest_km||""),dest_min:String(trip.dest_min||""),
     gps_km:String(trip.gps_km||""),gps_min:String(trip.gps_min||""),
@@ -579,10 +614,11 @@ function TripDetail({trip,cfg,onClose,onSave,onDelete}){
   const V=good?{col:C.teal,lbl:"✅ Excelente viaje"}:ok?{col:C.warn,lbl:"⚠️ Aceptable"}:{col:C.danger,lbl:"❌ No rentable"};
   const rows=[
     {l:"Tarifa bruta",v:fmtMXN(c.fare),c:C.text},
-    {l:`Comisión ${platformInfo(cfg,editing?form.platform:trip.platform).name} (${platformCommission(cfg,editing?form.platform:trip.platform)}%)`,v:`-${fmtMXN(c.fee)}`,c:C.danger},
-    {l:`Gas · ${fmt(c.km,1)}km ÷ ${cfg.kmPerLiter}km/L × $${cfg.gasPricePerLiter}`,v:`-${fmtMXN(c.gas)}`,c:C.danger},
+    {l:`Comisión ${platformInfo(cfg,editing?form.platform:trip.platform).name} (${trip.calculation_snapshot?.commissionPct??platformCommission(cfg,editing?form.platform:trip.platform)}%)`,v:`-${fmtMXN(c.fee)}`,c:C.danger},
+    {l:`Energía · ${fmt(c.km,1)} km × ${fmtMXN(c.km>0?c.gas/c.km:0)}/km`,v:`-${fmtMXN(c.gas)}`,c:C.danger},
     ...(c.fx>0?[{l:"Llantas y mantenimiento",v:`-${fmtMXN(c.fx)}`,c:C.danger}]:[]),
     ...(c.fixed>0?[{l:"Renta y seguro prorrateados",v:`-${fmtMXN(c.fixed)}`,c:C.danger}]:[]),
+    ...(["migrated_estimate","legacy_client_estimate"].includes(trip.calculation_snapshot?.source)?[{l:"Costo histórico estimado al migrar",v:"≈",c:C.warn}]:[]),
     {l:"GANANCIA NETA",v:fmtMXN(c.net),c:c.net>=0?C.teal:C.danger,bold:true},
   ];
 
@@ -712,7 +748,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
       } else {
         storedDraft = readScoped(window.localStorage,userId,"trip-draft",DRAFT0);
       }
-      const draft={...storedDraft,platform:platforms.some(p=>p.id===storedDraft.platform)?storedDraft.platform:(platforms[0]?.id||"")};
+      const draft={...storedDraft,draft_calculation_config:storedDraft.draft_calculation_config||cfg,platform:platforms.some(p=>p.id===storedDraft.platform)?storedDraft.platform:(platforms[0]?.id||"")};
       setTrip(draft);
       setMode(draft.mode||"manual");
       setPhase(draft.phase||0);
@@ -834,7 +870,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
     }
     const endedAt=toStorageInstant();
     const ok=await saveTrip({
-      fare:parseFloat(trip.fare)||0,platform:trip.platform,
+      fare:parseFloat(trip.fare)||0,platform:trip.platform,calculation_snapshot:trip.calculation_snapshot||{...calculationSnapshot(trip.draft_calculation_config||cfg,trip.platform),fixedCostPerHour:fixedCostPerHour(trip.draft_calculation_config||cfg)},
       pickup_km:parseFloat(trip.pickup_km)||0,pickup_min:parseFloat(trip.pickup_min)||0,
       dest_km:parseFloat(trip.dest_km)||0,dest_min:parseFloat(trip.dest_min)||0,
       gps_km:parseFloat(trip.gps_km)||0,gps_min:parseFloat(trip.gps_min)||0,
@@ -995,14 +1031,14 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
 }
 
 // ─── REGISTRO OPERATIVO ───────────────────────────────────────────────────────
-const OP0={type:"dead_km",km:"",amount:"",liters:"",tank_liters:"",odometer:"",fare:"",trip_km:"",platform:"didi",note:"",occurred_at:"",bonus_mode:"paid",bonus_type:"racha",required_trips:"",completed_trips:"",extra_km:"",extra_min:"",expires_at:""};
-function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,onSaveBonus,onUpdateBonus,initial,initialKind="event",cfg}){
+const OP0={type:"dead_km",km:"",amount:"",kwh:"",liters:"",tank_liters:"",odometer:"",fare:"",trip_km:"",platform:"didi",note:"",occurred_at:"",bonus_mode:"paid",bonus_type:"racha",required_trips:"",completed_trips:"",extra_km:"",extra_min:"",expires_at:""};
+function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,onSaveBonus,onUpdateBonus,initial,initialKind="event",cfg,isPro}){
   const platforms=enabledPlatforms(cfg);
   const defaultPlatform=platforms.find(p=>p.id===OP0.platform)?.id||platforms[0]?.id||"";
   const[form,setForm]=useState(()=>{
     const base=initial?{
       ...OP0,...initial,type:initialKind==="bonus"?"bonus":initial.type,
-      km:String(initial.km||""),amount:String(initial.amount||""),liters:String(initial.liters||""),tank_liters:String(initial.tank_liters||""),odometer:String(initial.odometer||""),
+      km:String(initial.km||""),amount:initial.amount===null?"":String(initial.amount??""),kwh:String(initial.kwh??""),liters:String(initial.liters||""),tank_liters:String(initial.tank_liters||""),odometer:String(initial.odometer||""),
       note:initial.note||initial.notes||"",bonus_mode:initialKind==="bonus"?(initial.status||"paid"):OP0.bonus_mode,
       occurred_at:localDateTime(initial.occurred_at||initial.paid_at||initial.starts_at||initial.created_at),expires_at:initial.expires_at?localDateTime(initial.expires_at):localDateTime(),
     }:{...OP0,occurred_at:localDateTime(),expires_at:localDateTime()};
@@ -1013,6 +1049,8 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
   const[saving,setSaving]=useState(false);
   const[listening,setListening]=useState(false);
   const[voiceError,setVoiceError]=useState("");
+  const[receiptBusy,setReceiptBusy]=useState(false);
+  const[currencyNeedsReview,setCurrencyNeedsReview]=useState(false);
   const[deadGpsOn,setDeadGpsOn]=useState(false);
   const[deadGpsMs,setDeadGpsMs]=useState(0);
   const recRef=useRef(null);
@@ -1052,12 +1090,13 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
     if(deadWatchRef.current)navigator.geolocation.clearWatch(deadWatchRef.current);
     clearInterval(deadTimerRef.current);
   },[]);
-  const set=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const set=(k,v)=>{if(k==="amount")setCurrencyNeedsReview(false);setForm(p=>({...p,[k]:v}));};
   const TYPES=[
     {id:"trip",label:"Viaje",d:IC.trips},
     {id:"dead_km",label:"Sin pasaje",d:IC.road},
     {id:"refuel",label:"Gasolina",d:IC.fuel},
-    {id:"tank_checkpoint",label:"Tanque",d:IC.gauge},
+    ...(["electric","phev"].includes(cfg.vehicleType)?[{id:"charge",label:"Carga eléctrica",d:IC.fuel}]:[]),
+    ...(cfg.vehicleType==="electric"?[]:[{id:"tank_checkpoint",label:"Tanque",d:IC.gauge}]),
     {id:"tip",label:"Propina",d:IC.tip},
     {id:"bonus",label:"Bono",d:IC.flag},
   ];
@@ -1068,13 +1107,31 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
     try{
       const raw=await callGroq("parser",[{role:"user",content:text.trim()}],500);
       const data=parseJsonContent(raw);
-      if(!TYPES.some(t=>t.id===data.type))throw new Error("No entendi el movimiento. Prueba con importe, km o litros.");
+      if(!TYPES.some(t=>t.id===data.type))throw new Error("No pude saber si fue combustible o electricidad. Elige el tipo y completa el registro.");
       const requestedPlatform=platformInfo(cfg,data.platform).id;
       const parsedPlatform=platforms.some(p=>p.id===requestedPlatform)?requestedPlatform:defaultPlatform;
       const normalized={...data,platform:parsedPlatform,km:data.dead_km||data.km||0};
-      setForm(p=>({...p,...Object.fromEntries(Object.entries(normalized).filter(([k])=>k!=="dead_km").map(([k,v])=>[k,v===0?"":String(v)])),type:data.type,occurred_at:p.occurred_at}));
+      setForm(p=>({...p,...Object.fromEntries(Object.entries(normalized).filter(([k])=>k!=="dead_km").map(([k,v])=>[k,v==null||v===0?"":String(v)])),type:data.type,occurred_at:p.occurred_at}));
     }catch(err){setVoiceError(err.message||"No pude interpretar el movimiento. Puedes llenar los campos manualmente.");}
     setParsing(false);
+  };
+  const readReceipt=async event=>{
+    const file=event.target.files?.[0];if(!file)return;
+    if(!isPro){setVoiceError("Foto IA requiere Ruleto Pro.");return;}
+    setReceiptBusy(true);setVoiceError("");
+    try{
+      const image=await imageToDataUrl(file);
+      const raw=await callGroq("vision_receipt",[{role:"user",content:[
+        {type:"image_url",image_url:{url:image}},
+        {type:"text",text:"Lee el comprobante. Usa null cuando falte un valor visible."}
+      ]}],350);
+      const receipt=parseJsonContent(raw);
+      if(!["charge","refuel"].includes(receipt.type))throw new Error("No se identificó si es combustible o carga eléctrica.");
+      if(receipt.type==="charge"&&!(["electric","phev"].includes(cfg.vehicleType)))throw new Error("Configura un vehículo eléctrico o híbrido enchufable antes de registrar esta carga.");
+      if(String(receipt.currency||"").toUpperCase()!=="MXN"){setCurrencyNeedsReview(true);setVoiceError("No se confirmó que el importe sea MXN. Corrígelo manualmente antes de guardar.");}else setCurrencyNeedsReview(false);
+      setForm(previous=>({...previous,type:receipt.type,amount:receipt.amount==null?"":String(receipt.amount),liters:receipt.liters==null?"":String(receipt.liters),kwh:receipt.kwh==null?"":String(receipt.kwh),occurred_at:receipt.date&&Number.isFinite(new Date(receipt.date).getTime())?localDateTime(receipt.date):previous.occurred_at}));
+    }catch(error){setVoiceError(error.message||"No se pudo leer el comprobante.");}
+    finally{setReceiptBusy(false);event.target.value="";}
   };
   const listen=()=>{
     if(listening){recRef.current?.stop();return;}
@@ -1093,11 +1150,11 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
     );
     if (recRef.current) setListening(true);
   };
-  const valid=form.type==="trip"
+  const valid=!currencyNeedsReview&&(form.type==="trip"
     ? Number(form.fare)>0&&!!form.platform
     : form.type==="bonus"
       ? Number(form.amount)>0&&!!form.platform&&(form.bonus_mode!=="active"||Number(form.required_trips)>0)
-      : Number(form.type==="dead_km"?form.km:form.type==="refuel"?(form.liters||form.amount):form.type==="tip"?form.amount:form.tank_liters)>0;
+      : form.type==="charge"?((form.amount===""||Number(form.amount)>=0)&&(form.kwh===""||Number(form.kwh)>0)&&(form.amount!==""||Number(form.kwh)>0)):Number(form.type==="dead_km"?form.km:form.type==="refuel"?(form.liters||form.amount):form.type==="tip"?form.amount:form.tank_liters)>0);
   const save=async()=>{
     if(!valid||saving)return;setSaving(true);
     let ok=false;
@@ -1117,7 +1174,7 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
       ok=initial&&initialKind==="bonus"?await onUpdateBonus(initial.id,payload):await onSaveBonus(payload);
     }
     else{
-      const payload={type:form.type,km:Number(form.km)||0,amount:Number(form.amount)||0,liters:Number(form.liters)||0,tank_liters:Number(form.tank_liters)||0,odometer:Number(form.odometer)||0,platform:form.platform||"",note:form.note||"",occurred_at:occurredAt,date:dateKey(form.occurred_at),start_location:form.type==="dead_km"?deadStartLocationRef.current:null,end_location_promise:form.type==="dead_km"?deadEndLocationPromiseRef.current:null};
+      const payload={type:form.type,km:Number(form.km)||0,amount:form.type==="charge"&&form.amount===""?null:Number(form.amount)||0,kwh:form.type==="charge"&&form.kwh!==""?Number(form.kwh):null,liters:Number(form.liters)||0,tank_liters:Number(form.tank_liters)||0,odometer:Number(form.odometer)||0,platform:form.platform||"",note:form.note||"",occurred_at:occurredAt,date:dateKey(form.occurred_at),start_location:form.type==="dead_km"?deadStartLocationRef.current:null,end_location_promise:form.type==="dead_km"?deadEndLocationPromiseRef.current:null};
       ok=initial?await onUpdateOperation(initial.id,payload):await onSaveOperation(payload);
     }
     setSaving(false);if(ok)onClose();
@@ -1132,6 +1189,7 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
           <button onClick={parse} disabled={!text.trim()||parsing} style={{padding:"0 12px",border:`1px solid ${C.teal}`,borderRadius:8,color:C.teal,fontSize:10,fontWeight:700}}>{parsing?"...":"IA"}</button>
         </div>
         <div style={{fontSize:9,color:listening?C.teal:C.dim,lineHeight:1.45,marginBottom:voiceError?6:14}}>{listening?"Escuchando... puedes corregir el texto antes de enviarlo a IA.":"La IA prepara el registro. Tu confirmas antes de guardarlo."}</div>
+        <label style={{display:"inline-block",fontSize:10,color:C.accent,marginBottom:8}}>📷 {receiptBusy?"Leyendo comprobante...":"Foto IA · comprobante"}<input type="file" accept="image/*" onChange={readReceipt} disabled={receiptBusy} style={{display:"block",fontSize:9,marginTop:4}}/></label>
         {voiceError&&<div style={{fontSize:10,color:C.danger,background:`${C.danger}10`,border:`1px solid ${C.danger}33`,borderRadius:7,padding:"8px 9px",marginBottom:12}}>{voiceError}{voiceError.includes("permiso")&&<div style={{marginTop:6}}><button onClick={openSettings} style={{color:C.danger,textDecoration:"underline",fontWeight:700,fontSize:10}}>Abrir ajustes</button></div>}</div>}
         <div data-tour="quick-types" style={{display:"grid",gridTemplateColumns:initial?"1fr":"repeat(3,1fr)",gap:5,marginBottom:15}}>{TYPES.filter(t=>!initial||t.id===form.type).map(t=><button key={t.id} onClick={()=>{set("type",t.id);emitTourEvent(TOUR_EVENTS.QUICK_TYPE_CHANGED,t.id);}} style={{minHeight:initial?44:58,padding:"7px 3px",border:`1px solid ${form.type===t.id?C.accent:C.border}`,borderRadius:8,background:form.type===t.id?`${C.accent}12`:C.card2,color:form.type===t.id?C.accent:C.muted,fontSize:8,fontWeight:700,display:"flex",flexDirection:initial?"row":"column",alignItems:"center",justifyContent:"center",gap:5}}><SVG d={t.d} size={16} color={form.type===t.id?C.accent:C.muted}/>{t.label}</button>)}</div>
         {form.type==="trip"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Tarifa" type="number" value={form.fare} onChange={v=>set("fare",v)} unit="$"/><Inp label="Distancia" type="number" value={form.trip_km} onChange={v=>set("trip_km",v)} unit="km"/><div style={{gridColumn:"1 / -1"}}><Lbl s={{marginBottom:5}}>Plataforma</Lbl><select value={form.platform} onChange={e=>set("platform",e.target.value)} disabled={!platforms.length} style={{width:"100%",background:C.card2,border:`1px solid ${platforms.length?C.border:C.danger}`,borderRadius:8,padding:"10px",color:platforms.length?C.text:C.danger}}>{!platforms.length&&<option value="">Activa una plataforma en Config</option>}{platforms.map(p=><option key={p.id} value={p.id}>{p.name} · {p.commission}%</option>)}</select></div></div>}
@@ -1154,6 +1212,7 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
             </div>
           </div>
         )}
+        {form.type==="charge"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Energía cargada" type="number" value={form.kwh} onChange={v=>set("kwh",v)} unit="kWh"/><Inp label="Importe pagado (0 si gratis)" type="number" value={form.amount} onChange={v=>set("amount",v)} unit="$"/>{Number(form.kwh)>0&&form.amount!==""&&<div style={{gridColumn:"1/-1",fontSize:10}}>Precio efectivo: {fmtMXN(Number(form.amount)/Number(form.kwh))}/kWh</div>}</div>}
         {form.type==="refuel"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Litros cargados" type="number" value={form.liters} onChange={v=>set("liters",v)} unit="L"/><Inp label="Importe pagado" type="number" value={form.amount} onChange={v=>set("amount",v)} unit="$"/></div>}
         {form.type==="tank_checkpoint"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Litros estimados" type="number" value={form.tank_liters} onChange={v=>set("tank_liters",v)} unit="L"/><Inp label="Odometro opcional" type="number" value={form.odometer} onChange={v=>set("odometer",v)} unit="km"/></div>}
         {form.type==="tip"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}><Inp label="Monto de propina" type="number" value={form.amount} onChange={v=>set("amount",v)} unit="$"/><div><Lbl s={{marginBottom:5}}>Plataforma</Lbl><select value={form.platform} onChange={e=>set("platform",e.target.value)} style={{width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px",color:C.text}}><option value="">Sin plataforma</option>{platforms.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></div></div>}
@@ -1215,7 +1274,7 @@ function ClosureModal({closure,cfg,trips=[],events=[],bonuses=[],onClose,onSelec
   const s=closure?.snapshot||closure||{};
   const movements=closureMovements(closure,trips,events,bonuses,cfg);
   const rows=[
-    ["Ingreso bruto",s.gross],["Propinas",s.tipIncome],["Bonos",s.bonusGross],["Comisiones",-(s.fee||0)],["Gasolina consumida",-(s.consumedGas||0)],["Utilidad operativa",s.net],["Flujo de efectivo",s.cash],
+    ["Ingreso bruto",s.gross],["Propinas",s.tipIncome],["Bonos",s.bonusGross],["Comisiones",-(s.fee||0)],["Energía consumida",-(s.consumedGas||0)],["Utilidad operativa",s.net],["Flujo de efectivo",s.cash],
   ];
   return <div style={{position:"fixed",inset:0,zIndex:10000,background:"rgba(0,0,0,.82)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={onClose}>
     <div className="su" onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,maxHeight:"90dvh",overflowY:"auto",background:C.card,border:`1px solid ${C.bord2}`,borderRadius:"16px 16px 0 0",padding:"17px 16px calc(22px + env(safe-area-inset-bottom))"}}>
@@ -1224,7 +1283,8 @@ function ClosureModal({closure,cfg,trips=[],events=[],bonuses=[],onClose,onSelec
         {[{l:"Viajes",v:closure.trip_count||0},{l:"Duración",v:fmtClock(closure.total_ms||0)},{l:"Productivo",v:fmtPct(s.productivePct||closure.productive_pct||0)}].map(x=><div key={x.l} style={{background:C.card2,borderRadius:8,padding:"9px 7px",textAlign:"center"}}><Lbl s={{marginBottom:4}}>{x.l}</Lbl><Big size={16}>{x.v}</Big></div>)}
       </div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,padding:"9px 11px",background:C.card2,borderRadius:8}}><div><Lbl s={{marginBottom:4}}>Horario registrado</Lbl><div style={{fontSize:11,color:C.text}}>{closure.start_time?fmtHour(closure.start_time):"--"} a {closure.end_time?fmtHour(closure.end_time):"--"}</div></div><div style={{textAlign:"right"}}><Lbl s={{marginBottom:4}}>Movimientos</Lbl><Big size={17}>{movements.length}</Big></div></div>
-      <Card s={{marginBottom:12}}>{rows.map(([l,v],i)=>{const color=l==="Utilidad operativa"?((v||0)>=0?C.teal:C.danger):(["Propinas","Bonos"].includes(l)&&(v||0)>0?C.teal:["Comisiones","Gasolina consumida"].includes(l)&&(v||0)<0?C.danger:C.text);return <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:i<rows.length-1?`1px solid ${C.border}`:"none"}}><span style={{fontSize:11,color:C.muted}}>{l}</span><strong style={{color}}>{fmtMXN(v||0)}</strong></div>;})}</Card>
+      {s.cashIncomplete&&<div style={{fontSize:10,color:C.warn,marginBottom:9}}>Flujo de efectivo incompleto: una carga eléctrica no tiene importe.</div>}
+      <Card s={{marginBottom:12}}>{rows.map(([l,v],i)=>{const color=l==="Utilidad operativa"?((v||0)>=0?C.teal:C.danger):(["Propinas","Bonos"].includes(l)&&(v||0)>0?C.teal:["Comisiones","Energía consumida"].includes(l)&&(v||0)<0?C.danger:C.text);return <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:i<rows.length-1?`1px solid ${C.border}`:"none"}}><span style={{fontSize:11,color:C.muted}}>{l}</span><strong style={{color}}>{fmtMXN(v||0)}</strong></div>;})}</Card>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
         <Card s={{padding:11}}><Lbl s={{marginBottom:5}}>Km totales</Lbl><Big size={20}>{fmt(s.totalKm||closure.total_km,1)} km</Big></Card>
         <Card s={{padding:11}}><Lbl s={{marginBottom:5}}>Sin pasajero</Lbl><Big size={20} color={C.accent}>{fmt(s.deadKm||closure.dead_km,1)} km</Big></Card>
@@ -1326,7 +1386,7 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
   const dayNph=elapsed>0?stats.net/(elapsed/3600000):0;
   const deadKm=stats.deadKm;
   const visibleTrips=showAll?todayTrips:todayTrips.slice(0,4);
-  const spokenSummary=`Resumen de hoy. Ganancia neta ${fmtMXN(stats.net)}. ${todayTrips.length} viajes. ${fmt(stats.productivePct,0)} por ciento de kilómetros productivos. ${activeDay?`La jornada lleva ${fmt(elapsed/3600000,1)} horas y genera ${fmtMXN(dayNph)} por hora.`:"La jornada no está iniciada."} Tanque: ${tank.status}${tank.rangeKm===null?".":`, con aproximadamente ${fmt(tank.rangeKm,0)} kilómetros de autonomía.`} ${activeBonuses.length?`${activeBonuses.length} bonos activos.`:"No hay bonos activos."}`;
+  const spokenSummary=`Resumen de hoy. Ganancia neta ${fmtMXN(stats.net)}. ${todayTrips.length} viajes. ${fmt(stats.productivePct,0)} por ciento de kilómetros productivos. ${activeDay?`La jornada lleva ${fmt(elapsed/3600000,1)} horas y genera ${fmtMXN(dayNph)} por hora.`:"La jornada no está iniciada."} ${cfg.vehicleType==="electric"?"":`Tanque: ${tank.status}${tank.rangeKm===null?".":`, con aproximadamente ${fmt(tank.rangeKm,0)} kilómetros de autonomía.`}`} ${activeBonuses.length?`${activeBonuses.length} bonos activos.`:"No hay bonos activos."}`;
 
   return(
     <div className="fu" style={{padding:"15px 14px 90px"}}>
@@ -1443,7 +1503,7 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
 
             {(todayTrips.length>0||todayEvents.length>0)&&(
               <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:11}}>
-                {[{l:"Bruto",v:fmtMXN(stats.gross),c:C.text},{l:"Utilidad",v:fmtMXN(stats.net),c:stats.net>=0?C.teal:C.danger},{l:"Efectivo",v:fmtMXN(stats.cash),c:stats.cash>=0?C.text:C.danger},{l:"Gas usado",v:fmtMXN(stats.consumedGas),c:C.danger}].map(({l,v,c})=>(
+                {[{l:"Bruto",v:fmtMXN(stats.gross),c:C.text},{l:"Utilidad",v:fmtMXN(stats.net),c:stats.net>=0?C.teal:C.danger},{l:"Efectivo",v:fmtMXN(stats.cash),c:stats.cash>=0?C.text:C.danger},{l:"Energía usada",v:fmtMXN(stats.consumedGas),c:C.danger}].map(({l,v,c})=>(
                   <div key={l} style={{background:C.card2,borderRadius:8,padding:"8px 6px",textAlign:"center"}}><Lbl s={{marginBottom:3,fontSize:8}}>{l}</Lbl><Big size={13} color={c}>{v}</Big></div>
                 ))}
               </div>
@@ -1487,17 +1547,17 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
         {activeBonuses.map(b=><BonusCard key={b.id} bonus={b} cfg={cfg} onProgress={onUpdateBonus}/>)}
       </Card>}
 
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:13}}>
-        <Card s={{padding:12}}>
+      <div style={{display:"grid",gridTemplateColumns:cfg.vehicleType==="electric"?"1fr":"1fr 1fr",gap:8,marginBottom:13}}>
+        {cfg.vehicleType!=="electric"&&<Card s={{padding:12}}>
           <Lbl s={{marginBottom:6}}>Tanque estimado</Lbl>
           <Big size={24} color={tank.statusColor}>{tank.liters===null?"--":`${fmt(tank.liters,1)} L`}</Big>
           <div style={{fontSize:11,color:tank.statusColor,marginTop:5,fontWeight:700}}>{tank.status}</div>
-          <div style={{fontSize:9,color:C.muted,marginTop:3}}>{tank.rangeKm===null?tank.basis:`~${fmt(tank.rangeKm,0)} km · estimación ${tank.confidence}`}</div>
-        </Card>
+          <div style={{fontSize:9,color:C.muted,marginTop:3}}>{tank.rangeKm===null?tank.basis:`~${fmt(tank.rangeKm,0)} km con combustible · estimación ${tank.confidence}`}</div>
+        </Card>}
         <Card s={{padding:12}}>
-          <Lbl s={{marginBottom:6}}>Gasolina comprada</Lbl>
-          <Big size={24} color={C.accent}>{fmtMXN(stats.fuelPurchased)}</Big>
-          <div style={{fontSize:10,color:C.muted,marginTop:5}}>{fmt(stats.litersPurchased,2)} L cargados hoy</div>
+          <Lbl s={{marginBottom:6}}>Energía pagada</Lbl>
+          <Big size={24} color={C.accent}>{fmtMXN(stats.fuelPurchased+stats.electricityPurchased)}</Big>
+          <div style={{fontSize:10,color:C.muted,marginTop:5}}>{fmt(stats.litersPurchased,2)} L · {fmt(stats.kwhPurchased,2)} kWh cargados hoy</div>
         </Card>
       </div>
 
@@ -1562,11 +1622,12 @@ function TripsTab({cfg,trips,events,bonuses,closures,onSelect,onNew,onQuick,onSe
   const summary=extraRows.reduce((a,row)=>{
     if(row.type==="tip")a.tips+=Number(row.data.amount)||0;
     if(row.type==="refuel"){a.liters+=Number(row.data.liters)||0;a.fuel+=Number(row.data.amount)||0;}
+    if(row.type==="charge"){a.kwh+=Number(row.data.kwh)||0;a.electricity+=Number(row.data.amount)||0;}
     if(row.type==="dead_km")a.dead+=Number(row.data.km)||0;
     if(row.type==="bonus"&&["paid","earned"].includes(String(row.data.status||"")))a.bonuses+=Number(row.data.amount)||0;
     return a;
-  },{tips:0,liters:0,fuel:0,dead:0,bonuses:0});
-  const filters=[{id:"all",label:"Todos"},{id:"dead_km",label:"Sin pasaje"},{id:"refuel",label:"Gasolina"},{id:"tank_checkpoint",label:"Tanque"},{id:"tip",label:"Propinas"},{id:"bonus",label:"Bonos"}];
+  },{tips:0,liters:0,fuel:0,kwh:0,electricity:0,dead:0,bonuses:0});
+  const filters=[{id:"all",label:"Todos"},{id:"dead_km",label:"Sin pasaje"},{id:"refuel",label:"Gasolina"},{id:"charge",label:"Carga eléctrica"},{id:"tank_checkpoint",label:"Tanque"},{id:"tip",label:"Propinas"},{id:"bonus",label:"Bonos"}];
   const filteredClosures=(closures||[]).filter(c=>{const d=dateKey(c.date);return(!range.from||d>=range.from)&&(!range.to||d<=range.to);}).sort((a,b)=>new Date(b.end_time||b.created_at||0)-new Date(a.end_time||a.created_at||0));
   const closureSummary=filteredClosures.reduce((a,c)=>{const s=c.snapshot||c;a.net+=Number(s.net??c.total_net)||0;a.ms+=Number(c.total_ms)||0;a.trips+=Number(c.trip_count)||0;return a;},{net:0,ms:0,trips:0});
 
@@ -1616,7 +1677,7 @@ function TripsTab({cfg,trips,events,bonuses,closures,onSelect,onNew,onQuick,onSe
         <Btn full onClick={onQuick} color={C.teal} s={{marginBottom:11}}><SVG d={IC.plus} size={13} color={C.teal}/>Agregar registro</Btn>
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:11}}>{filters.map(item=><button key={item.id} onClick={()=>setExtraType(item.id)} style={{padding:"7px 3px",border:`1px solid ${extraType===item.id?C.accent:C.border}`,borderRadius:7,background:extraType===item.id?`${C.accent}12`:C.card2,color:extraType===item.id?C.accent:C.muted,fontSize:8,fontWeight:800}}>{item.label}</button>)}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:7,marginBottom:13}}>
-          {[{label:"Propinas",value:fmtMXN(summary.tips),color:C.teal},{label:"Gasolina",value:`${fmt(summary.liters,1)} L`,sub:fmtMXN(summary.fuel),color:C.danger},{label:"Sin pasaje",value:`${fmt(summary.dead,1)} km`,color:C.accent},{label:"Bonos cobrados",value:fmtMXN(summary.bonuses),color:C.teal}].map(item=><Card key={item.label} s={{padding:10}}><Lbl s={{marginBottom:4}}>{item.label}</Lbl><Big size={18} color={item.color}>{item.value}</Big>{item.sub&&<div style={{fontSize:9,color:C.muted,marginTop:2}}>{item.sub}</div>}</Card>)}
+          {[{label:"Propinas",value:fmtMXN(summary.tips),color:C.teal},{label:"Combustible",value:`${fmt(summary.liters,1)} L`,sub:fmtMXN(summary.fuel),color:C.danger},{label:"Electricidad",value:`${fmt(summary.kwh,1)} kWh`,sub:fmtMXN(summary.electricity),color:C.accent},{label:"Sin pasaje",value:`${fmt(summary.dead,1)} km`,color:C.accent},{label:"Bonos cobrados",value:fmtMXN(summary.bonuses),color:C.teal}].map(item=><Card key={item.label} s={{padding:10}}><Lbl s={{marginBottom:4}}>{item.label}</Lbl><Big size={18} color={item.color}>{item.value}</Big>{item.sub&&<div style={{fontSize:9,color:C.muted,marginTop:2}}>{item.sub}</div>}</Card>)}
         </div>
         {extraRows.length===0?<div style={{textAlign:"center",padding:"40px 0",color:C.dim}}><Lbl>Sin registros en este periodo</Lbl></div>:Object.entries(groupedExtras).map(([date,rows])=><section key={date} style={{marginBottom:15}}>
           <Lbl s={{marginBottom:7}}>{fmtDate(date)}</Lbl>
@@ -1660,7 +1721,7 @@ function StatsTab({cfg,trips:realTrips,events:realEvents,bonuses,isPro,onUpgrade
   const filteredBonuses=bonuses.filter(b=>inDateRange(b,range));
   const dates=[...new Set([...filtered.map(dateOf),...filteredEvents.map(dateOf),...filteredBonuses.map(dateOf)])].sort();
   const chart=dates.map(date=>{const d=operationalSummary(trips,events,cfg,date,0,bonuses);return{date,...d,trips:trips.filter(t=>dateOf(t)===date).length,nph:d.min>0?d.net/(d.min/60):0,label:new Date(`${date}T12:00:00`).toLocaleDateString("es-MX",{day:"numeric",month:"short"})};});
-  const tot=chart.reduce((a,d)=>({net:a.net+d.net,km:a.km+d.totalKm,gas:a.gas+d.consumedGas,gross:a.gross+d.gross,min:a.min+d.min,deadKm:a.deadKm+d.deadKm,fuelPurchased:a.fuelPurchased+d.fuelPurchased,tips:a.tips+d.tipIncome,cash:a.cash+d.cash,productiveKm:a.productiveKm+d.km}),{net:0,km:0,gas:0,gross:0,min:0,deadKm:0,fuelPurchased:0,tips:0,cash:0,productiveKm:0});
+  const tot=chart.reduce((a,d)=>({net:a.net+d.net,km:a.km+d.totalKm,gas:a.gas+d.consumedGas,gross:a.gross+d.gross,min:a.min+d.min,deadKm:a.deadKm+d.deadKm,fuelPurchased:a.fuelPurchased+d.fuelPurchased,electricityPurchased:a.electricityPurchased+d.electricityPurchased,cashIncomplete:a.cashIncomplete||d.cashIncomplete,tips:a.tips+d.tipIncome,cash:a.cash+d.cash,productiveKm:a.productiveKm+d.km}),{net:0,km:0,gas:0,gross:0,min:0,deadKm:0,fuelPurchased:0,electricityPurchased:0,cashIncomplete:false,tips:0,cash:0,productiveKm:0});
   const byPlat={};filtered.forEach(t=>{const p=t.platform||"uber";if(!byPlat[p])byPlat[p]={name:p.toUpperCase(),net:0,count:0};byPlat[p].net+=calcTrip(t,cfg).net;byPlat[p].count++;});
   const platData=Object.values(byPlat);const PIE=[C.accent,C.teal,"#a855f7","#f43f5e"];
   const byHour={};filtered.forEach(t=>{const h=new Date(t.end_time||t.created_at||0).getHours();if(!byHour[h])byHour[h]={hour:h,net:0,count:0};byHour[h].net+=calcTrip(t,cfg).net;byHour[h].count++;});
@@ -1678,7 +1739,8 @@ function StatsTab({cfg,trips:realTrips,events:realEvents,bonuses,isPro,onUpgrade
         <div style={{textAlign:"center",padding:"50px 0",color:C.dim}}><div style={{fontSize:34,marginBottom:9}}>📊</div><Lbl>Registra viajes para ver estadísticas</Lbl></div>
       ):<>
         <div data-tour="stats-cards" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:13}}>
-          {[{l:"Utilidad operativa",v:fmtMXN(tot.net),c:tot.net>=0?C.teal:C.danger},{l:"Flujo de efectivo",v:fmtMXN(tot.cash),c:tot.cash>=0?C.text:C.danger},{l:"Viajes",v:filtered.length,c:C.text},{l:"Propinas",v:fmtMXN(tot.tips),c:C.teal},{l:"Km totales",v:`${fmt(tot.km,0)} km`,c:C.accent},{l:"Km sin pasajero",v:`${fmt(tot.deadKm,0)} km`,c:tot.deadKm>tot.productiveKm?C.danger:C.accent},{l:"Km productivos",v:fmtPct(tot.km>0?tot.productiveKm/tot.km*100:0),c:C.teal},{l:"$/hora promedio",v:fmtMXN(tot.min>0?tot.net/(tot.min/60):0),c:C.accent},{l:"Gas consumida",v:fmtMXN(tot.gas),c:C.danger},{l:"Gas comprada",v:fmtMXN(tot.fuelPurchased),c:C.accent},{l:"Promedio/viaje",v:fmtMXN(filtered.length>0?tot.net/filtered.length:0),c:C.teal}].map(({l,v,c})=>(
+          {tot.cashIncomplete&&<div style={{fontSize:10,color:C.warn,marginBottom:8}}>Flujo de efectivo incompleto: hay cargas sin importe.</div>}
+          {[{l:"Utilidad operativa",v:fmtMXN(tot.net),c:tot.net>=0?C.teal:C.danger},{l:"Flujo de efectivo",v:fmtMXN(tot.cash),c:tot.cash>=0?C.text:C.danger},{l:"Viajes",v:filtered.length,c:C.text},{l:"Propinas",v:fmtMXN(tot.tips),c:C.teal},{l:"Km totales",v:`${fmt(tot.km,0)} km`,c:C.accent},{l:"Km sin pasajero",v:`${fmt(tot.deadKm,0)} km`,c:tot.deadKm>tot.productiveKm?C.danger:C.accent},{l:"Km productivos",v:fmtPct(tot.km>0?tot.productiveKm/tot.km*100:0),c:C.teal},{l:"$/hora promedio",v:fmtMXN(tot.min>0?tot.net/(tot.min/60):0),c:C.accent},{l:"Energía consumida",v:fmtMXN(tot.gas),c:C.danger},{l:"Energía pagada",v:fmtMXN(tot.fuelPurchased+tot.electricityPurchased),c:C.accent},{l:"Promedio/viaje",v:fmtMXN(filtered.length>0?tot.net/filtered.length:0),c:C.teal}].map(({l,v,c})=>(
             <Card key={l} s={{padding:"11px 13px"}}><Lbl s={{marginBottom:5}}>{l}</Lbl><Big size={21} color={c}>{v}</Big></Card>
           ))}
         </div>
@@ -1731,7 +1793,7 @@ function StatsTab({cfg,trips:realTrips,events:realEvents,bonuses,isPro,onUpgrade
 
 // ─── AI TAB ───────────────────────────────────────────────────────────────────
 function AITab({cfg,trips,events=[],bonuses,closures=[],locations=[],isPro,onUpgrade,userId}){
-  const WELCOME={role:"assistant",content:"## Ruleto IA\n\nSoy tu copiloto financiero: leo tus viajes, gastos y jornadas reales para ayudarte a decidir con números, no con intuición.\n\n- 🎯 Te digo si un viaje o un bono conviene, y qué evitar\n- 📈 Comparo tu semana contra la anterior y te digo tus mejores horas, días y zonas\n- ⛽ Sigo tu gasolina, kilómetros sin pasaje y el cierre de cada jornada\n- 🗣️ Pregúntame por texto o por voz, en español, cuando quieras"};
+  const WELCOME={role:"assistant",content:"## Ruleto IA\n\nSoy tu copiloto financiero: leo tus viajes, gastos y jornadas reales para ayudarte a decidir con números.\n\n- 🎯 Te digo si un viaje o un bono conviene\n- 📈 Comparo tus mejores horas, días y zonas\n- ⚡ Distingo energía estimada de combustible o electricidad pagados\n- 🗣️ Pregúntame por texto o por voz"};
   const[msgs,setMsgs]=useState([WELCOME]);
   const[conversations,setConversations]=useState([]);
   const[activeId,setActiveId]=useState(null);
@@ -1827,13 +1889,14 @@ function AITab({cfg,trips,events=[],bonuses,closures=[],locations=[],isPro,onUpg
     const allEvents=[...events].sort((a,b)=>eventMs(b)-eventMs(a));
     const events30=allEvents.filter(e=>eventMs(e)>=Date.now()-30*86400000);
     const refuels=allEvents.filter(e=>e.type==="refuel");
+    const charges=allEvents.filter(e=>e.type==="charge");
     const tanks=allEvents.filter(e=>e.type==="tank_checkpoint");
     const tips=allEvents.filter(e=>e.type==="tip");
     const dead30=events30.filter(e=>e.type==="dead_km").reduce((sum,e)=>sum+(Number(e.km)||0),0);
     const loaded30=events30.filter(e=>e.type==="refuel").reduce((a,e)=>({liters:a.liters+(Number(e.liters)||0),amount:a.amount+(Number(e.amount)||0)}),{liters:0,amount:0});
     const loadedAll=refuels.reduce((a,e)=>({liters:a.liters+(Number(e.liters)||0),amount:a.amount+(Number(e.amount)||0)}),{liters:0,amount:0});
     const tips30=events30.filter(e=>e.type==="tip").reduce((sum,e)=>sum+(Number(e.amount)||0),0);
-    const consumedLiters30=((s30.km+dead30)/(cfg.kmPerLiter||12));
+    const consumedLiters30=cfg.vehicleType==="electric"?0:((s30.km+dead30)/(cfg.kmPerLiter||12))*(cfg.vehicleType==="phev"?1-Number(cfg.electricSharePct)/100:1);
     const describeEvent=e=>`${dateKey(e.occurred_at||e.created_at)} ${fmtHour(e.occurred_at||e.created_at)} ${eventMeta(e.type).label}: ${eventDescription(e)}${e.platform?` ${platformInfo(cfg,e.platform).name}`:""}${e.note?` (${e.note})`:""}`;
 
     // Mejor y peor hora (todos los viajes)
@@ -1902,16 +1965,17 @@ function AITab({cfg,trips,events=[],bonuses,closures=[],locations=[],isPro,onUpg
     const lastTip=tips[0]?describeEvent(tips[0]):"ninguna";
     const recentOps=allEvents.slice(0,10).map(describeEvent).join(" | ");
     const lastClosure=closures[0];
+    const historicalEstimates=all.filter(t=>["migrated_estimate","legacy_client_estimate"].includes(t.calculation_snapshot?.source)).length;
     const closureCtx=lastClosure?`${dateKey(lastClosure.date||lastClosure.end_time)}: ${lastClosure.trip_count||0} viajes, ${fmtMXN(lastClosure.total_net)}, ${fmt(lastClosure.total_km,1)}km, ${fmt(lastClosure.dead_km,1)}km sin pasaje`:"ninguno";
 
     return`CTX RULETO
 FECHA LOCAL: ${today()} ${fmtHour(new Date())}
 ZONA HORARIA DEL DISPOSITIVO: ${deviceTimeZone()}
-META ACTIVA: ${fmtMXN(goalTarget(cfg))}${earningsMode(cfg).short} (${earningsMode(cfg).label}) | meta por hora ${fmtMXN(cfg.targetHourlyRate)}/hr, meta por km ${fmtMXN(cfg.targetKmRate)}/km, solo la activa decide si un viaje conviene | GAS $${cfg.gasPricePerLiter}/L ${cfg.kmPerLiter}km/L
-TOTAL ${sAll.n} viajes: neto ${fmtMXN(sAll.net)}, ${fmt(sAll.km,0)}km, ${(sAll.min/60).toFixed(0)}h, prom ${fmtMXN(sAll.n>0?sAll.net/sAll.n:0)}/viaje
-30D ${s30.n} viajes: neto ${fmtMXN(s30.net)}, ${(s30.min/60).toFixed(1)}h, ${fmtMXN(s30.min>0?s30.net/(s30.min/60):0)}/hr, gas ${fmtMXN(s30.gas)}
-OPERACION 30D: gasolina cargada ${fmt(loaded30.liters,2)}L por ${fmtMXN(loaded30.amount)}; consumo estimado ${fmt(consumedLiters30,2)}L; sin pasaje ${fmt(dead30,1)}km; propinas ${fmtMXN(tips30)}
-GASOLINA TOTAL REGISTRADA: ${fmt(loadedAll.liters,2)}L por ${fmtMXN(loadedAll.amount)} | ULTIMA CARGA: ${lastRefuel}
+META ACTIVA: ${fmtMXN(goalTarget(cfg))}${earningsMode(cfg).short} (${earningsMode(cfg).label}) | meta por hora ${fmtMXN(cfg.targetHourlyRate)}/hr, meta por km ${fmtMXN(cfg.targetKmRate)}/km, solo la activa decide si un viaje conviene | VEHÍCULO ${cfg.vehicleType} | ENERGÍA ${fmtMXN(energyCostPerKm(cfg))}/km | GAS $${cfg.gasPricePerLiter}/L ${cfg.kmPerLiter}km/L | ELECTRICIDAD ${fmtMXN(cfg.electricityPricePerKwh)}/kWh ${cfg.kwhPer100Km}kWh/100km
+HISTÓRICO: ${historicalEstimates} viajes con costos estimados durante migración o cliente anterior; evita describirlos como precios originales.\nTOTAL ${sAll.n} viajes: neto ${fmtMXN(sAll.net)}, ${fmt(sAll.km,0)}km, ${(sAll.min/60).toFixed(0)}h, prom ${fmtMXN(sAll.n>0?sAll.net/sAll.n:0)}/viaje
+30D ${s30.n} viajes: neto ${fmtMXN(s30.net)}, ${(s30.min/60).toFixed(1)}h, ${fmtMXN(s30.min>0?s30.net/(s30.min/60):0)}/hr, energía estimada ${fmtMXN(s30.gas)}
+OPERACION 30D: combustible pagado ${fmt(loaded30.liters,2)}L por ${fmtMXN(loaded30.amount)}; consumo de combustible estimado ${fmt(consumedLiters30,2)}L; sin pasaje ${fmt(dead30,1)}km; propinas ${fmtMXN(tips30)}
+COMBUSTIBLE PAGADO: ${fmt(loadedAll.liters,2)}L por ${fmtMXN(loadedAll.amount)} | ELECTRICIDAD REGISTRADA: ${fmt(charges.reduce((a,e)=>a+(Number(e.kwh)||0),0),2)}kWh por ${fmtMXN(charges.reduce((a,e)=>a+(Number(e.amount)||0),0))} | CARGAS SIN IMPORTE: ${charges.filter(e=>e.amount==null).length} | ULTIMA CARGA: ${lastRefuel}
 ULTIMO TANQUE: ${lastTank} | ULTIMA PROPINA: ${lastTip}
 BONOS cobrados ${paidBonuses.length}: ${fmtMXN(bonusNet)} | activos: ${bonusCtx||"ninguno"}
 SEÑALES tendencia ${tendencia}; mejores ${bestH||"s/d"}; peores ${worstH||"s/d"}; dias ${diaS||"s/d"}; plataformas ${platS||"s/d"}
@@ -1943,7 +2007,7 @@ ULTIMOS ${last3||"s/d"}`;
     }catch(err){const message=`No pude consultar la IA: ${err.message}`;const next=[...pending,{role:"assistant",content:message}];setMsgs(next);if(voiceAuto&&voiceSupported)speak(message,`ai-${next.length-1}`);await persistConversation(next,conversations.find(c=>c.id===activeId)?.title||question.slice(0,52));}
     setLoading(false);
   };
-  const SUGG=["Dame un diagnóstico rápido de hoy","¿Cómo voy esta semana vs la pasada?","¿Cuáles son mis mejores zonas y horas?","¿Este bono sí conviene?","¿Qué viajes debo evitar?","¿Cuánto llevo gastado en gasolina?"];
+  const SUGG=["Dame un diagnóstico rápido de hoy","¿Cómo voy esta semana vs la pasada?","¿Cuáles son mis mejores zonas y horas?","¿Este bono sí conviene?","¿Qué viajes debo evitar?","¿Cuánto he pagado por energía y cuánto consumí?"];
   return(
     <div className="fu" style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)",minHeight:0,paddingBottom:"calc(60px + env(safe-area-inset-bottom))"}}>
       <div style={{padding:"9px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:7,position:"relative"}}>
@@ -2001,13 +2065,14 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
     return "FREE";
   })();
   const[local,setLocal]=useState(cfg);
+  const[advancedEnergy,setAdvancedEnergy]=useState(false);
   const[saved,setSaved]=useState(false);
   useEffect(()=>setLocal(cfg),[cfg]);
   const set=(k,v)=>{emitTourEvent(TOUR_EVENTS.CONFIG_CHANGED);setLocal(p=>({...p,[k]:v}));};
   const updatePlatform=(id,patch)=>{emitTourEvent("enabled" in patch?TOUR_EVENTS.PLATFORM_TOGGLED:TOUR_EVENTS.PLATFORM_CHANGED);setLocal(p=>({...p,platforms:platformList(p).map(x=>x.id===id?{...x,...patch}:x)}));};
   const addPlatform=()=>{const id=`personal-${Date.now()}`;setLocal(p=>({...p,platforms:[...platformList(p),{id,name:"Servicio propio",commission:0,enabled:true,color:C.muted}]}));};
   const removePlatform=id=>setLocal(p=>({...p,platforms:platformList(p).filter(x=>x.id!==id)}));
-  const save=async()=>{await saveConfig(local);emitTourEvent(TOUR_EVENTS.CONFIG_SAVED);setSaved(true);setTimeout(()=>setSaved(false),2000);};
+  const save=async()=>{if(!await saveConfig(local))return;emitTourEvent(TOUR_EVENTS.CONFIG_SAVED);setSaved(true);setTimeout(()=>setSaved(false),2000);};
   const periods=["diario","semanal","mensual","trimestral","semestral","anual"];
   const FCRow=({ek,mk,pk,label,xk,xl})=>(
     <div style={{background:C.card2,border:`1px solid ${local[ek]?C.accent+"44":C.border}`,borderRadius:11,padding:"13px 14px",marginBottom:9}}>
@@ -2036,10 +2101,24 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
       </Card>
       <Lbl s={{marginBottom:9}}>Variables base</Lbl>
       <Card tour="variables" s={{marginBottom:13}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11,marginBottom:14}}>
-          <Inp label="Gasolina (MXN/L)" type="number" value={local.gasPricePerLiter} onChange={v=>set("gasPricePerLiter",parseFloat(v)||0)} unit="$/L"/>
-          <Inp label="Rendimiento" type="number" value={local.kmPerLiter} onChange={v=>set("kmPerLiter",parseFloat(v)||0)} unit="km/L"/>
+        <Lbl s={{marginBottom:6}}>¿Qué vehículo manejas?</Lbl>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:10}}>
+          {[{id:"combustion",label:"⛽ Gasolina / Diésel"},{id:"electric",label:"⚡ Eléctrico"},{id:"hev",label:"♻️ Híbrido"}].map(v=><button key={v.id} onClick={()=>setLocal(p=>({...p,vehicleType:v.id,...(v.id==="hev"&&p.vehicleType==="combustion"?{gasPricePerLiter:23.47,kmPerLiter:22}:{})}))} style={{padding:"9px 4px",border:`1px solid ${local.vehicleType===v.id||v.id==="hev"&&local.vehicleType==="phev"?C.accent:C.border}`,borderRadius:8,color:C.text,fontSize:10}}>{v.label}</button>)}
         </div>
+        {["hev","phev"].includes(local.vehicleType)&&<div style={{marginBottom:10}}><Lbl s={{marginBottom:5}}>¿Se conecta a cargar?</Lbl><select value={local.vehicleType} onChange={e=>{const type=e.target.value;setLocal(p=>({...p,vehicleType:type,gasPricePerLiter:p.vehicleType==="combustion"?23.47:p.gasPricePerLiter,kmPerLiter:type==="phev"&&p.vehicleType==="hev"?20:type==="hev"&&p.vehicleType==="phev"?22:p.kmPerLiter,kwhPer100Km:type==="phev"?15:p.kwhPer100Km}));}}><option value="hev">No, híbrido convencional</option><option value="phev">Sí, híbrido enchufable</option></select></div>}
+        {local.vehicleType!=="electric"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11,marginBottom:10}}>
+          <Inp label="Combustible (MXN/L)" type="number" value={local.gasPricePerLiter} onChange={v=>set("gasPricePerLiter",Number(v))} unit="$/L"/>
+          <Inp label="Rendimiento" type="number" value={local.kmPerLiter} onChange={v=>set("kmPerLiter",Number(v))} unit="km/L"/>
+        </div>}
+        {["electric","phev"].includes(local.vehicleType)&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11,marginBottom:10}}>
+          <Inp label="Electricidad (MXN/kWh)" type="number" value={local.electricityPricePerKwh} onChange={v=>set("electricityPricePerKwh",Number(v))} unit="$/kWh"/>
+          <Inp label={local.energyUnit==="kmperkwh"?"Rendimiento":"Consumo"} type="number" value={local.energyUnit==="kmperkwh"?(100/local.kwhPer100Km).toFixed(2):local.kwhPer100Km} onChange={v=>set("kwhPer100Km",local.energyUnit==="kmperkwh"?kwhPer100FromKmPerKwh(v):Number(v))} unit={local.energyUnit==="kmperkwh"?"km/kWh":"kWh/100 km"}/>
+        </div>}
+        {local.vehicleType==="phev"&&<div style={{marginBottom:10}}><Lbl s={{marginBottom:5}}>¿Cómo usas normalmente tu vehículo?</Lbl><select value={[80,50,20].includes(Number(local.electricSharePct))?local.electricSharePct:"custom"} onChange={e=>set("electricSharePct",e.target.value==="custom"?50:Number(e.target.value))}><option value="80">Principalmente eléctrico · 80%</option><option value="50">Mitad y mitad · 50%</option><option value="20">Principalmente gasolina · 20%</option><option value="custom">Personalizado</option></select><Inp label="Porcentaje de kilómetros eléctricos" type="number" value={local.electricSharePct} onChange={v=>set("electricSharePct",Number(v))} unit="%"/></div>}
+        <button onClick={()=>setAdvancedEnergy(p=>!p)} style={{fontSize:10,color:C.accent,marginBottom:7}}>Opciones avanzadas de energía</button>
+        {advancedEnergy&&<div style={{marginBottom:10}}><select value={local.energyUnit} onChange={e=>set("energyUnit",e.target.value)}><option value="kwh100">kWh/100 km</option><option value="kmperkwh">km/kWh</option></select><Inp label="Energía adicional al cargar" type="number" value={local.chargingLossPct} onChange={v=>set("chargingLossPct",Number(v))} unit="%"/><div style={{fontSize:9,color:C.muted}}>Si tu consumo ya incluye energía tomada de la red, deja 0%.</div></div>}
+        <div style={{fontSize:13,color:C.accent,fontWeight:700,marginBottom:5}}>Tu costo de energía: {safeEnergyCost({...ENERGY_DEFAULTS,...local})}/km</div>
+        <div style={{fontSize:9,color:C.muted,marginBottom:14}}>Valores aproximados para empezar; puedes ajustarlos según tu vehículo y tarifas.</div>
         <Lbl s={{marginBottom:7}}>¿Cómo quieres ganar?</Lbl>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:11}}>
           {Object.values(EARNINGS_MODES).map(m=>{const active=(local.earningsMode||"hour")===m.id;return(
@@ -2183,7 +2262,7 @@ function Auth(){
 }
 
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
-const DCFG={gasPricePerLiter:24,kmPerLiter:12,targetHourlyRate:200,earningsMode:"hour",targetKmRate:8,platformCut:10,platforms:DEFAULT_PLATFORMS,
+const DCFG={...ENERGY_DEFAULTS,targetHourlyRate:200,earningsMode:"hour",targetKmRate:8,platformCut:10,platforms:DEFAULT_PLATFORMS,
   workHoursPerWeek:48,
   rentaEnabled:false,rentaMonto:0,rentaPeriodo:"mensual",
   seguroEnabled:false,seguroMonto:0,seguroPeriodo:"mensual",
@@ -2209,6 +2288,7 @@ export default function RuletoDriveApp(){
   const[activeDay,setActiveDay]=useState(null);
   const[session,setSession]=useState(null);
   const[profile,setProfile]=useState(null);
+  const[energyRevision,setEnergyRevision]=useState(0);
   const[loading,setLoading]=useState(true);
   const[pendingCount,setPendingCount]=useState(0);
   const[syncError,setSyncError]=useState("");
@@ -2469,9 +2549,10 @@ export default function RuletoDriveApp(){
     }catch(error){console.warn("Local history",error?.message||error);}
     setLoading(false);
     try{
-      const[{data:tr},{data:pr},{data:dy},{data:ad,error:adError},{data:oe,error:oeError},{data:cl,error:clError},{data:bn,error:bnError},{data:lc,error:lcError}]=await Promise.all([
+      const[{data:tr},{data:pr},{data:ep},{data:dy},{data:ad,error:adError},{data:oe,error:oeError},{data:cl,error:clError},{data:bn,error:bnError},{data:lc,error:lcError}]=await Promise.all([
         supabase.from("trips").select("*").eq("user_id",uid).order("created_at",{ascending:false}),
         supabase.from("profiles").select("*").eq("id",uid).single(),
+        supabase.from("vehicle_energy_profiles").select("*").eq("user_id",uid).maybeSingle(),
         supabase.from("days").select("*").eq("user_id",uid).order("date",{ascending:false}),
         supabase.from("active_days").select("*").eq("user_id",uid).maybeSingle(),
         supabase.from("operational_events").select("*").eq("user_id",uid).order("occurred_at",{ascending:false}),
@@ -2504,7 +2585,11 @@ export default function RuletoDriveApp(){
       if(cl){setClosures(cl);saveSnapshot(uid,"closures",cl).catch(()=>{});}
       if(clError&&clError.code!=="42P01")console.warn("Shift closures",clError.message);
       if(pr)setProfile(pr);
-      if(pr?.config&&Object.keys(pr.config).length>0)setCfg(normalizeConfig(pr.config));
+      if((pr?.config&&Object.keys(pr.config).length>0)||ep){
+        const queuedConfig=queued.filter(item=>item.kind==="energy_config").at(-1)?.full_config;
+        setCfg(normalizeConfig(queuedConfig||{...(pr?.config||{}),...(ep?energyFromRow(ep):{})}));
+      }
+      if(ep)setEnergyRevision(ep.revision);
       const localDay=readScoped(window.localStorage,uid,"active-day",null);
       const resolvedDay=resolveActiveDay({localDay,cloudDay:ad,cloudError:adError});
       setActiveDay(resolvedDay);
@@ -2643,6 +2728,19 @@ export default function RuletoDriveApp(){
       if(!navigator.onLine)return;
       for(const item of pending){
         if(authUserRef.current!==uid)break;
+        if(item.kind==="profile_config"){
+          const {error:profileError}=await supabase.from("profiles").upsert({id:uid,config:item.payload,updated_at:new Date().toISOString()});
+          if(profileError){setSyncError(profileError.message);break;}
+          await acknowledge(item.id);setPendingCount(n=>Math.max(0,n-1));setSyncError("");continue;
+        }
+        if(item.kind==="energy_config"){
+          const {data:row,error:configError}=await supabase.rpc("save_vehicle_energy_profile",{p_expected_revision:item.expected_revision,p_mutation_id:item.id,p_values:item.payload});
+          if(configError){setSyncError(configError.message);break;}
+          const {error:profileError}=await supabase.from("profiles").upsert({id:uid,config:item.full_config,updated_at:new Date().toISOString()});
+          if(profileError){setSyncError(profileError.message);break;}
+          await acknowledge(item.id);setEnergyRevision(row.revision);setPendingCount(n=>Math.max(0,n-1));setSyncError("");
+          continue;
+        }
         const table=item.kind==="trip"?"trips":item.kind==="operation"?"operational_events":null;
         if(!table)continue;
         const{data:saved,error}=await supabase.from(table).upsert(item.payload,{onConflict:"user_id,client_mutation_id"}).select().single();
@@ -2695,6 +2793,7 @@ export default function RuletoDriveApp(){
       const mutationId=crypto.randomUUID();
       const payload={
         user_id:uid,client_mutation_id:mutationId,fare:Number(data.fare)||0,platform:data.platform||"uber",
+        calculation_snapshot:data.calculation_snapshot||{...calculationSnapshot(cfg,data.platform||"uber"),fixedCostPerHour:fixedCostPerHour(cfg)},
         pickup_km:Number(data.pickup_km)||0,pickup_min:Number(data.pickup_min)||0,
         dest_km:Number(data.dest_km)||0,dest_min:Number(data.dest_min)||0,
         gps_km:Number(data.gps_km)||0,gps_min:Number(data.gps_min)||0,
@@ -2733,7 +2832,7 @@ export default function RuletoDriveApp(){
     if(!session)return false;
     try{
       const occurredAt=data.occurred_at||toStorageInstant();
-      const isCurrent=Boolean(data.start_location||data.end_location_promise)||Math.abs(new Date(occurredAt).getTime()-Date.now())<=10*60*1000;
+      const isCurrent=data.type!=="charge"&&(Boolean(data.start_location||data.end_location_promise)||Math.abs(new Date(occurredAt).getTime()-Date.now())<=10*60*1000);
       const endLocationPromise=isCurrent?(data.end_location_promise||locateDriver({timeout:6000,includePlace:false}).catch(()=>null)):Promise.resolve(null);
       const endLocation=await endLocationPromise;
       const uid=session.user.id;
@@ -2743,7 +2842,10 @@ export default function RuletoDriveApp(){
         endLocation&&{...endLocation,id:crypto.randomUUID(),event_type:data.type==="dead_km"?"dead_km_end":data.type},
       ].filter(Boolean);
       const payload={
-        user_id:uid,client_mutation_id:mutationId,type:data.type,km:Number(data.km)||0,amount:Number(data.amount)||0,
+        user_id:uid,client_mutation_id:mutationId,type:data.type,km:Number(data.km)||0,
+        amount:data.type==="charge"&&data.amount==null?null:Number(data.amount)||0,
+        kwh:data.type==="charge"&&data.kwh!=null?Number(data.kwh):null,
+        calculation_snapshot:data.type==="dead_km"?{...calculationSnapshot(cfg,data.platform),fixedCostPerHour:fixedCostPerHour(cfg)}:null,
         liters:Number(data.liters)||0,tank_liters:Number(data.tank_liters)||0,odometer:Number(data.odometer)||0,
         platform:data.platform||"",note:data.note||"",date:dateKey(occurredAt)||data.date||today(),occurred_at:occurredAt,
         location_status:!isCurrent?"historical_no_location":points.length?"captured":"unavailable",
@@ -2752,7 +2854,7 @@ export default function RuletoDriveApp(){
       setEvents(prev=>[{...payload,id:`local-${mutationId}`,_pending:true},...prev]);
       setPendingCount(count=>count+1);
       syncPendingFor(uid);
-      showToast(!isCurrent?"Movimiento histórico guardado sin ubicación actual":points.length?"Movimiento guardado; sincronizando":"Movimiento guardado; GPS no disponible",points.length||!isCurrent?"ok":"err");
+      showToast(data.type==="charge"?"Carga guardada; sincronizando":!isCurrent?"Movimiento histórico guardado sin ubicación actual":points.length?"Movimiento guardado; sincronizando":"Movimiento guardado; GPS no disponible",points.length||!isCurrent||data.type==="charge"?"ok":"err");
       return true;
     }catch(e){console.warn("Save movement locally",e);showToast("No se pudo guardar en este dispositivo. Conserva el formulario y libera espacio.","err");return false;}
   };
@@ -2763,6 +2865,7 @@ export default function RuletoDriveApp(){
       const{data:saved,error}=await supabase.from("bonuses").insert([{
         user_id:session.user.id,platform:data.platform||"uber",bonus_type:data.bonus_type||"racha",
         amount:Number(data.amount)||0,status:data.status||"paid",
+        calculation_snapshot:["paid","earned"].includes(data.status)?{...calculationSnapshot(cfg,data.platform),fixedCostPerHour:fixedCostPerHour(cfg)}:null,
         required_trips:data.required_trips===null?null:Number(data.required_trips)||0,
         completed_trips:data.completed_trips===null?null:Number(data.completed_trips)||0,
         extra_km:Number(data.extra_km)||0,extra_min:Number(data.extra_min)||0,
@@ -2776,7 +2879,10 @@ export default function RuletoDriveApp(){
 
   const updateBonus=async(id,data)=>{
     try{
-      const{data:updated,error}=await supabase.from("bonuses").update({...data,updated_at:new Date().toISOString()}).eq("id",id).select().single();
+      const previous=bonuses.find(b=>b.id===id);
+      const settling=["paid","earned"].includes(data.status)&&!previous?.calculation_snapshot;
+      const patch={...data,updated_at:new Date().toISOString(),...(settling?{calculation_snapshot:{...calculationSnapshot(cfg,previous?.platform||data.platform),fixedCostPerHour:fixedCostPerHour(cfg)}}:{})};
+      const{data:updated,error}=await supabase.from("bonuses").update(patch).eq("id",id).select().single();
       if(error){showToast("No se pudo actualizar el bono","err");return false;}
       setBonuses(p=>p.map(b=>b.id===id?updated:b));showToast("Bono actualizado");return true;
     }catch(e){showToast("Error de conexion","err");return false;}
@@ -2808,9 +2914,9 @@ export default function RuletoDriveApp(){
     if(!session)return;
     const locationPromise=locateDriver({timeout:8000}).catch(()=>null);
     const startedAt=toStorageInstant();
-    const{data,error}=await supabase.from("active_days").upsert({user_id:session.user.id,date:dateKey(startedAt),start_time:startedAt},{onConflict:"user_id"}).select().single();
+    const{data,error}=await supabase.from("active_days").upsert({user_id:session.user.id,date:dateKey(startedAt),start_time:startedAt,calculation_snapshot:{...calculationSnapshot(cfg,""),fixedCostPerHour:fixedCostPerHour(cfg)}},{onConflict:"user_id"}).select().single();
     if(!error&&data){
-      const obj={id:data.id,date:data.date,startTime:new Date(data.start_time).getTime(),running:true};
+      const obj={id:data.id,date:data.date,startTime:new Date(data.start_time).getTime(),running:true,calculation_snapshot:data.calculation_snapshot};
       emitTourEvent(TOUR_EVENTS.SHIFT_STARTED);
       setActiveDay(obj);
       if (FLAGS.offline_v2) {
@@ -2829,7 +2935,7 @@ export default function RuletoDriveApp(){
     if(!activeDay||!session)return;
     const locationPromise=locateDriver({timeout:8000}).catch(()=>null);
     const dayTrips=trips.filter(t=>dateOf(t)===activeDay.date);
-    const tots=operationalSummary(trips,events,cfg,activeDay.date,dayKm,bonuses);
+    const tots=operationalSummary(trips,events,cfg,activeDay.date,dayKm,bonuses,activeDay.calculation_snapshot);
     const totalMs=Date.now()-activeDay.startTime;
     const closeId=activeDay.closeId||crypto.randomUUID();
     if(!activeDay.closeId){
@@ -2899,15 +3005,44 @@ export default function RuletoDriveApp(){
   };
 
   const saveConfig=async newCfg=>{
-    const normalized=normalizeConfig(newCfg);setCfg(normalized);
-    if(!session)return;
-    await supabase.from("profiles").upsert({id:session.user.id,config:normalized,updated_at:new Date().toISOString()});
+    let normalized;
+    try{normalized=normalizeConfig(newCfg);if(normalized.vehicleType!==cfg.vehicleType)normalized.vehicleTypeChangedAt=new Date().toISOString();validateEnergy(normalized);}catch(error){showToast(error.message,"err");return false;}
+    if(!session)return false;
+    const uid=session.user.id,mutationId=crypto.randomUUID();
+    const item={id:mutationId,user_id:uid,kind:"energy_config",payload:energyRow(normalized),full_config:normalized,expected_revision:energyRevision,created_at:new Date().toISOString()};
+    const pendingConfigs=(await pendingFor(uid)).filter(entry=>entry.kind==="energy_config");
+    if(!navigator.onLine||pendingConfigs.length){
+      await enqueue(item);
+      for(const entry of pendingConfigs)await acknowledge(entry.id);
+      setCfg(normalized);setPendingCount(n=>n+1-pendingConfigs.length);
+      if(navigator.onLine)syncPendingFor(uid);
+      showToast("Configuración guardada en este dispositivo");return true;
+    }
+    const {data:result,error}=await supabase.rpc("save_vehicle_energy_profile",{p_expected_revision:energyRevision,p_mutation_id:mutationId,p_values:item.payload});
+    if(error){
+      if(error.message.includes("revisión")){
+        await enqueue(item);setPendingCount(n=>n+1);setCfg(normalized);
+        const {data:remote}=await supabase.from("vehicle_energy_profiles").select("revision").eq("user_id",uid).maybeSingle();
+        if(remote)setEnergyRevision(remote.revision);
+        setSyncError("Conflicto de configuración: revisa tus valores y pulsa Guardar de nuevo.");
+        showToast("Conflicto: cambios guardados aquí. Revisa los valores y pulsa Guardar de nuevo para aplicarlos.","err");
+      }else showToast(error.message,"err");
+      return false;
+    }
+    setEnergyRevision(result.revision);setCfg(normalized);setSyncError("");
+    const {error:profileError}=await supabase.from("profiles").upsert({id:uid,config:normalized,updated_at:new Date().toISOString()});
+    if(profileError){
+      await enqueue({id:crypto.randomUUID(),user_id:uid,kind:"profile_config",payload:normalized,created_at:new Date().toISOString()});
+      setPendingCount(n=>n+1);showToast("Energía guardada; otros ajustes pendientes de sincronizar","err");
+    }
+    return true;
   };
 
   const registerCopilotOffer=(offer)=>{
     if(!offer)return;
     const draft={
       ...DRAFT0,
+      calculation_snapshot:{...calculationSnapshot(cfg,offer.platform||"uber"),fixedCostPerHour:fixedCostPerHour(cfg),operatingEnergyCostPerKm:offer.operatingEnergyCostPerKm??energyCostPerKm(cfg),vehicleType:offer.vehicleType||cfg.vehicleType,commissionPct:offer.commissionPct??platformCommission(cfg,offer.platform),wearPerKm:offer.wearPerKm??calculationSnapshot(cfg,offer.platform).wearPerKm,fixedCostPerHour:offer.fixedCostPerHour??fixedCostPerHour(cfg)},
       fare:String(offer.fare||""),
       pickup_km:String(offer.pickupKm||""),
       pickup_min:String(offer.pickupMin||""),
@@ -3004,7 +3139,7 @@ export default function RuletoDriveApp(){
 
       {/* MODALES FUERA DEL DIV — flotan sobre todo incluyendo la NAV */}
       {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} activeBonuses={bonuses.filter(b=>String(b.status||"")==="active")} onClose={()=>{setShowNew(false);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_CLOSED);}} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)} copilotState={copilotState} userId={session.user.id}/>}
-      {showOperation&&<OperationModal cfg={cfg} initial={editingEvent} initialKind={editingKind} onClose={()=>{setShowOperation(false);setEditingEvent(null);setEditingKind("event");emitTourEvent(TOUR_EVENTS.QUICK_CLOSED);}} onSaveOperation={saveOperation} onUpdateOperation={updateOperation} onSaveTrip={saveTrip} onSaveBonus={saveBonus} onUpdateBonus={updateBonus}/>}
+      {showOperation&&<OperationModal cfg={cfg} isPro={isPro} initial={editingEvent} initialKind={editingKind} onClose={()=>{setShowOperation(false);setEditingEvent(null);setEditingKind("event");emitTourEvent(TOUR_EVENTS.QUICK_CLOSED);}} onSaveOperation={saveOperation} onUpdateOperation={updateOperation} onSaveTrip={saveTrip} onSaveBonus={saveBonus} onUpdateBonus={updateBonus}/>}
       {selectedRecord&&<RecordDetail kind={selectedRecord.kind} record={selectedRecord.record} cfg={cfg} onClose={()=>setSelectedRecord(null)} onEdit={()=>{setEditingEvent(selectedRecord.record);setEditingKind(selectedRecord.kind);setSelectedRecord(null);setShowOperation(true);}} onDelete={async()=>{const deleted=selectedRecord.kind==="bonus"?await deleteBonus(selectedRecord.record.id):await deleteOperation(selectedRecord.record.id);if(deleted)setSelectedRecord(null);}}/>}
       {selectedClosure&&<ClosureModal closure={selectedClosure} cfg={cfg} trips={trips} events={events} bonuses={bonuses} onClose={()=>setSelectedClosure(null)} onSelectTrip={trip=>{setSelectedClosure(null);setSelTrip(trip);}} onSelectRecord={(kind,record)=>{setSelectedClosure(null);setSelectedRecord({kind,record});}}/>}
       {selTrip&&<TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)}

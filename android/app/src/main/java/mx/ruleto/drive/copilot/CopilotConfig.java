@@ -9,6 +9,8 @@ import java.util.Locale;
 import java.util.Map;
 
 final class CopilotConfig {
+    final double operatingEnergyCostPerKm;
+    final String vehicleType;
     final double gasPrice;
     final double kmPerLiter;
     final double targetHourlyRate;
@@ -34,6 +36,8 @@ final class CopilotConfig {
                   boolean perKmGoal, double wearPerKm, double fixedCostPerHour,
                   Map<String, Double> commissions, String platformHint) {
         this.gasPrice = positiveOr(gasPrice, 24.0);
+        this.operatingEnergyCostPerKm = this.gasPrice / positiveOr(kmPerLiter, 12.0);
+        this.vehicleType = "combustion";
         this.kmPerLiter = positiveOr(kmPerLiter, 12.0);
         this.targetHourlyRate = positiveOr(targetHourlyRate, 200.0);
         this.targetKmRate = positiveOr(targetKmRate, 8.0);
@@ -42,6 +46,22 @@ final class CopilotConfig {
         this.fixedCostPerHour = Math.max(0, fixedCostPerHour);
         this.commissions = commissions == null ? new HashMap<>() : commissions;
         this.platformHint = platformHint == null || platformHint.isEmpty() ? "otra" : platformHint;
+    }
+
+    CopilotConfig(double gasPrice, double kmPerLiter, double targetHourlyRate,
+                  double targetKmRate, boolean perKmGoal, double wearPerKm, double fixedCostPerHour,
+                  Map<String, Double> commissions, String platformHint, double energy, String type) {
+        this.gasPrice = positiveOr(gasPrice, 24.0);
+        this.kmPerLiter = positiveOr(kmPerLiter, 12.0);
+        this.targetHourlyRate = positiveOr(targetHourlyRate, 200.0);
+        this.targetKmRate = positiveOr(targetKmRate, 8.0);
+        this.perKmGoal = perKmGoal;
+        this.wearPerKm = Math.max(0, wearPerKm);
+        this.fixedCostPerHour = Math.max(0, fixedCostPerHour);
+        this.commissions = commissions == null ? new HashMap<>() : commissions;
+        this.platformHint = platformHint == null || platformHint.isEmpty() ? "otra" : platformHint;
+        this.operatingEnergyCostPerKm = energy;
+        this.vehicleType = type;
     }
 
     static CopilotConfig fromJson(String json) {
@@ -56,7 +76,7 @@ final class CopilotConfig {
                     commissionMap.put(key.toLowerCase(Locale.ROOT), commissionJson.optDouble(key, 0.0));
                 }
             }
-            return new CopilotConfig(
+            CopilotConfig parsed = new CopilotConfig(
                 value.optDouble("gasPricePerLiter", 24.0),
                 value.optDouble("kmPerLiter", 12.0),
                 value.optDouble("targetHourlyRate", 200.0),
@@ -67,6 +87,15 @@ final class CopilotConfig {
                 commissionMap,
                 value.optString("platformHint", "otra")
             );
+            if (value.optInt("contractVersion", 1) >= 2) {
+                if (!value.has("operatingEnergyCostPerKm")) throw new JSONException("Missing energy cost");
+                double energy = value.optDouble("operatingEnergyCostPerKm", Double.NaN);
+                if (!Double.isFinite(energy) || energy < 0) throw new JSONException("Invalid energy cost");
+                return new CopilotConfig(parsed.gasPrice, parsed.kmPerLiter, parsed.targetHourlyRate,
+                    parsed.targetKmRate, parsed.perKmGoal, parsed.wearPerKm, parsed.fixedCostPerHour,
+                    parsed.commissions, parsed.platformHint, energy, value.optString("vehicleType", "combustion"));
+            }
+            return parsed;
         } catch (JSONException ignored) {
             return defaults();
         }

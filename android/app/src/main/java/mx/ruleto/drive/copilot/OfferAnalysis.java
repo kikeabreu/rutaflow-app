@@ -18,10 +18,24 @@ final class OfferAnalysis {
     final double confidence;
     final String verdict;
     final String explanation;
+    final double energyCostPerKm;
+    final String vehicleType;
+    final double commissionPct;
+    final double wearPerKm;
+    final double fixedCostPerHour;
 
     OfferAnalysis(String platform, double fare, double pickupKm, double pickupMin,
                   double tripKm, double tripMin, double net, double hourly,
                   double perKm, double confidence, String verdict, String explanation) {
+        this(platform, fare, pickupKm, pickupMin, tripKm, tripMin, net, hourly, perKm,
+            confidence, verdict, explanation, Double.NaN, "combustion", Double.NaN, Double.NaN, Double.NaN);
+    }
+
+    OfferAnalysis(String platform, double fare, double pickupKm, double pickupMin,
+                  double tripKm, double tripMin, double net, double hourly,
+                  double perKm, double confidence, String verdict, String explanation,
+                  double energyCostPerKm, String vehicleType, double commissionPct,
+                  double wearPerKm, double fixedCostPerHour) {
         this.platform = platform;
         this.fare = fare;
         this.pickupKm = pickupKm;
@@ -34,6 +48,11 @@ final class OfferAnalysis {
         this.confidence = confidence;
         this.verdict = verdict;
         this.explanation = explanation;
+        this.energyCostPerKm = energyCostPerKm;
+        this.vehicleType = vehicleType;
+        this.commissionPct = commissionPct;
+        this.wearPerKm = wearPerKm;
+        this.fixedCostPerHour = fixedCostPerHour;
     }
 
     JSONObject toJson() {
@@ -51,6 +70,11 @@ final class OfferAnalysis {
             value.put("confidence", round(confidence));
             value.put("verdict", verdict);
             value.put("explanation", explanation);
+            if (Double.isFinite(energyCostPerKm)) value.put("operatingEnergyCostPerKm", energyCostPerKm);
+            value.put("vehicleType", vehicleType);
+            if (Double.isFinite(commissionPct)) value.put("commissionPct", commissionPct);
+            if (Double.isFinite(wearPerKm)) value.put("wearPerKm", wearPerKm);
+            if (Double.isFinite(fixedCostPerHour)) value.put("fixedCostPerHour", fixedCostPerHour);
             value.put("signature", signature());
         } catch (JSONException ignored) {}
         return value;

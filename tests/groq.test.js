@@ -145,6 +145,29 @@ test("preserves image content for vision requests", async () => {
   }
 });
 
+test("receipt vision has a separate nullable energy schema", async () => {
+  process.env.SUPABASE_URL = "https://example.supabase.co";
+  process.env.SUPABASE_ANON_KEY = "anon-test";
+  process.env.GROQ_API_KEY = "groq-test";
+  const calls = [];
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    if (String(url).includes("/auth/v1/user")) return { ok: true };
+    return { ok: true, json: async () => ({ choices: [{ message: { content: '{"type":"charge","amount":0,"liters":null,"kwh":20,"currency":"MXN","date":null}' } }] }) };
+  };
+  try {
+    const req = { method: "POST", headers: { authorization: "Bearer user-token" }, body: { mode: "vision_receipt", messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: "data:image/jpeg;base64,abc" } }] }] } };
+    const res = responseRecorder();
+    await handler(req, res);
+    assert.equal(res.statusCode, 200);
+    const request = JSON.parse(calls[1].options.body);
+    assert.equal(request.model, "qwen/qwen3.8-27b");
+    assert.deepEqual(request.response_format.json_schema.schema.properties.amount.type, ["number", "null"]);
+    assert.ok(request.response_format.json_schema.schema.properties.type.enum.includes("charge"));
+  } finally { global.fetch = originalFetch; }
+});
+
 test("continues advisor responses that reach the token limit", async () => {
   process.env.SUPABASE_URL = "https://example.supabase.co";
   process.env.SUPABASE_ANON_KEY = "anon-test";

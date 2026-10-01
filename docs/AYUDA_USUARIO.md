@@ -5,7 +5,7 @@ Ruleto Drive ayuda a conductores a registrar jornadas, viajes, gastos operativos
 ## Primeros pasos
 
 1. Inicia sesión con correo y contraseña o con Google.
-2. En **Config** ajusta rendimiento del vehículo, precio de gasolina, meta por hora, comisiones y costos de mantenimiento.
+2. En **Config** elige combustión, eléctrico o híbrido; ajusta precio y consumo de energía, meta, comisiones y mantenimiento.
 3. En **Hoy** pulsa **Iniciar jornada** cuando estés listo para trabajar.
 4. Registra cada viaje y los movimientos relevantes.
 5. Pulsa **Terminar jornada** para crear el cierre.
@@ -17,7 +17,7 @@ La sesión de Google regresa a la aplicación Android mediante un enlace seguro.
 - **Viaje manual:** captura plataforma, tarifa, kilómetros y minutos de recogida y destino.
 - **Foto IA:** intenta leer una captura de oferta. Revisa todos los valores antes de guardar; el reconocimiento puede equivocarse.
 - **GPS del viaje:** requiere permiso de ubicación. La señal puede degradarse en interiores, túneles o por ahorro de batería.
-- **Movimientos:** registra kilómetros sin pasaje, gasolina, nivel del tanque y propinas.
+- **Movimientos:** registra kilómetros sin pasaje, combustible o cargas eléctricas, tanque cuando corresponda y propinas.
 - **Bonos:** registra promociones pagadas o activas, su avance, vencimiento y esfuerzo adicional.
 - **Cierre:** resume tiempo, kilómetros, productividad y utilidad calculada de la jornada.
 
@@ -25,7 +25,7 @@ No manipules el teléfono mientras conduces. Captura o corrige datos únicamente
 
 ## Cómo se calculan los resultados
 
-La estimación considera tarifa, comisión configurada, gasolina y, cuando están activos, llantas y mantenimiento por kilómetro. Los resultados dependen de que distancias, tiempos, comisiones y precios estén actualizados. Un valor estimado no garantiza el pago real de una plataforma.
+La estimación considera tarifa, comisión configurada, energía estimada y, cuando están activos, llantas y mantenimiento por kilómetro. Los resultados dependen de que distancias, tiempos, comisiones y precios estén actualizados. Un valor estimado no garantiza el pago real de una plataforma.
 
 ## Copiloto de ofertas en Android
 

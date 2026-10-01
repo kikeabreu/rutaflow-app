@@ -27,9 +27,9 @@ const PARSER_SCHEMA = {
     schema: {
       type: "object",
       properties: {
-        type: { type: "string", enum: ["trip", "dead_km", "refuel", "tank_checkpoint", "tip", "bonus", "unknown"] },
+        type: { type: "string", enum: ["trip", "dead_km", "refuel", "charge", "tank_checkpoint", "tip", "bonus", "unknown"] },
         fare: { type: "number" }, trip_km: { type: "number" }, dead_km: { type: "number" },
-        amount: { type: "number" }, liters: { type: "number" }, tank_liters: { type: "number" }, odometer: { type: "number" },
+        amount: { type: ["number", "null"] }, liters: { type: "number" }, kwh: { type: ["number", "null"] }, tank_liters: { type: "number" }, odometer: { type: "number" },
         platform: { type: "string" }, note: { type: "string" },
         bonus_mode: { type: "string", enum: ["paid", "active", ""] },
         bonus_type: { type: "string" },
@@ -39,7 +39,7 @@ const PARSER_SCHEMA = {
         extra_min: { type: "number" },
         expires_at: { type: "string" },
       },
-      required: ["type", "fare", "trip_km", "dead_km", "amount", "liters", "tank_liters", "odometer", "platform", "note", "bonus_mode", "bonus_type", "required_trips", "completed_trips", "extra_km", "extra_min", "expires_at"],
+      required: ["type", "fare", "trip_km", "dead_km", "amount", "liters", "kwh", "tank_liters", "odometer", "platform", "note", "bonus_mode", "bonus_type", "required_trips", "completed_trips", "extra_km", "extra_min", "expires_at"],
       additionalProperties: false,
     },
   },
@@ -63,11 +63,22 @@ const VISION_SCHEMA = {
   },
 };
 
+const RECEIPT_SCHEMA = {
+  type: "json_schema", json_schema: {name:"ruleto_energy_receipt",strict:true,schema:{
+    type:"object",properties:{
+      type:{type:"string",enum:["refuel","charge","unknown"]},
+      amount:{type:["number","null"]},liters:{type:["number","null"]},
+      kwh:{type:["number","null"]},currency:{type:["string","null"]},date:{type:["string","null"]}
+    },required:["type","amount","liters","kwh","currency","date"],additionalProperties:false
+  }}
+};
+
 const SYSTEM_PROMPTS = {
   parser: `Convierte mensajes breves de un conductor en un movimiento de Ruleto.
 Responde unicamente JSON valido con esta forma:
-{"type":"trip|dead_km|refuel|tank_checkpoint|tip|bonus|unknown","fare":0,"trip_km":0,"dead_km":0,"amount":0,"liters":0,"tank_liters":0,"odometer":0,"platform":"didi|uber|inDrive|otra","note":"","bonus_mode":"paid|active|","bonus_type":"","required_trips":0,"completed_trips":0,"extra_km":0,"extra_min":0,"expires_at":""}
-No inventes valores. Usa 0 o "" cuando el usuario no los proporcione. "Sin pasaje", "vacio" o "muertos" significa dead_km. Una carga de combustible significa refuel. Una correccion del tanque o lectura actual significa tank_checkpoint. Una propina significa tip y su monto va en amount. Bonos, rachas, desafios, garantias o promociones significan bonus; si menciona meta pendiente usa bonus_mode active; si dice que ya lo cobro usa paid. expires_at debe ir en formato local YYYY-MM-DDTHH:mm solo si el usuario dio fecha/hora clara.`,
+{"type":"trip|dead_km|refuel|charge|tank_checkpoint|tip|bonus|unknown","fare":0,"trip_km":0,"dead_km":0,"amount":null,"liters":0,"kwh":null,"tank_liters":0,"odometer":0,"platform":"didi|uber|inDrive|otra","note":"","bonus_mode":"paid|active|","bonus_type":"","required_trips":0,"completed_trips":0,"extra_km":0,"extra_min":0,"expires_at":""}
+No inventes valores. Usa 0 o "" cuando el usuario no los proporcione. "Sin pasaje", "vacio" o "muertos" significa dead_km. Una carga de combustible significa refuel. Una carga eléctrica significa charge, y su energía visible va en kwh. Una carga gratuita tiene amount 0; si no hay importe, usa null. Si "cargué" es ambiguo, usa unknown. Una correccion del tanque o lectura actual significa tank_checkpoint. Una propina significa tip y su monto va en amount. Bonos, rachas, desafios, garantias o promociones significan bonus; si menciona meta pendiente usa bonus_mode active; si dice que ya lo cobro usa paid. expires_at debe ir en formato local YYYY-MM-DDTHH:mm solo si el usuario dio fecha/hora clara.`,
+  vision_receipt: `Lee un comprobante de gasolina o carga eléctrica. Usa null si un dato no es visible. No confundas potencia kW con energía kWh. No infieras energía de duración o batería. Moneda exacta si aparece. Fecha local en YYYY-MM-DD si es visible; de lo contrario null.`,
   vision: `Extrae datos de una captura de Uber, DiDi, inDrive u otra plataforma.
 Responde unicamente JSON valido con esta forma:
 {"fare":0,"pickup_km":0,"pickup_min":0,"dest_km":0,"dest_min":0}
@@ -116,7 +127,7 @@ module.exports = async function handler(req, res) {
       return res.status(503).json({ error: "Falta configurar GROQ_API_KEY en Vercel." });
     }
 
-    const mode = ["advisor", "parser", "vision"].includes(req.body?.mode)
+    const mode = ["advisor", "parser", "vision", "vision_receipt"].includes(req.body?.mode)
       ? req.body.mode
       : "advisor";
     const rawIncoming = Array.isArray(req.body?.messages) ? req.body.messages : [];
@@ -145,7 +156,7 @@ module.exports = async function handler(req, res) {
       : incoming;
     const maxTokens = Math.min(Math.max(Number(req.body?.max_tokens) || 450, 80), mode === "advisor" ? 900 : 3000);
 
-    let activeModel = MODELS[mode];
+    let activeModel = MODELS[mode === "vision_receipt" ? "vision" : mode];
 
     const requestCompletion = async completionMessages => fetch(GROQ_URL, {
       method: "POST",
@@ -159,7 +170,7 @@ module.exports = async function handler(req, res) {
         max_tokens: maxTokens,
         temperature: mode === "advisor" ? 0.35 : 0.1,
         ...(mode === "parser" ? { response_format: PARSER_SCHEMA, reasoning_effort: "low" } : {}),
-        ...(mode === "vision" ? { response_format: VISION_SCHEMA, reasoning_effort: "none" } : {}),
+        ...(["vision","vision_receipt"].includes(mode) ? { response_format: mode === "vision_receipt" ? RECEIPT_SCHEMA : VISION_SCHEMA, reasoning_effort: "none" } : {}),
       }),
     });
 
@@ -168,9 +179,9 @@ module.exports = async function handler(req, res) {
 
     // Si GROQ_MODEL_* apunta a un modelo dado de baja, reintentamos con el modelo
     // vivo por defecto en vez de dejar la funcion muerta hasta tocar Vercel.
-    if (!response.ok && activeModel !== DEFAULT_MODELS[mode] && MODEL_GONE.test(data?.error?.message || "")) {
-      console.warn(`Ruleto Groq: modelo "${activeModel}" no disponible, reintentando con "${DEFAULT_MODELS[mode]}".`);
-      activeModel = DEFAULT_MODELS[mode];
+    if (!response.ok && activeModel !== DEFAULT_MODELS[mode === "vision_receipt" ? "vision" : mode] && MODEL_GONE.test(data?.error?.message || "")) {
+      console.warn(`Ruleto Groq: modelo "${activeModel}" no disponible, reintentando con "${DEFAULT_MODELS[mode === "vision_receipt" ? "vision" : mode]}".`);
+      activeModel = DEFAULT_MODELS[mode === "vision_receipt" ? "vision" : mode];
       response = await requestCompletion(messages);
       data = await response.json().catch(() => ({}));
     }

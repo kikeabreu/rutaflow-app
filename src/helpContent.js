@@ -1,8 +1,8 @@
 export const HELP_SECTIONS=[
-  {id:"start",title:"Primeros pasos",items:["Configura vehículo, gasolina, comisiones y meta por hora.","Inicia la jornada desde Hoy y registra viajes y movimientos.","Termina la jornada para generar el cierre."]},
-  {id:"offline",title:"Conexión y recuperación",items:["La navegación, el borrador de viaje y la jornada activa pueden recuperarse tras una recarga.","Guardar datos en la nube requiere conexión.","Si una operación falla, conserva el borrador y vuelve a intentar."]},
+  {id:"start",title:"Primeros pasos",items:["Configura tu tipo de vehículo, costo de energía, comisiones y meta.","Inicia la jornada desde Hoy y registra viajes y movimientos.","Termina la jornada para generar el cierre."]},
+  {id:"offline",title:"Conexión y recuperación",items:["La navegación, el borrador de viaje y la jornada activa pueden recuperarse tras una recarga.","Los viajes, movimientos y configuración pendientes se sincronizan al recuperar conexión.","Si una operación falla, conserva el borrador y vuelve a intentar."]},
   {id:"android",title:"Android",items:["GPS y Copiloto requieren permisos iniciados por el usuario.","Una notificación visible indica que un servicio foreground está activo.","Si Android termina una captura, debes autorizarla nuevamente."]},
-  {id:"pwa",title:"PWA",items:["Puedes instalarla desde un navegador compatible.","Las funciones nativas del Copiloto no están disponibles en la PWA.","La recuperación local no equivale a soporte offline completo."]},
+  {id:"pwa",title:"PWA",items:["Puedes instalarla desde un navegador compatible.","Las funciones nativas del Copiloto no están disponibles en la PWA.","Comprueba los registros pendientes cuando vuelva la conexión."]},
   {id:"privacy",title:"Privacidad y seguridad",items:["No incluyas datos de pasajeros en consultas de IA o soporte.","No compartas contraseñas, tokens ni datos bancarios.","Las estimaciones no sustituyen los registros oficiales de la plataforma."]},
 ];
 

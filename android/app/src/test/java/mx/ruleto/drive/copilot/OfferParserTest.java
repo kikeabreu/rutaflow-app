@@ -60,6 +60,26 @@ public class OfferParserTest {
     }
 
     @Test
+    public void electricCostMatchesPwaAndAllowsFreeCharging() {
+        Map<String, Double> commissions = new HashMap<>();
+        commissions.put("didi", 12.0);
+        String card = "DiDi\nMX$180.00\nA recoger 3.2 km · 8 min\nViaje 12.5 km · 24 min";
+        CopilotConfig electric = new CopilotConfig(24, 12, 200, 8, false,
+            0.50, 0, commissions, "didi", 0.49, "electric");
+        OfferAnalysis offer = OfferParser.parse(card, electric);
+        assertNotNull(offer);
+        assertEquals(180 - 21.6 - 15.7 * (0.49 + 0.50), offer.net, 0.01);
+        assertEquals(0.49, offer.energyCostPerKm, 0.0001);
+        assertEquals("electric", offer.vehicleType);
+
+        CopilotConfig free = new CopilotConfig(24, 12, 200, 8, false,
+            0.50, 0, commissions, "didi", 0, "electric");
+        OfferAnalysis freeOffer = OfferParser.parse(card, free);
+        assertNotNull(freeOffer);
+        assertEquals(180 - 21.6 - 15.7 * 0.50, freeOffer.net, 0.01);
+    }
+
+    @Test
     public void usesSelectedPlatformWhenCardDoesNotShowItsName() {
         OfferAnalysis offer = OfferParser.parse(
             "$95.50\n2.0 km 5 min\nDestino 7.8 km 19 min",

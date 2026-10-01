@@ -145,7 +145,7 @@ final class OfferParser {
         if (fare <= 0 || pickupKm <= 0 || tripKm <= 0 || pickupMin <= 0 || tripMin <= 0) return null;
 
         double commission = fare * config.commissionFor(platform) / 100.0;
-        double fuel = totalKm / config.kmPerLiter * config.gasPrice;
+        double fuel = totalKm * config.operatingEnergyCostPerKm;
         double wear = totalKm * config.wearPerKm;
         double fixed = (totalMin / 60.0) * config.fixedCostPerHour;
         double net = fare - commission - fuel - wear - fixed;
@@ -166,16 +166,18 @@ final class OfferParser {
         if (pickupKm > 4 || pickupMin > 10) {
             explanation = String.format(Locale.forLanguageTag("es-MX"), "La recogida es larga: %.1f km y %.0f min.", pickupKm, pickupMin);
         } else if (wear > 0 && (fuel + wear) > fare * 0.25) {
-            explanation = String.format(Locale.forLanguageTag("es-MX"), "Gasolina y desgaste consumirían cerca de $%.0f.", fuel + wear);
+            explanation = String.format(Locale.forLanguageTag("es-MX"), "Energía y desgaste consumirían cerca de $%.0f.", fuel + wear);
         } else if (fuel > fare * 0.25) {
-            explanation = String.format(Locale.forLanguageTag("es-MX"), "Gasolina consumiría cerca de $%.0f.", fuel);
+            explanation = String.format(Locale.forLanguageTag("es-MX"), "Energía consumiría cerca de $%.0f.", fuel);
         } else if (commission > fare * 0.18) {
             explanation = String.format(Locale.forLanguageTag("es-MX"), "La comisión de %s es de $%.0f.", platform.toUpperCase(), commission);
         } else {
             explanation = String.format(Locale.forLanguageTag("es-MX"), "Dejaría $%.0f netos en %.0f minutos.", net, totalMin);
         }
         return new OfferAnalysis(platform, fare, pickupKm, pickupMin, tripKm, tripMin,
-            net, hourly, perKm, confidence, verdict, explanation);
+            net, hourly, perKm, confidence, verdict, explanation,
+            config.operatingEnergyCostPerKm, config.vehicleType, config.commissionFor(platform),
+            config.wearPerKm, config.fixedCostPerHour);
 
     }
 
