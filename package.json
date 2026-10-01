@@ -9,16 +9,19 @@
     "@capacitor/browser": "^8.0.4",
     "@capacitor/cli": "^8.5.2",
     "@capacitor/core": "^8.5.2",
+    "@capacitor/push-notifications": "^8.1.2",
     "@supabase/supabase-js": "^2.39.0",
     "capacitor-native-settings": "^8.2.0",
     "dexie": "^4.4.6",
     "dexie-react-hooks": "^4.4.0",
+    "google-auth-library": "^11.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^9.1.0",
     "react-scripts": "5.0.1",
     "recharts": "^2.10.3",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "web-push": "^3.6.7"
   },
   "scripts": {
     "start": "react-scripts start",

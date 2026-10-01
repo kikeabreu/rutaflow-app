@@ -12,8 +12,8 @@ if (result.status !== 0) process.exit(result.status ?? 1);
 fs.renameSync(path.join(__dirname, "..", "build", "index.html"), path.join(__dirname, "..", "build", "app.html"));
 
 const serviceWorkerPath = path.join(__dirname, "..", "build", "sw.js");
-const deploymentVersion = (process.env.VERCEL_GIT_COMMIT_SHA || process.env.VERCEL_GIT_COMMIT_REF || "local-build")
-  .replace(/[^a-zA-Z0-9-]/g, "").slice(0, 20);
+const buildInfo = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "build", "build-info.json"), "utf8"));
+const deploymentVersion = String(buildInfo.build_number);
 const serviceWorker = fs.readFileSync(serviceWorkerPath, "utf8")
   .replace('const VERSION = "ruleto-v1";', `const VERSION = "ruleto-${deploymentVersion}";`)
   .replaceAll('"/index.html"', '"/app.html"');

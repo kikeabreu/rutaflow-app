@@ -27,6 +27,8 @@ import { SupportModal } from "./components/SupportModal";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { PermissionGate, necesitaPuertaDePermisos } from "./components/PermissionGate";
 import { Logo } from "./components/Logo";
+import { UpdatePanel } from "./components/UpdatePanel";
+import { buildNumber, buildLabel, platform, consentKey, checkUpdates, postponed, postpone, updateNow, reportInstallation, enableUpdateNotifications, disableUpdateNotifications, listenToUpdatePush, setupWorkerReload, unlinkInstallation } from "./updateClient";
 import { fixedCostPerHour } from "./fixedCosts";
 import { ENERGY_DEFAULTS, energyCostPerKm, validateEnergy, calculationSnapshot, kwhPer100FromKmPerKwh } from "./energy";
 import { C, ACCENT_FILL, useTheme } from "./theme";
@@ -2044,8 +2046,11 @@ ULTIMOS ${last3||"s/d"}`;
 }
 
 // ─── CONFIG TAB ───────────────────────────────────────────────────────────────
-function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboarding,themeMode,setThemeMode,isPro,planTier,profile,trialDaysLeft,session,onUpgrade}){
+function ConfigTab({cfg,saveConfig,onLogout,onCheckUpdates,onOpenUpdatesAdmin,installApp,onOpenSupport,onOpenOnboarding,themeMode,setThemeMode,isPro,planTier,profile,trialDaysLeft,session,onUpgrade}){
   const[portalLoading,setPortalLoading]=useState(false);
+  const[updateConsent,setUpdateConsent]=useState(()=>localStorage.getItem(consentKey(session?.user?.id))==='yes');
+  const[updateError,setUpdateError]=useState('');
+  const toggleUpdates=async()=>{try{setUpdateError('');if(updateConsent){await disableUpdateNotifications(session.user.id);setUpdateConsent(false);}else{await enableUpdateNotifications(session.user.id);setUpdateConsent(true);}}catch(e){setUpdateError(e.message);}};
   const[portalManageable,setPortalManageable]=useState(null);
   useEffect(()=>{
     if(!isPro||!session?.access_token){setPortalManageable(false);return;}
@@ -2090,6 +2095,13 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
   return(
     <div className="fu" style={{padding:"15px 14px 100px"}}>
       <div className="B" style={{fontSize:22,fontWeight:800,color:C.accent,marginBottom:16,letterSpacing:1}}>CONFIGURACIÓN</div>
+      <div style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:10,padding:14,marginBottom:16}}>
+        <strong>Actualizaciones</strong><p style={{fontSize:12,color:C.muted}}>Versión instalada: {buildLabel} ({buildNumber})</p>
+        <button onClick={onCheckUpdates} style={{color:C.accent,marginRight:12}}>Buscar actualizaciones</button>
+        <button onClick={toggleUpdates} style={{color:C.accent}}>{updateConsent?'Desactivar avisos':'Activar avisos de nuevas versiones'}</button>
+        {updateError&&<p role="alert" style={{fontSize:12,color:C.danger}}>{updateError}</p>}
+        {onOpenUpdatesAdmin&&<p><button onClick={onOpenUpdatesAdmin} style={{color:C.accent}}>Versiones y avisos (admin)</button></p>}
+      </div>
       {installApp?.available&&<div style={{background:`${C.teal}10`,border:`1px solid ${C.teal}33`,borderRadius:10,padding:"12px 13px",display:"flex",alignItems:"center",gap:11,marginBottom:14}}><SVG d={IC.home} size={18} color={C.teal}/><div style={{flex:1}}><div style={{fontSize:12,color:C.text,fontWeight:700}}>Instalar Ruleto Drive</div><div style={{fontSize:10,color:C.muted,marginTop:3}}>Acceso directo a pantalla completa</div></div><button onClick={installApp.install} style={{padding:"8px 10px",border:`1px solid ${C.teal}`,borderRadius:7,color:C.teal,fontSize:9,fontWeight:800}}>INSTALAR</button></div>}
       <Lbl s={{marginBottom:9}}>Apariencia</Lbl>
       <Card s={{marginBottom:13}}>
@@ -2303,6 +2315,10 @@ export default function RuletoDriveApp(){
   const[selectedRecord,setSelectedRecord]=useState(null);
   const[selectedClosure,setSelectedClosure]=useState(null);
   const[showSupport,setShowSupport]=useState(false);
+  const[showUpdatesAdmin,setShowUpdatesAdmin]=useState(false);
+  const[updateState,setUpdateState]=useState(null);
+  const[updateError,setUpdateError]=useState("");
+  const[noticeDismissed,setNoticeDismissed]=useState(false);
   const[showOnboarding,setShowOnboarding]=useState(()=>LS.get("rf_onboarding_dismissed",false)!==true);
   const[billingModal,setBillingModal]=useState(null);
   const[showPlanPicker,setShowPlanPicker]=useState(false);
@@ -2313,6 +2329,10 @@ export default function RuletoDriveApp(){
   const syncingRef=useRef(false);
   const syncRequestedRef=useRef(false);
   const installApp=useInstallApp();
+  const refreshUpdates=useCallback(async(force=false)=>{try{const result=await checkUpdates(force);setUpdateState(result);setNoticeDismissed(false);setUpdateError('');return result;}catch(e){setUpdateError(e.message);return null;}},[]);
+  useEffect(()=>{if(!session?.user?.id)return;reportInstallation(session.user.id).catch(e=>console.warn('Registro de actualización',e));refreshUpdates();const onVisible=()=>{if(document.visibilityState==='visible')refreshUpdates();};const onMessage=e=>{if(e.data?.type==='CHECK_UPDATES')refreshUpdates(true);};document.addEventListener('visibilitychange',onVisible);navigator.serviceWorker?.addEventListener?.('message',onMessage);const stopPush=listenToUpdatePush(()=>refreshUpdates(true));const stopReload=setupWorkerReload();return()=>{document.removeEventListener('visibilitychange',onVisible);navigator.serviceWorker?.removeEventListener?.('message',onMessage);stopPush();stopReload();};},[session?.user?.id,refreshUpdates]);
+  const doUpdate=async()=>{try{if(showNew||showOperation||editingEvent)throw new Error('Cierra el formulario abierto antes de actualizar');if(syncingRef.current||pendingCount>0||locations.some(x=>x._pending))throw new Error('Espera a que terminen de sincronizarse tus datos');await updateNow(session.user.id,activeDay);}catch(e){showToast(e.message,'err');}};
+
 
   useEffect(()=>{
     const uid=session?.user?.id;
@@ -2914,6 +2934,7 @@ export default function RuletoDriveApp(){
 
   const startDay=async()=>{
     if(!session)return;
+    if(updateState?.required){showToast("Actualiza Ruleto antes de iniciar otra jornada","err");return;}
     const locationPromise=locateDriver({timeout:8000}).catch(()=>null);
     const startedAt=toStorageInstant();
     const{data,error}=await supabase.from("active_days").upsert({user_id:session.user.id,date:dateKey(startedAt),start_time:startedAt,calculation_snapshot:{...calculationSnapshot(cfg,""),fixedCostPerHour:fixedCostPerHour(cfg)}},{onConflict:"user_id"}).select().single();
@@ -3081,6 +3102,9 @@ export default function RuletoDriveApp(){
     <>
       <style>{buildCSS(C,themeMode)}</style>
       {toast&&<Toast msg={toast.msg} type={toast.type}/>}
+      {updateState?.available&&(!postponed(updateState.release.id)||updateState.required)&&!noticeDismissed&&<div role="status" style={{position:'fixed',top:8,left:'50%',transform:'translateX(-50%)',maxWidth:460,width:'calc(100% - 24px)',zIndex:15000,background:C.card,border:`2px solid ${updateState.required?C.danger:C.accent}`,borderRadius:12,padding:16,boxShadow:'0 12px 35px #0008'}}><strong>{updateState.required?'Actualización necesaria':'Nueva versión disponible'}: {updateState.release.version_label}</strong><p style={{whiteSpace:'pre-wrap',fontSize:12}}>{updateState.release.notes}</p>{updateState.required&&activeDay?.running&&<p style={{fontSize:12}}>Termina y guarda tu jornada antes de actualizar.</p>}<button onClick={doUpdate} style={{color:C.accent,marginRight:16}}>Actualizar</button>{!updateState.required&&<button onClick={()=>{postpone(updateState.release.id);setNoticeDismissed(true);}}>Después</button>}{updateState.required&&<button onClick={()=>setShowSupport(true)} style={{marginLeft:16}}>Soporte</button>}</div>}
+      {updateError&&tab==='config'&&<div role="alert" style={{padding:8,color:C.danger}}>{updateError}</div>}
+      {showUpdatesAdmin&&platform==='web'&&session?.user?.app_metadata?.support_role==='admin'&&<div style={{position:'fixed',inset:0,zIndex:16000,overflowY:'auto',background:C.bg,color:C.text}}><button onClick={()=>setShowUpdatesAdmin(false)} style={{padding:14,color:C.accent}}>← Cerrar</button><UpdatePanel/></div>}
       <div style={{background:C.bg,minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative"}}>
         <div style={{background:C.card,padding:`calc(10px + env(safe-area-inset-top)) 15px 10px`,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10,borderBottom:`1px solid ${C.border}`}}>
           <div>
@@ -3125,7 +3149,7 @@ export default function RuletoDriveApp(){
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)}/>}
         {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)} userId={session.user.id}/>}
-        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode} isPro={isPro} planTier={planTier} profile={profile} trialDaysLeft={trialDaysLeft} session={session} onUpgrade={()=>setShowPlanPicker(true)}/>}
+        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={async()=>{await unlinkInstallation(session.user.id);await supabase.auth.signOut();}} onCheckUpdates={()=>refreshUpdates(true).then(result=>{if(result&&!result.available)showToast('Ya tienes la versión más reciente');})} onOpenUpdatesAdmin={platform==='web'&&session?.user?.app_metadata?.support_role==='admin'?()=>setShowUpdatesAdmin(true):null} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode} isPro={isPro} planTier={planTier} profile={profile} trialDaysLeft={trialDaysLeft} session={session} onUpgrade={()=>setShowPlanPicker(true)}/>}
 
         {/* NAVEGACIÓN FIJA */}
         <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100,paddingBottom:"calc(10px + env(safe-area-inset-bottom))",paddingTop:"10px"}}>
