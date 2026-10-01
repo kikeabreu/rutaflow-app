@@ -2155,6 +2155,10 @@ function ConfigTab({cfg,saveConfig,onLogout,onChangePhone,onCheckUpdates,onOpenU
           <div><div style={{fontSize:9,color:C.muted,letterSpacing:"0.1em",marginBottom:3}}>CELULAR</div><div style={{fontSize:13,fontWeight:700,color:C.text}}>{formatPhone(profile.phone)}</div></div>
           <button className="text-link" onClick={onChangePhone} style={{fontSize:11}}>Cambiar</button>
         </div>}
+        {session?.user?.email&&<div style={{marginTop:10,...(!profile?.phone?{paddingTop:10,borderTop:`1px solid ${C.border}`}:{})}}>
+          <div style={{fontSize:9,color:C.muted,letterSpacing:"0.1em",marginBottom:3}}>CORREO ELECTRÓNICO</div>
+          <div style={{fontSize:13,fontWeight:700,color:C.text,overflowWrap:"anywhere"}}>{session.user.email}</div>
+        </div>}
         {profile?.active_device_label&&<div style={{fontSize:10,color:C.muted,marginTop:8,lineHeight:1.45}}>Ruleto está activo en <strong style={{color:C.text}}>{profile.active_device_label}</strong>. Tu cuenta solo puede usarse en un dispositivo a la vez.</div>}
         <div style={{fontSize:9,color:C.dim,marginTop:10,display:"flex",gap:12,flexWrap:"wrap"}}>
           <a href="/terminos.html" target="_blank" rel="noopener noreferrer">Términos y condiciones</a>
