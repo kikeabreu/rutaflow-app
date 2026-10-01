@@ -34,10 +34,10 @@ test("uses the current Groq model without exposing the API key", async () => {
 
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.content, "Consejo listo");
-  const groqRequest = JSON.parse(calls[1].options.body);
+  const groqRequest = JSON.parse(calls.filter(call => String(call.url).includes("groq.com"))[0].options.body);
   assert.equal(groqRequest.model, "openai/gpt-oss-120b");
 
-  assert.equal(calls[1].options.headers.Authorization, "Bearer groq-test");
+  assert.equal(calls.filter(call => String(call.url).includes("groq.com"))[0].options.headers.Authorization, "Bearer groq-test");
   global.fetch = originalFetch;
 });
 
@@ -69,7 +69,7 @@ test("uses strict structured output for quick-entry parsing", async () => {
     await handler(req, res);
 
     assert.equal(res.statusCode, 200);
-    const groqRequest = JSON.parse(calls[1].options.body);
+    const groqRequest = JSON.parse(calls.filter(call => String(call.url).includes("groq.com"))[0].options.body);
     assert.equal(groqRequest.model, "openai/gpt-oss-20b");
 
     assert.equal(groqRequest.response_format.type, "json_schema");
@@ -97,7 +97,7 @@ test("keeps the operational database context for advisor questions", async () =>
     const req = { method: "POST", headers: { authorization: "Bearer user-token" }, body: { mode: "advisor", messages: [{ role: "system", content: context }, { role: "user", content: "Cuantos litros cargue?" }] } };
     const res = responseRecorder();
     await handler(req, res);
-    const groqRequest = JSON.parse(calls[1].options.body);
+    const groqRequest = JSON.parse(calls.filter(call => String(call.url).includes("groq.com"))[0].options.body);
     assert.match(groqRequest.messages[0].content, /ULTIMA CARGA: 10 L/);
   } finally {
     global.fetch = originalFetch;
@@ -135,7 +135,7 @@ test("preserves image content for vision requests", async () => {
     await handler(req, res);
 
     assert.equal(res.statusCode, 200);
-    const groqRequest = JSON.parse(calls[1].options.body);
+    const groqRequest = JSON.parse(calls.filter(call => String(call.url).includes("groq.com"))[0].options.body);
     assert.equal(groqRequest.model, "qwen/qwen3.8-27b");
 
     assert.equal(groqRequest.messages[1].content[0].type, "image_url");
@@ -161,7 +161,7 @@ test("receipt vision has a separate nullable energy schema", async () => {
     const res = responseRecorder();
     await handler(req, res);
     assert.equal(res.statusCode, 200);
-    const request = JSON.parse(calls[1].options.body);
+    const request = JSON.parse(calls.filter(call => String(call.url).includes("groq.com"))[0].options.body);
     assert.equal(request.model, "qwen/qwen3.8-27b");
     assert.deepEqual(request.response_format.json_schema.schema.properties.amount.type, ["number", "null"]);
     assert.ok(request.response_format.json_schema.schema.properties.type.enum.includes("charge"));
@@ -176,6 +176,7 @@ test("continues advisor responses that reach the token limit", async () => {
   const originalFetch = global.fetch;
   global.fetch = async url => {
     if (String(url).includes("/auth/v1/user")) return { ok: true };
+    if (String(url).includes("/rpc/ruleto_device_allowed")) return { ok: true, json: async () => true };
     completionCount += 1;
     return {
       ok: true,
@@ -237,12 +238,38 @@ test("falls back to the default model when the configured one is gone", async ()
     assert.equal(res.statusCode, 200);
     assert.equal(res.body.model, "qwen/qwen3.8-27b");
     // Auth + intento fallido + reintento con el modelo vivo.
-    assert.equal(calls.length, 3);
-    assert.equal(JSON.parse(calls[2].options.body).model, "qwen/qwen3.8-27b");
+    assert.equal(calls.filter(call => String(call.url).includes("groq.com")).length, 2);
+    assert.equal(JSON.parse(calls.filter(call => String(call.url).includes("groq.com"))[1].options.body).model, "qwen/qwen3.8-27b");
   } finally {
     global.fetch = originalFetch;
     if (previous === undefined) delete process.env.GROQ_MODEL_VISION;
     else process.env.GROQ_MODEL_VISION = previous;
     delete require.cache[require.resolve("../api/groq.js")];
+  }
+});
+
+test("rejects AI requests from a device that is no longer the active one", async () => {
+  process.env.SUPABASE_URL = "https://example.supabase.co";
+  process.env.SUPABASE_ANON_KEY = "anon-test";
+  process.env.GROQ_API_KEY = "groq-test";
+  const calls = [];
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (String(url).includes("/auth/v1/user")) return { ok: true };
+    if (String(url).includes("/rpc/ruleto_device_allowed")) return { ok: true, json: async () => false };
+    throw new Error("Groq should not be called");
+  };
+  try {
+    const req = { method: "POST", headers: { authorization: "Bearer user-token", "x-ruleto-device": "web:0123456789abcdef0123456789abcdef" }, body: { mode: "advisor", messages: [{ role: "user", content: "Hola" }] } };
+    const res = responseRecorder();
+    await handler(req, res);
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.body.code, "device_inactive");
+    const rpc = calls.find(call => call.url.includes("/rpc/ruleto_device_allowed"));
+    assert.equal(JSON.parse(rpc.options.body).p_device_id, "web:0123456789abcdef0123456789abcdef");
+    assert.equal(rpc.options.headers.Authorization, "Bearer user-token");
+  } finally {
+    global.fetch = originalFetch;
   }
 });
