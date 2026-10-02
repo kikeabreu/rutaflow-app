@@ -35,6 +35,8 @@ import { C, ACCENT_FILL, useTheme } from "./theme";
 import { useGpsTracker, readTracker, startTracker, stopTracker, clearTracker, patchTracker, trackerElapsedMs } from "./gpsTracker";
 import { claimDevice, releaseDevice } from "./accountClient";
 import { DeviceGate, PhoneGate, PhoneField } from "./components/AccountGates";
+import { ConsentGate, DeleteAccountModal } from "./components/ConsentGate";
+import { consentIsCurrent, deleteAccount, loadConsent, locationConsentGranted, saveConsent, setLocationConsent } from "./consent";
 import { DEFAULT_COUNTRY, normalizePhone, formatPhone } from "./phone";
 import { DEMO_TRIPS, DEMO_EVENTS } from "./demoData";
 
@@ -429,7 +431,7 @@ function useDayGPS(isActive,userId,sessionId){
     }
   },[]);
   const start=useCallback(()=>{
-    if(!navigator.geolocation)return;
+    if(!navigator.geolocation||!locationConsentGranted())return;
     return navigator.geolocation.watchPosition(
       ({coords:{latitude:lat,longitude:lon}})=>{
         if(lastRef.current){
@@ -2021,8 +2023,10 @@ ULTIMOS ${last3||"s/d"}`;
 }
 
 // ─── CONFIG TAB ───────────────────────────────────────────────────────────────
-function ConfigTab({cfg,saveConfig,onLogout,onChangePhone,onCheckUpdates,onOpenUpdatesAdmin,installApp,onOpenSupport,onOpenOnboarding,themeMode,setThemeMode,isPro,planTier,profile,trialDaysLeft,session,onUpgrade}){
+function ConfigTab({cfg,saveConfig,onLogout,onChangePhone,onCheckUpdates,onOpenUpdatesAdmin,installApp,onOpenSupport,onOpenOnboarding,themeMode,setThemeMode,isPro,planTier,profile,trialDaysLeft,session,onUpgrade,consent,onToggleLocation,onDeleteAccount}){
   const[portalLoading,setPortalLoading]=useState(false);
+  const[locationBusy,setLocationBusy]=useState(false);
+  const[locationError,setLocationError]=useState("");
   const[updateConsent,setUpdateConsent]=useState(()=>localStorage.getItem(consentKey(session?.user?.id))==='yes');
   const[updateError,setUpdateError]=useState('');
   const toggleUpdates=async()=>{try{setUpdateError('');if(updateConsent){await disableUpdateNotifications(session.user.id);setUpdateConsent(false);}else{await enableUpdateNotifications(session.user.id);setUpdateConsent(true);}}catch(e){setUpdateError(e.message);}};
@@ -2160,6 +2164,14 @@ function ConfigTab({cfg,saveConfig,onLogout,onChangePhone,onCheckUpdates,onOpenU
           <div style={{fontSize:13,fontWeight:700,color:C.text,overflowWrap:"anywhere"}}>{session.user.email}</div>
         </div>}
         {profile?.active_device_label&&<div style={{fontSize:10,color:C.muted,marginTop:8,lineHeight:1.45}}>Ruleto está activo en <strong style={{color:C.text}}>{profile.active_device_label}</strong>. Tu cuenta solo puede usarse en un dispositivo a la vez.</div>}
+        {consent&&<div style={{marginTop:12,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+            <div><div style={{fontSize:9,color:C.muted,letterSpacing:"0.1em",marginBottom:3}}>CONSENTIMIENTO DE UBICACIÓN</div><div style={{fontSize:12,fontWeight:700,color:consent.accepted_location?C.teal:C.muted}}>{consent.accepted_location?"Activo":"Desactivado"}</div></div>
+            <button className="text-link" disabled={locationBusy} onClick={async()=>{setLocationBusy(true);setLocationError("");try{await onToggleLocation();}catch(e){setLocationError(e.message);}setLocationBusy(false);}} style={{fontSize:11}}>{consent.accepted_location?"Revocar":"Dar consentimiento"}</button>
+          </div>
+          <div style={{fontSize:10,color:C.muted,marginTop:6,lineHeight:1.45}}>Sin este consentimiento el GPS no se usa. Puedes cambiarlo cuando quieras.</div>
+          {locationError&&<div style={{fontSize:10,color:C.danger,marginTop:4}}>{locationError}</div>}
+        </div>}
         <div style={{fontSize:9,color:C.dim,marginTop:10,display:"flex",gap:12,flexWrap:"wrap"}}>
           <a href="/terminos.html" target="_blank" rel="noopener noreferrer">Términos y condiciones</a>
           <a href="/privacidad.html" target="_blank" rel="noopener noreferrer">Aviso de privacidad</a>
@@ -2171,6 +2183,7 @@ function ConfigTab({cfg,saveConfig,onLogout,onChangePhone,onCheckUpdates,onOpenU
         <Btn full onClick={onOpenOnboarding} color={C.accent} outline>📖 Ver Tutorial</Btn>
       </div>
       <Btn full onClick={onLogout} color={C.danger} outline><SVG d={IC.out} size={13} color={C.danger}/>Cerrar sesión</Btn>
+      <button onClick={onDeleteAccount} style={{display:"block",margin:"14px auto 0",background:"none",border:"none",color:C.muted,fontSize:11,textDecoration:"underline",cursor:"pointer"}}>Eliminar mi cuenta y mis datos</button>
       <div style={{fontSize:8,color:C.dim,textAlign:"center",marginTop:12}}>Zonas por OpenStreetMap contributors</div>
     </div>
   );
@@ -2432,6 +2445,30 @@ export default function RuletoDriveApp(){
   const[deviceBusy,setDeviceBusy]=useState(false);
   const[deviceError,setDeviceError]=useState("");
   const[showPhoneEdit,setShowPhoneEdit]=useState(false);
+  const[consent,setConsent]=useState(undefined);
+  const[consentLoaded,setConsentLoaded]=useState(false);
+  const[showDeleteAccount,setShowDeleteAccount]=useState(false);
+  const consentUid=session?.user?.id;
+  useEffect(()=>{
+    if(!consentUid){setConsent(undefined);setConsentLoaded(false);setLocationConsent(null);return;}
+    let alive=true;
+    loadConsent(consentUid).then(row=>{if(!alive)return;setConsent(row);setConsentLoaded(true);setLocationConsent(row?row.accepted_location:null);});
+    return()=>{alive=false;};
+  },[consentUid]);
+  const acceptConsent=row=>{setConsent(row);setLocationConsent(row.accepted_location);};
+  const toggleLocationConsent=async()=>{
+    const next=!(consent?.accepted_location);
+    const row=await saveConsent({location:next,source:"settings"});
+    acceptConsent(row);
+    if(!next)nativeTracking.stopSession().catch(()=>{});
+  };
+  const removeAccount=async()=>{
+    await deleteAccount(session);
+    try{await supabase.auth.signOut({scope:"local"});}catch{}
+    try{window.localStorage.clear();}catch{}
+    try{const dbs=await (indexedDB.databases?.()||[]);dbs.forEach(d=>d.name&&indexedDB.deleteDatabase(d.name));}catch{}
+    window.location.reload();
+  };
   useEffect(()=>{
     const uid=session?.user?.id;
     setDeviceBlock(null);setDeviceError("");
@@ -3151,6 +3188,9 @@ export default function RuletoDriveApp(){
   // Sin la migración la columna no existe y no pedimos nada.
   if(profile&&("phone" in profile)&&!profile.phone)return <><style>{buildCSS(C,themeMode)}</style><PhoneGate session={session} onDone={()=>refreshProfile(session.user.id)} onLogout={logout}/></>;
 
+  if(session&&!consentLoaded)return <div style={{background:C.bg,minHeight:"100vh"}}/>;
+  if(session&&consentLoaded&&!consentIsCurrent(consent))return <><style>{buildCSS(C,themeMode)}</style><ConsentGate onDone={acceptConsent} onLogout={logout}/></>;
+
   const uname=session?.user?.user_metadata?.full_name||session?.user?.email?.split("@")[0]||"Driver";
   const todayNet=operationalSummary(trips,events,cfg,today(),dayKm,bonuses).net;
   const trialDaysLeft=planTier==="TRIAL"&&profile?.pro_until?Math.max(0,Math.ceil((new Date(profile.pro_until).getTime()-billingNow)/(1000*60*60*24))):0;
@@ -3207,7 +3247,7 @@ export default function RuletoDriveApp(){
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)}/>}
         {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)} userId={session.user.id}/>}
-        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={logout} onChangePhone={()=>setShowPhoneEdit(true)} onCheckUpdates={()=>refreshUpdates(true).then(result=>{if(result&&!result.available)showToast('Ya tienes la versión más reciente');})} onOpenUpdatesAdmin={platform==='web'&&session?.user?.app_metadata?.support_role==='admin'?()=>setShowUpdatesAdmin(true):null} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode} isPro={isPro} planTier={planTier} profile={profile} trialDaysLeft={trialDaysLeft} session={session} onUpgrade={()=>setShowPlanPicker(true)}/>}
+        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={logout} onChangePhone={()=>setShowPhoneEdit(true)} onCheckUpdates={()=>refreshUpdates(true).then(result=>{if(result&&!result.available)showToast('Ya tienes la versión más reciente');})} onOpenUpdatesAdmin={platform==='web'&&session?.user?.app_metadata?.support_role==='admin'?()=>setShowUpdatesAdmin(true):null} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode} isPro={isPro} planTier={planTier} profile={profile} trialDaysLeft={trialDaysLeft} session={session} onUpgrade={()=>setShowPlanPicker(true)} consent={consent} onToggleLocation={toggleLocationConsent} onDeleteAccount={()=>setShowDeleteAccount(true)}/>}
 
         {!showNew&&!showOperation&&<GpsRunningPill userId={session.user.id} onOpenTrip={()=>setShowNew(true)} onOpenDead={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}}/>}
 
@@ -3231,6 +3271,7 @@ export default function RuletoDriveApp(){
       {selTrip&&<TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)}
         onSave={async(id,d)=>{await updateTrip(id,d);setSelTrip(null);}}
         onDelete={async id=>{await deleteTrip(id);setSelTrip(null);}}/>}
+      {showDeleteAccount&&<DeleteAccountModal onCancel={()=>setShowDeleteAccount(false)} onConfirm={removeAccount}/>}
       {showPhoneEdit&&profile&&<div style={{position:"fixed",inset:0,zIndex:16000,overflowY:"auto"}}><PhoneGate session={{user:{user_metadata:{phone:profile.phone,phone_country:profile.phone_country}}}} onCancel={()=>setShowPhoneEdit(false)} onDone={async()=>{setShowPhoneEdit(false);await refreshProfile(session.user.id);}}/></div>}
       {showSupport&&<SupportModal isOpen={showSupport} onClose={()=>setShowSupport(false)} userId={session?.user?.id} userEmail={session?.user?.email} onReportSent={sent=>showToast(sent?"Reporte enviado con éxito":"Reporte guardado; se enviará al recuperar la conexión",sent?"ok":"warn")}/>}
       {showOnboarding&&<OnboardingWizard isOpen={showOnboarding} onComplete={()=>setShowOnboarding(false)} onDismissNever={()=>{setShowOnboarding(false);LS.set("rf_onboarding_dismissed",true);}} currentTab={tab}/>}

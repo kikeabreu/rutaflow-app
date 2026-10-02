@@ -3,8 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Ruleto Drive | Copiloto para decidir mejor cada viaje</title>
-  <meta name="description" content="Ruleto Copiloto te muestra si una oferta conviene antes de aceptarla. Ruleto IA responde preguntas sobre tus viajes, gastos y mejores horarios. Prueba Pro 14 días sin tarjeta." />
+  <title>Ruleto Drive | App para conductores Uber, DiDi e inDrive en México</title>
+  <meta name="description" content="Calcula la ganancia real de Uber, DiDi, inDrive o taxi en México. Ruleto Copiloto muestra si una oferta conviene antes de aceptar. Pro 14 días sin tarjeta." />
+  <meta property="og:title" content="Ruleto Drive | Calcula tu ganancia real antes de aceptar" />
+  <meta property="og:description" content="Copiloto para conductores en México: semáforo de ofertas, ganancia neta, $/hora y $/km con gasolina, comisión y gastos fijos." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://ruleto.mx/landing.html" />
+  <meta property="og:image" content="https://ruleto.mx/icons/icon-512.png" />
   <meta name="theme-color" content="#0A1F1A" />
   <script>
     // Preserve existing email/OAuth callbacks while the former Vercel host migrates.
@@ -61,16 +66,19 @@
     .btn:hover{transform:translateY(-1px);border-color:var(--teal)}
     .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);box-shadow:0 10px 30px rgba(74,222,128,.22)}
     .btn.ghost{background:color-mix(in srgb,var(--text) 4%,transparent)}
-    .hero{padding:96px 0 72px}
+    .hero{padding:82px 0 62px}
     .hero-grid{display:grid;grid-template-columns:1.08fr .92fr;gap:56px;align-items:center}
     .eyebrow{display:inline-flex;gap:10px;align-items:center;color:var(--teal);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:18px}
     .dot{width:8px;height:8px;border-radius:99px;background:var(--teal);box-shadow:0 0 18px rgba(0,201,167,.9)}
     h1,h2,h3{font-family:"Inter",sans-serif;font-weight:900;margin:0;line-height:1.02}
-    h1{font-size:clamp(54px,7vw,94px);letter-spacing:-1px}
+    h1{font-size:clamp(48px,6.4vw,86px);letter-spacing:-1px}
     h1 span{color:var(--accent)}
     .lead{font-size:18px;color:var(--muted);max-width:700px;margin:26px 0 30px}
     .hero-actions{display:flex;gap:12px;flex-wrap:wrap}
     .micro{margin-top:14px;color:var(--muted);font-size:12px}
+    .result-line{margin:18px 0 0;padding:14px 16px;border-left:3px solid var(--danger);background:rgba(255,64,85,.08);border-radius:0 12px 12px 0;color:var(--text);font-size:14px;max-width:680px}
+    .trust-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+    .chip{display:inline-flex;align-items:center;min-height:34px;padding:7px 10px;border:1px solid var(--border);border-radius:999px;background:rgba(234,251,243,.04);color:var(--text);font-size:11px;font-weight:700}
     .phone{position:relative;max-width:430px;margin-left:auto;background:linear-gradient(160deg,var(--panel),var(--bg));border:1px solid var(--border);border-radius:34px;padding:18px;box-shadow:var(--shadow)}
     .phone:before{content:"";display:block;width:86px;height:6px;background:var(--border);border-radius:99px;margin:0 auto 16px}
     .screen{border-radius:24px;background:var(--bg);border:1px solid var(--border);padding:20px}
@@ -95,6 +103,32 @@
     .feature{display:flex;gap:16px;padding:20px;background:var(--panel);border:1px solid var(--border);border-radius:16px}
     .tick{width:34px;height:34px;flex:0 0 34px;border-radius:10px;background:rgba(0,201,167,.1);color:var(--teal);display:grid;place-items:center;font-weight:900}
     .feature h3{font-size:23px;margin-bottom:5px}.feature p{margin:0;color:var(--muted);font-size:13px}
+    .story{display:grid;grid-template-columns:.9fr 1.1fr;gap:18px;align-items:stretch}
+    .story-panel{background:var(--panel);border:1px solid var(--border);border-radius:20px;padding:24px}
+    .story-panel h3{font-size:30px;margin-bottom:12px}.story-panel p{color:var(--muted);font-size:14px;margin:0 0 12px}
+    .stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}
+    .stat-todo{padding:16px;border:1px dashed rgba(143,185,172,.45);border-radius:14px;background:rgba(234,251,243,.03)}
+    .stat-todo b{display:block;color:var(--accent);font-size:22px}.stat-todo span{display:block;color:var(--muted);font-size:11px;margin-top:4px}
+    .testimonial-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+    .testimonial{min-height:170px;border:1px dashed rgba(143,185,172,.45);background:rgba(234,251,243,.03);border-radius:18px;padding:20px;color:var(--muted);font-size:13px}
+    .testimonial strong{display:block;color:var(--text);font-size:16px;margin-bottom:6px}
+    .rules-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .rules-list{background:var(--panel);border:1px solid var(--border);border-radius:20px;padding:24px}
+    .rules-list h3{font-size:28px;margin-bottom:12px}.rules-list ul{list-style:none;padding:0;margin:0}.rules-list li{padding:10px 0;border-bottom:1px solid var(--border);font-size:14px;color:var(--muted)}.rules-list li:last-child{border-bottom:0}.rules-list li:before{content:"✓";color:var(--teal);font-weight:900;margin-right:9px}.rules-list.no li:before{content:"×";color:var(--danger)}
+    .permission-note{margin-top:16px;padding:18px;border-radius:16px;background:rgba(0,201,167,.08);border:1px solid rgba(0,201,167,.25);color:var(--muted);font-size:14px}
+    .calc{display:grid;grid-template-columns:.95fr 1.05fr;gap:18px;align-items:stretch}
+    .calc-panel{background:var(--panel);border:1px solid var(--border);border-radius:22px;padding:24px}
+    .calc-form{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+    .field label{display:block;color:var(--muted);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px}
+    .field input,.field select{width:100%;min-height:48px;border:1px solid var(--border);border-radius:12px;background:var(--bg);color:var(--text);font:700 16px "Inter",sans-serif;padding:0 12px}
+    .calc-result{display:grid;gap:12px}
+    .signal{border-radius:18px;padding:18px;border:1px solid var(--signal);background:color-mix(in srgb,var(--signal) 12%,transparent)}
+    .signal span{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}.signal strong{display:block;color:var(--signal);font-size:36px;line-height:1.1;margin-top:4px}
+    .calc-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+    .calc-metrics div,.fixed-costs{background:var(--panel2);border:1px solid var(--border);border-radius:14px;padding:14px}
+    .calc-metrics span,.fixed-costs span{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}.calc-metrics b{font-size:18px}
+    .fixed-costs{color:var(--muted);font-size:13px}
+    .fixed-costs strong{color:var(--text)}
     .pricing{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:stretch}
     .plan{position:relative;background:var(--panel);border:1px solid var(--border);border-radius:24px;padding:30px}
     .plan.pro{border-color:var(--accent);box-shadow:0 20px 60px rgba(74,222,128,.1)}
@@ -106,6 +140,7 @@
     .faq{display:grid;grid-template-columns:1fr 1fr;gap:14px}.faqitem{padding:20px;border-radius:16px;border:1px solid var(--border);background:var(--panel)}.faqitem h3{font-size:24px}.faqitem p{color:var(--muted);font-size:13px;margin-bottom:0}
     footer{padding:34px 0 48px;color:var(--muted);font-size:12px;border-top:1px solid var(--border)}
     .footerin{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+    .mobile-cta{display:none}
 
     /* Showcase: pantallas reales de la app */
     .showcase{display:grid;grid-template-columns:1fr 1fr;gap:28px}
@@ -173,8 +208,8 @@
     .chat-answer b{color:var(--accent)}
     .ai-note{font-size:11px;color:#9AC6B4;margin-top:16px}
 
-    @media (max-width:900px){.hero-grid,.pricing,.ai-grid{grid-template-columns:1fr}.phone{margin:20px auto 0}.cards,.value-steps{grid-template-columns:1fr}.feature-grid,.faq{grid-template-columns:1fr}.trial{display:block}.trial .btn{margin-top:20px}.navlinks{display:none}.menu-toggle{display:flex}.mobile-menu:not([hidden]){display:block;position:absolute;top:100%;left:0;right:0;background:var(--bg);border-bottom:1px solid var(--border);box-shadow:0 24px 40px rgba(0,0,0,.28);max-height:calc(100vh - 72px);max-height:calc(100dvh - 72px);overflow-y:auto}.mobile-menu-inner{display:grid;gap:2px;padding:12px 0 20px}.mobile-menu a{display:flex;align-items:center;min-height:48px;padding:10px 14px;border-radius:10px;color:var(--text);font-size:15px;font-weight:700}.mobile-menu a:hover{background:var(--panel2)}.mobile-menu .btn{margin-top:10px;color:var(--accent-ink);text-align:center}.hero{padding-top:68px}.showcase,.tri{grid-template-columns:1fr;gap:36px}}
-    @media (max-width:560px){.wrap{width:min(100% - 22px,1160px)}.navin{height:64px}.brand span{font-size:21px}.mobile-menu:not([hidden]){max-height:calc(100vh - 64px);max-height:calc(100dvh - 64px)}main[id],section[id]{scroll-margin-top:76px}.hero{padding:58px 0 46px}h1{font-size:56px}.lead{font-size:15px}.hero-actions .btn{width:100%}.phone{border-radius:26px;padding:12px}.screen{padding:15px}.metrics{grid-template-columns:1fr}.feature{padding:16px}.plan{padding:22px}.trial{padding:24px}.trial h2{font-size:40px}}
+    @media (max-width:900px){.hero-grid,.pricing,.ai-grid,.story,.calc,.rules-grid{grid-template-columns:1fr}.phone{margin:18px auto 0}.cards,.value-steps,.stats-grid,.testimonial-grid{grid-template-columns:1fr}.feature-grid,.faq{grid-template-columns:1fr}.trial{display:block}.trial .btn{margin-top:20px}.navlinks{display:none}.menu-toggle{display:flex}.mobile-menu:not([hidden]){display:block;position:absolute;top:100%;left:0;right:0;background:var(--bg);border-bottom:1px solid var(--border);box-shadow:0 24px 40px rgba(0,0,0,.28);max-height:calc(100vh - 72px);max-height:calc(100dvh - 72px);overflow-y:auto}.mobile-menu-inner{display:grid;gap:2px;padding:12px 0 20px}.mobile-menu a{display:flex;align-items:center;min-height:48px;padding:10px 14px;border-radius:10px;color:var(--text);font-size:15px;font-weight:700}.mobile-menu a:hover{background:var(--panel2)}.mobile-menu .btn{margin-top:10px;color:var(--accent-ink);text-align:center}.hero{padding-top:56px}.showcase,.tri{grid-template-columns:1fr;gap:36px}}
+    @media (max-width:560px){body{padding-bottom:74px}.wrap{width:min(100% - 22px,1160px)}.navin{height:56px}.brand img{width:32px;height:32px}.brand span{font-size:19px}.menu-toggle{width:42px;height:42px}.mobile-menu:not([hidden]){max-height:calc(100vh - 56px);max-height:calc(100dvh - 56px)}main[id],section[id]{scroll-margin-top:68px}.hero{padding:24px 0 36px}.hero-grid{gap:14px}h1{font-size:39px;line-height:1.02}.eyebrow{font-size:10px;margin-bottom:10px}.lead{font-size:13px;margin:14px 0 14px}.result-line{font-size:12px;margin-top:12px;padding:10px 12px}.hero-actions{gap:8px}.hero-actions .btn{width:100%;min-height:48px}.trust-chips{gap:6px;margin-top:10px}.chip{font-size:10px;min-height:30px;padding:6px 8px}.micro{font-size:11px}.phone{border-radius:22px;padding:10px;max-width:270px}.screen{padding:12px;border-radius:18px}.offer{margin-top:10px;padding:12px;border-radius:14px}.offer .amount{font-size:32px}.verdict{margin-top:10px;padding:12px}.verdict strong{font-size:20px}.metrics{grid-template-columns:repeat(3,1fr);gap:6px}.metric{padding:7px 4px}.metric b{font-size:11px}.metric span{font-size:8px}section{padding:56px 0}.section-head h2{font-size:36px}.calc-form,.calc-metrics{grid-template-columns:1fr}.feature{padding:16px}.plan{padding:22px}.trial{padding:24px}.trial h2{font-size:36px}.mobile-cta{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;gap:8px;padding:10px 11px calc(10px + env(safe-area-inset-bottom));background:rgba(10,31,26,.94);border-top:1px solid var(--border);backdrop-filter:blur(14px)}.mobile-cta .btn{flex:1;min-height:50px;padding:0 10px;font-size:13px}.mobile-cta .ghost{max-width:42%}}
   </style>
 </head>
 <body>
@@ -183,12 +218,13 @@
       <a class="brand" href="#inicio"><img src="/icons/mark-light-dashes.png" alt="" /><span>ruleto<span style="color:var(--accent)">.</span>Drive</span></a>
       <div class="navlinks">
         <a href="#como-funciona">Cómo funciona</a>
+        <a href="#calculadora">Calculadora</a>
         <a href="#plataforma">Por dentro</a>
         <a href="#copiloto">Copiloto</a>
         <a href="#ruleto-ia">Ruleto IA</a>
         <a href="#planes">Planes</a>
         <a href="/descargar">Descargar</a>
-        <a class="btn primary" href="/crear-cuenta">Probar Ruleto Drive</a>
+        <a class="btn primary js-primary-cta" href="/android/ruleto-drive.apk" data-android-href="/android/ruleto-drive.apk" data-ios-href="/crear-cuenta">Descargar para Android</a>
       </div>
       <button class="menu-toggle" type="button" aria-label="Abrir menú" aria-expanded="false" aria-controls="mobile-navigation"><span></span><span></span><span></span></button>
     </div>
@@ -197,10 +233,11 @@
         <a href="#copiloto">Copiloto</a>
         <a href="#ruleto-ia">Ruleto IA</a>
         <a href="#como-funciona">Cómo funciona</a>
+        <a href="#calculadora">Calculadora</a>
         <a href="#plataforma">Por dentro</a>
         <a href="#planes">Planes</a>
         <a href="/descargar">Descargar</a>
-        <a class="btn primary" href="/crear-cuenta">Probar Pro 14 días</a>
+        <a class="btn primary js-primary-cta" href="/android/ruleto-drive.apk" data-android-href="/android/ruleto-drive.apk" data-ios-href="/crear-cuenta">Descargar para Android</a>
       </div>
     </div>
   </nav>
@@ -210,13 +247,20 @@
       <div class="wrap hero-grid">
         <div>
           <div class="eyebrow"><span class="dot"></span>Para quienes salen a ruletear</div>
-          <h1>Antes de aceptar, <span>sabe si conviene.</span></h1>
+          <h1>En 1 segundo sabes si conviene, <span>antes de aceptar.</span></h1>
           <p class="lead">Cuando sales a ruletear, haciendo taxi o plataforma, Ruleto va contigo como un amigo: te ayuda a <strong>escoger viajes que sí te convienen</strong> y a <strong>llevar tus cuentas claras</strong>. El Copiloto evalúa ofertas en Android; Ruleto IA te explica tus ganancias, horarios y zonas.</p>
+          <p class="result-line">Un viaje de <strong>$70</strong> que parece bueno puede dejarte <strong>$42.80</strong> y <strong>$98.80/hora</strong>. Ruleto te lo muestra antes de aceptar, comparado contra tu meta de <strong>$200/hora limpios</strong> o <strong>$10/km limpios</strong>.</p>
           <div class="hero-actions">
-            <a class="btn primary" href="/crear-cuenta">Probar Pro 14 días</a>
+            <a class="btn primary js-primary-cta" href="/android/ruleto-drive.apk" data-android-href="/android/ruleto-drive.apk" data-ios-href="/crear-cuenta">Descargar para Android</a>
             <a class="btn ghost" href="#copiloto">Ver el Copiloto</a>
           </div>
-          <div class="micro"><strong>14 días de Pro sin tarjeta</strong> · Copiloto disponible en Android · Tú decides qué viajes aceptar.</div>
+          <div class="micro js-platform-note"><strong>14 días de Pro sin tarjeta</strong> · Descarga oficial APK · Si Android o Play Protect muestra alerta, toca Más detalles y revisa que venga de ruleto.mx.</div>
+          <div class="trust-chips" aria-label="Confianza">
+            <span class="chip">14 días Pro sin tarjeta</span>
+            <span class="chip">Funciona con Uber, DiDi e inDrive</span>
+            <span class="chip">Nunca acepta viajes por ti</span>
+            <span class="chip">Cancela fácil desde Configuración y sigue en Free de por vida</span>
+          </div>
         </div>
 
         <div class="phone" aria-label="Ejemplo de análisis de viaje en Ruleto Drive">
@@ -236,6 +280,33 @@
                 <div class="metric"><b>$105.80</b><span>neto estimado</span></div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="confianza">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Hecho por y para conductores.</h2>
+          <p>No vamos a presumir números que todavía no estén verificados. Mientras juntamos datos públicos de uso, la promesa es simple: cuentas claras para decidir mejor, sin vender humo.</p>
+        </div>
+        <div class="story">
+          <div class="story-panel">
+            <h3>La historia corta</h3>
+            <p>Ruleto nació de escuchar a conductores que trabajan con Uber, DiDi, inDrive y taxi: la oferta llega rápido, se ve bonita, pero la cuenta real aparece hasta que ya gastaste tiempo, gasolina y kilómetros.</p>
+            <p>Por eso construimos un copiloto que habla claro, en español de México, como ese amigo que va contigo y te dice: “aguas, esta recogida está larga” o “este sí pasa tu meta”.</p>
+            <p><strong>Firmado: equipo Ruleto.</strong></p>
+          </div>
+          <div class="story-panel">
+            <h3>Datos verificables</h3>
+            <!-- TODO: Reemplazar estos espacios cuando existan cifras verificables de producción: conductores activos, viajes analizados y calificación pública. No inventar métricas. -->
+            <div class="stats-grid">
+              <div class="stat-todo"><b>Próximo</b><span>Conductores activos verificados</span></div>
+              <div class="stat-todo"><b>Próximo</b><span>Viajes analizados por Ruleto</span></div>
+              <div class="stat-todo"><b>Próximo</b><span>Calificación pública de la app</span></div>
+            </div>
+            <p style="margin-top:18px">Cuando esos datos estén disponibles en una fuente confiable del proyecto, este bloque queda listo para mostrarlos sin maquillaje.</p>
           </div>
         </div>
       </div>
@@ -315,7 +386,76 @@
           </div>
         </div>
         <div class="show-cap" style="margin:26px auto 0;max-width:640px">Ejemplos ilustrativos con gasolina a $24/L, comisión DiDi de 12% y meta de $200/hora. <strong>El resultado cambia según tus costos</strong> y la información visible en cada oferta.</div>
-        <div class="section-action"><a class="btn primary" href="/crear-cuenta">Probar Copiloto 14 días</a><small>Sin tarjeta. Requiere instalar la app Android y activar los permisos del Copiloto.</small></div>
+        <div class="section-action"><a class="btn primary js-primary-cta" href="/android/ruleto-drive.apk" data-android-href="/android/ruleto-drive.apk" data-ios-href="/crear-cuenta">Descargar para Android</a><small>Sin tarjeta. Requiere instalar la app Android y activar los permisos del Copiloto.</small></div>
+      </div>
+    </section>
+
+    <section id="calculadora">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Ganancia real, no promesas.</h2>
+          <p>Prueba la cuenta antes de instalar. Mete tarifa, kilómetros, minutos y gasolina; Ruleto estima neto, $/hora y $/km con semáforo. Igual que en la app, <strong>solo la meta activa decide el color</strong>: por hora o por kilómetro.</p>
+        </div>
+        <div class="calc">
+          <div class="calc-panel">
+            <div class="calc-form" id="profit-calculator">
+              <div class="field"><label for="calc-fare">Tarifa</label><input id="calc-fare" type="number" min="0" step="1" value="70" inputmode="decimal" /></div>
+              <div class="field"><label for="calc-km">Kilómetros</label><input id="calc-km" type="number" min="0" step=".1" value="9.4" inputmode="decimal" /></div>
+              <div class="field"><label for="calc-min">Minutos</label><input id="calc-min" type="number" min="1" step="1" value="26" inputmode="decimal" /></div>
+              <div class="field"><label for="calc-gas">Gasolina $/L</label><input id="calc-gas" type="number" min="0" step="1" value="24" inputmode="decimal" /></div>
+              <div class="field"><label for="calc-kml">Rendimiento km/L</label><input id="calc-kml" type="number" min="1" step=".1" value="12" inputmode="decimal" /></div>
+              <div class="field"><label for="calc-commission">Comisión %</label><input id="calc-commission" type="number" min="0" max="80" step="1" value="12" inputmode="decimal" /></div>
+              <div class="field"><label for="calc-mode">Meta activa</label><select id="calc-mode"><option value="hour">Por hora</option><option value="km">Por kilómetro</option></select></div>
+              <div class="field"><label for="calc-target-hour">Meta $/hora</label><input id="calc-target-hour" type="number" min="1" step="10" value="200" inputmode="decimal" /></div>
+              <div class="field"><label for="calc-target-km">Meta $/km</label><input id="calc-target-km" type="number" min="1" step=".5" value="8" inputmode="decimal" /></div>
+              <div class="field"><label for="calc-wear">Desgaste $/km</label><input id="calc-wear" type="number" min="0" step=".1" value="0" inputmode="decimal" /></div>
+              <div class="field"><label for="calc-fixed">Gastos fijos $/semana</label><input id="calc-fixed" type="number" min="0" step="10" value="0" inputmode="decimal" /></div>
+              <div class="field"><label for="calc-hours">Horas trabajadas/semana</label><input id="calc-hours" type="number" min="1" step="1" value="50" inputmode="decimal" /></div>
+            </div>
+          </div>
+          <div class="calc-panel calc-result" aria-live="polite">
+            <div class="signal" id="calc-signal" style="--signal:var(--danger)"><span>Veredicto Ruleto</span><strong id="calc-verdict">No conviene</strong></div>
+            <div class="calc-metrics">
+              <div><span>Neto estimado</span><b id="calc-net">$42.80</b></div>
+              <div><span>$/hora limpios</span><b id="calc-hour">$98.80</b></div>
+              <div><span>$/km limpios</span><b id="calc-per-km">$4.55</b></div>
+            </div>
+            <div class="fixed-costs">
+              <strong>Lo que otras apps no te dicen:</strong> si rentas coche, pagas seguro, mantenimiento, llantas o celular, esos gastos también cuentan. Ruleto prorratea renta/seguro por hora y mantenimiento/llantas por kilómetro si tú los activas.
+              <div style="margin-top:10px">Costo fijo aplicado: <strong id="calc-fixed-applied">$0.00</strong>. Desgaste aplicado: <strong id="calc-wear-applied">$0.00</strong>.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="permisos">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Qué hace y qué no hace Ruleto.</h2>
+          <p>Para que manejes tranquilo: Ruleto es una herramienta de apoyo. Te enseña cuentas, no toma decisiones por ti.</p>
+        </div>
+        <div class="rules-grid">
+          <div class="rules-list">
+            <h3>Sí hace</h3>
+            <ul>
+              <li>Lee los datos visibles de la oferta para estimar si conviene.</li>
+              <li>Calcula gasolina, comisión y gastos configurados.</li>
+              <li>Muestra un semáforo sobre la oferta en Android.</li>
+              <li>Te ayuda a consultar tu historial con Ruleto IA.</li>
+            </ul>
+          </div>
+          <div class="rules-list no">
+            <h3>No hace</h3>
+            <ul>
+              <li>No acepta ni rechaza viajes por ti.</li>
+              <li>No pide tu contraseña de Uber, DiDi o inDrive.</li>
+              <li>No está afiliada ni avalada por esas plataformas.</li>
+              <li>No garantiza ingresos ni reemplaza tu criterio al volante.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="permission-note">El Copiloto pide permiso de superposición para poner el semáforo encima de la oferta, y accesibilidad para leer el texto visible de esa pantalla. Es como tomar nota de lo que ya estás viendo para hacer la cuenta rápido. Revisa también <a href="/privacidad.html"><strong>/privacidad</strong></a> y <a href="/terminos.html"><strong>/terminos</strong></a>.</div>
       </div>
     </section>
 
@@ -324,21 +464,21 @@
         <div>
           <div class="eyebrow"><span class="dot"></span>RULETO IA · TU OPERACIÓN, EXPLICADA</div>
           <h2>Pregúntale a Ruleto cómo te fue ruleteando.</h2>
-          <p>Ruleto IA usa <strong>tus viajes, gastos, horarios y ubicaciones</strong> para responderte en español. Escríbele o háblale como a un compañero que conoce tu operación.</p>
+          <p>Ruleto IA usa <strong>tus viajes, gastos, horarios y ubicaciones</strong> para responderte en español. Escríbele o háblale como a un compañero que conoce tu operación y te contesta con números, no con corazonadas.</p>
           <div class="ai-points">
-            <div><strong>«¿Cuánto me quedó hoy?»</strong><span>Revisa la ganancia estimada después de los costos registrados.</span></div>
-            <div><strong>«¿Qué horas me salen mejor?»</strong><span>Compara tus viajes guardados para encontrar horarios más rentables.</span></div>
-            <div><strong>«¿En qué zonas gano más?»</strong><span>Con GPS activado, compara las ubicaciones de tus viajes por ganancia por hora o por kilómetro.</span></div>
-            <div><strong>«¿Me conviene este bono?»</strong><span>Evalúa el avance, tiempo restante y valor del bono con tus datos.</span></div>
+            <div><strong>«¿Dónde y a qué hora me conviene manejar?»</strong><span>Combina zonas, horarios, $/hora y $/km de tus viajes guardados.</span></div>
+            <div><strong>«¿A qué hora deja de ser rentable para mí?»</strong><span>Detecta bloques donde tu neto cae por debajo de tu meta activa.</span></div>
+            <div><strong>«¿Dónde debería terminar la jornada?»</strong><span>Te ayuda a comparar cierre, regreso, gasolina y zonas donde sueles levantar mejores viajes.</span></div>
+            <div><strong>«¿Me conviene este bono o me va a hacer perder tiempo?»</strong><span>Evalúa avance, horas restantes, viajes faltantes y valor real del bono.</span></div>
           </div>
           <div class="section-action"><a class="btn primary" href="/crear-cuenta">Probar Ruleto IA gratis</a><small>Incluida en Pro durante tus primeros 14 días.</small></div>
         </div>
         <div class="ai-chat" aria-label="Ejemplo ilustrativo de una conversación con Ruleto IA">
           <div class="ai-chat-head"><img src="/icons/mark-light-dashes.png" alt="" /> Ruleto IA <span style="margin-left:auto;color:var(--accent);font-size:11px">EJEMPLO</span></div>
-          <div class="chat-bubble chat-question">¿En qué horario me está yendo mejor?</div>
-          <div class="chat-bubble chat-answer">Con los viajes que registraste, entre <b>7 y 9 de la mañana</b> has ganado más por viaje que entre 2 y 4 de la tarde. Si mantienes esos costos, ese horario parece rendirte mejor.</div>
-          <div class="chat-bubble chat-question">¿Y cuánto se me fue en gasolina esta semana?</div>
-          <div class="chat-bubble chat-answer">Puedo estimarlo con tus kilómetros y el rendimiento que configuraste, y compararlo con las cargas que registraste.</div>
+          <div class="chat-bubble chat-question">¿Dónde y a qué hora me conviene más manejar mañana?</div>
+          <div class="chat-bubble chat-answer">Con tus viajes registrados, tu mejor bloque ha sido <b>7:00 a 9:30 am</b>: promedias <b>$214/h limpios</b>. Te conviene empezar cerca de <b>Centro / Hospitales</b>, donde tus recogidas han sido más cortas.</div>
+          <div class="chat-bubble chat-question">¿A qué hora debería cortar si se pone flojo?</div>
+          <div class="chat-bubble chat-answer">Si después de <b>2:30 pm</b> llevas dos ofertas seguidas debajo de <b>$150/h limpios</b>, te conviene cerrar o moverte a una zona con mejor historial. En tus datos, seguir hasta las 4 pm suele bajar tu promedio.</div>
           <div class="ai-note">Conversación ilustrativa. Las respuestas dependen de los datos que registres; algunas funciones de voz dependen del dispositivo y la conexión.</div>
         </div>
       </div>
@@ -413,7 +553,7 @@
       <div class="wrap">
         <div class="section-head"><h2>Todo para ruletear con claridad.</h2><p>Primero eliges mejores viajes; después entiendes cuánto te quedó y dónde te conviene trabajar.</p></div>
         <div class="feature-grid">
-          <div class="feature"><div class="tick">✓</div><div><h3>Ruleto Copiloto</h3><p>En Android, lee la oferta visible y te muestra si <strong>supera tu meta de ganancia limpia</strong> antes de aceptarla.</p></div></div>
+          <div class="feature"><div class="tick">✓</div><div><h3>Ruleto Copiloto</h3><p>En Android, lee la oferta visible y <strong>te muestra en 1 segundo</strong> si <strong>supera tu meta de ganancia limpia</strong> antes de aceptarla.</p></div></div>
           <div class="feature"><div class="tick">✓</div><div><h3>Ruleto IA</h3><p>Pregúntale por voz o texto <strong>cuánto ganaste y dónde te fue mejor</strong>, según tus viajes registrados.</p></div></div>
           <div class="feature"><div class="tick">✓</div><div><h3>Rentabilidad por viaje</h3><p>Compara tarifa, comisión, combustible, distancia, tiempo y costos configurados.</p></div></div>
           <div class="feature"><div class="tick">✓</div><div><h3>Ubicación de cada viaje</h3><p>Con GPS activado, guarda origen y destino para identificar tus zonas y trayectos más rentables según tu historial.</p></div></div>
@@ -423,9 +563,24 @@
       </div>
     </section>
 
+    <section id="testimonios">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Casos reales, cuando estén listos.</h2>
+          <p>Esta sección queda preparada para beta testers con nombre, ciudad, plataforma y foto opcional. Por ahora no publicamos testimonios inventados.</p>
+        </div>
+        <div class="testimonial-grid">
+          <!-- TODO: Llenar con testimonio real verificado. Campos: nombre, ciudad, plataforma principal, foto opcional, cita aprobada. -->
+          <div class="testimonial"><strong>Nombre · Ciudad</strong>Plataforma: Uber / DiDi / inDrive / Taxi. Espacio reservado para una cita real de beta tester.</div>
+          <div class="testimonial"><strong>Nombre · Ciudad</strong>Plataforma: Uber / DiDi / inDrive / Taxi. Espacio reservado para una cita real de beta tester.</div>
+          <div class="testimonial"><strong>Nombre · Ciudad</strong>Plataforma: Uber / DiDi / inDrive / Taxi. Espacio reservado para una cita real de beta tester.</div>
+        </div>
+      </div>
+    </section>
+
     <section id="planes">
       <div class="wrap">
-        <div class="section-head"><h2>Empieza completo. Después decides.</h2><p><strong>Prueba Ruleto Drive Pro 14 días sin tarjeta.</strong> Después puedes continuar gratis o conservar las funciones avanzadas.</p></div>
+        <div class="section-head"><h2>Empieza completo. Después decides.</h2><p><strong>Prueba Ruleto Drive Pro 14 días sin tarjeta.</strong> Después puedes continuar gratis o conservar las funciones avanzadas. Un viaje malo evitado puede pagar tu semana de Pro.</p></div>
         <div class="pricing">
           <article class="plan">
             <h3>Ruleto Drive Free</h3>
@@ -436,6 +591,7 @@
               <li>Veredicto del viaje</li>
               <li>Historial de operación</li>
               <li>Control operativo esencial</li>
+              <li>Gratis para siempre aunque canceles Pro</li>
             </ul>
             <a class="btn ghost" style="width:100%" href="/crear-cuenta">Crear cuenta gratis</a>
           </article>
@@ -448,7 +604,7 @@
               <button style="flex:1;padding:8px;border:1px solid var(--accent);background:transparent;color:var(--accent);border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;">Anual</button>
             </div>
             <div class="price">$97 <small>MXN / mes</small></div>
-            <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">O $497/año (57% descuento)</div>
+            <div class="plan-savings" style="font-size:11px;color:var(--muted);margin-bottom:12px;">$497/año = $41/mes, 57% menos que pagar mensual</div>
             <ul>
               <li>Todo lo incluido en Free</li>
               <li>Ruleto Copiloto: análisis de ofertas en tiempo real</li>
@@ -456,6 +612,7 @@
               <li>GPS completo: medición de viajes y km sin pasajero</li>
               <li>Gráficas y tendencias por periodo</li>
               <li>Foto IA: extrae tarifa, kilómetros y tiempo de una captura del viaje</li>
+              <li>Cancela cuando quieras, sin llamadas</li>
             </ul>
             <a class="btn primary" style="width:100%" href="/carrito">Comprar Pro</a>
           </article>
@@ -466,8 +623,8 @@
     <section>
       <div class="wrap">
         <div class="trial">
-          <div><h2>Sal a ruletear con un amigo que cuida tus números.</h2><p>Ruleto te ayuda a elegir viajes que te dejan más y a mantener el control de tu dinero. Después de la prueba Pro, puedes seguir con Free o conservar el Copiloto y Ruleto IA.</p></div>
-          <a class="btn primary" href="/crear-cuenta">Empezar ahora</a>
+          <div><h2>Sal a ruletear con un amigo que cuida tus números.</h2><p>Ruleto te ayuda a decidir con cuentas claras y a mantener el control de tu dinero. Después de la prueba Pro, puedes seguir con Free o conservar el Copiloto y Ruleto IA.</p></div>
+          <a class="btn primary js-primary-cta" href="/android/ruleto-drive.apk" data-android-href="/android/ruleto-drive.apk" data-ios-href="/crear-cuenta">Descargar para Android</a>
         </div>
       </div>
     </section>
@@ -476,11 +633,14 @@
       <div class="wrap">
         <div class="section-head"><h2>Preguntas rápidas.</h2></div>
         <div class="faq">
-          <div class="faqitem"><h3>¿Es solo para DiDi?</h3><p>No. Ruleto Drive contempla Uber, DiDi, inDrive y viajes particulares, además de permitir configuración de comisiones.</p></div>
-          <div class="faqitem"><h3>¿Tengo que pagar desde el primer día?</h3><p>No. Tienes <strong>14 días de Ruleto Drive Pro sin tarjeta</strong> y después eliges entre Free y Pro.</p></div>
-          <div class="faqitem"><h3>¿Free deja de funcionar?</h3><p>No. La versión Free está pensada para mantener el registro manual, GPS, cálculo y evaluación básica de viajes.</p></div>
-          <div class="faqitem"><h3>¿Hay versión para iPhone?</h3><p>Sí, puedes abrir la versión web en Safari y añadirla a tu pantalla de inicio. El Copiloto que lee ofertas de otras apps y algunas funciones de fondo requieren Android.</p></div>
-          <div class="faqitem"><h3>¿Ruleto Drive acepta viajes por mí?</h3><p>No. Ruleto Drive te da información para que tú tomes la decisión. El control siempre sigue siendo tuyo.</p></div>
+          <div class="faqitem"><h3>¿Me cobran después de los 14 días si no pongo tarjeta?</h3><p>No. La prueba Pro empieza sin tarjeta, así que no hay cobro automático por sorpresa. Al terminar, puedes seguir en Free o elegir Pro.</p></div>
+          <div class="faqitem"><h3>¿Gasta batería o datos?</h3><p>El Copiloto y GPS pueden usar batería como cualquier app que trabaja encima de otras apps o registra ubicación. La mayor parte del cálculo es ligero; los datos dependen de sincronización, IA y funciones en línea.</p></div>
+          <div class="faqitem"><h3>¿Me pueden suspender Uber o DiDi por usarla?</h3><p>Ruleto no entra a tu cuenta, no automatiza aceptación de viajes y no está afiliada a esas plataformas. Aun así, cada plataforma tiene sus propias reglas; usa Ruleto como apoyo informativo y revisa sus términos.</p></div>
+          <div class="faqitem"><h3>¿Funciona en iPhone?</h3><p>Puedes usar la versión web para registrar y consultar tu operación. El Copiloto que lee ofertas sobre otras apps es solo Android por las limitaciones de iOS.</p></div>
+          <div class="faqitem"><h3>¿Funciona con inDrive y viajes particulares?</h3><p>Sí puedes configurar comisiones y registrar viajes particulares. El Copiloto depende de que los datos de la oferta sean visibles y legibles en pantalla.</p></div>
+          <div class="faqitem"><h3>¿Qué datos guardan y dónde?</h3><p>Ruleto guarda los datos que registras para calcular tu operación: viajes, gastos, jornadas, configuración y, si activas GPS, ubicaciones operativas. Lee el detalle en el <a href="/privacidad.html"><strong>Aviso de Privacidad</strong></a>.</p></div>
+          <div class="faqitem"><h3>¿Cómo cancelo?</h3><p>Desde Configuración puedes cancelar Pro cuando quieras, sin llamadas. Al cancelar, conservas el acceso Free de por vida con las funciones incluidas en ese plan.</p></div>
+          <div class="faqitem"><h3>¿Ruleto Drive acepta viajes por mí?</h3><p>No. Ruleto te da información para que tú decidas. El control siempre sigue siendo tuyo.</p></div>
         </div>
       </div>
     </section>
@@ -489,13 +649,44 @@
   <footer>
     <div class="wrap footerin">
       <span>© 2026 Ruleto Drive</span>
-      <span>Tu operación. Tus números. Tu decisión.</span>
+      <span>Tu operación. Tus números. Tu decisión. Ruleto no está afiliada a Uber, DiDi, inDrive ni a ninguna plataforma de movilidad.</span>
       <span><a href="/terminos.html">Términos y Condiciones</a> · <a href="/privacidad.html">Aviso de Privacidad</a></span>
     </div>
   </footer>
 
+  <div class="mobile-cta" aria-label="Acciones principales">
+    <a class="btn primary js-primary-cta" href="/android/ruleto-drive.apk" data-android-href="/android/ruleto-drive.apk" data-ios-href="/crear-cuenta">Descargar Android</a>
+    <a class="btn ghost" href="#calculadora">Calcular</a>
+  </div>
+
   <script>
     (function(){
+      const trackRuletoEvent = (name, payload = {}) => {
+        if (window.gtag) window.gtag('event', name, payload);
+        else if (window.dataLayer) window.dataLayer.push({ event: name, ...payload });
+      };
+      window.trackRuletoEvent = window.trackRuletoEvent || trackRuletoEvent;
+
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      document.querySelectorAll('.js-primary-cta').forEach(link => {
+        if (isIOS) {
+          link.href = link.dataset.iosHref || '/crear-cuenta';
+          link.textContent = link.closest('.mobile-cta') ? 'Usar en iPhone' : 'Usar gratis en iPhone';
+        } else {
+          link.href = link.dataset.androidHref || '/android/ruleto-drive.apk';
+        }
+        link.addEventListener('click', () => {
+          window.trackRuletoEvent(isIOS ? 'cta_create_account_ios' : 'cta_download_apk', { placement: link.closest('section')?.id || 'nav' });
+        });
+      });
+      document.querySelectorAll('a[href="/crear-cuenta"]').forEach(link => {
+        link.addEventListener('click', () => window.trackRuletoEvent('cta_create_account', { placement: link.closest('section')?.id || 'page' }));
+      });
+      if (isIOS) {
+        const note = document.querySelector('.js-platform-note');
+        if (note) note.innerHTML = '<strong>14 días de Pro sin tarjeta.</strong> En iPhone puedes usar Ruleto web; el Copiloto que lee ofertas sobre otras apps es solo Android.';
+      }
+
       const nav = document.querySelector('.nav');
       const menuToggle = nav.querySelector('.menu-toggle');
       const mobileMenu = document.getElementById('mobile-navigation');
@@ -524,7 +715,7 @@
       // Plan selector logic
       const btns = document.querySelectorAll('.plan.pro button');
       const priceEl = document.querySelector('.plan.pro .price');
-      const discountEl = document.querySelector('.plan.pro [style*="margin-bottom:12px"]');
+      const discountEl = document.querySelector('.plan.pro .plan-savings');
       const ctaEl = document.querySelector('.plan.pro .btn.primary');
 
       let selectedPlan = localStorage.getItem('ruleto_plan') || 'monthly';
@@ -535,14 +726,14 @@
 
         if (plan === 'annual') {
           priceEl.innerHTML = '$497 <small>MXN / año</small>';
-          discountEl.textContent = '57% menos que pago mensual';
+          discountEl.textContent = '$497/año = $41/mes, 57% menos que pagar mensual';
           btns[0].style.background = 'transparent';
           btns[0].style.color = 'var(--accent)';
           btns[1].style.background = 'var(--accent)';
           btns[1].style.color = '#000';
         } else {
           priceEl.innerHTML = '$97 <small>MXN / mes</small>';
-          discountEl.innerHTML = 'O $497/año (57% descuento)';
+          discountEl.innerHTML = '$497/año = $41/mes, 57% menos que pagar mensual';
           btns[0].style.background = 'var(--accent)';
           btns[0].style.color = '#000';
           btns[1].style.background = 'transparent';
@@ -563,9 +754,109 @@
         ctaEl.addEventListener('click', (e) => {
           const plan = localStorage.getItem('ruleto_plan') || 'monthly';
           ctaEl.href = '/carrito?plan=' + plan;
+          window.trackRuletoEvent('cta_buy_pro', { plan });
         });
       }
+
+      const calcInputs = {
+        fare: document.getElementById('calc-fare'),
+        km: document.getElementById('calc-km'),
+        min: document.getElementById('calc-min'),
+        gas: document.getElementById('calc-gas'),
+        kml: document.getElementById('calc-kml'),
+        commission: document.getElementById('calc-commission'),
+        mode: document.getElementById('calc-mode'),
+        targetHour: document.getElementById('calc-target-hour'),
+        targetKm: document.getElementById('calc-target-km'),
+        wear: document.getElementById('calc-wear'),
+        fixed: document.getElementById('calc-fixed'),
+        hours: document.getElementById('calc-hours')
+      };
+      const calcEls = {
+        signal: document.getElementById('calc-signal'),
+        verdict: document.getElementById('calc-verdict'),
+        net: document.getElementById('calc-net'),
+        hour: document.getElementById('calc-hour'),
+        perKm: document.getElementById('calc-per-km'),
+        fixedApplied: document.getElementById('calc-fixed-applied'),
+        wearApplied: document.getElementById('calc-wear-applied')
+      };
+      const money = value => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 2 }).format(Number.isFinite(value) ? value : 0);
+      const numberValue = input => Math.max(0, Number(input?.value || 0));
+      let calcTracked = false;
+      function updateCalculator() {
+        const fare = numberValue(calcInputs.fare);
+        const km = numberValue(calcInputs.km);
+        const min = Math.max(1, numberValue(calcInputs.min));
+        const gas = numberValue(calcInputs.gas);
+        const kml = Math.max(1, numberValue(calcInputs.kml));
+        const commission = numberValue(calcInputs.commission) / 100;
+        const mode = calcInputs.mode?.value === 'km' ? 'km' : 'hour';
+        const target = mode === 'km' ? Math.max(1, numberValue(calcInputs.targetKm)) : Math.max(1, numberValue(calcInputs.targetHour));
+        const wearPerKm = numberValue(calcInputs.wear);
+        const fixedWeekly = numberValue(calcInputs.fixed);
+        const hoursWeekly = Math.max(1, numberValue(calcInputs.hours));
+        const fuelCost = km * (gas / kml);
+        const commissionCost = fare * commission;
+        const wearCost = km * wearPerKm;
+        const fixedCost = (fixedWeekly / hoursWeekly) * (min / 60);
+        const net = fare - fuelCost - commissionCost - wearCost - fixedCost;
+        const perHour = net / (min / 60);
+        const perKm = km > 0 ? net / km : 0;
+        const goalValue = mode === 'km' ? perKm : perHour;
+        let verdict = 'No conviene';
+        let color = 'var(--danger)';
+        if (goalValue >= target) {
+          verdict = 'Buen viaje';
+          color = 'var(--teal)';
+        } else if (goalValue >= target * 0.75 && net > 0) {
+          verdict = 'Viaje aceptable';
+          color = 'var(--warn)';
+        }
+        calcEls.signal.style.setProperty('--signal', color);
+        calcEls.verdict.textContent = verdict;
+        calcEls.net.textContent = money(net);
+        calcEls.hour.textContent = money(perHour);
+        calcEls.perKm.textContent = money(perKm);
+        calcEls.fixedApplied.textContent = money(fixedCost);
+        calcEls.wearApplied.textContent = money(wearCost);
+        if (!calcTracked) {
+          calcTracked = true;
+          window.trackRuletoEvent('calculator_used', { fare, km, min, mode });
+        }
+      }
+      Object.values(calcInputs).forEach(input => input && input.addEventListener('input', updateCalculator));
+      if (calcInputs.fare) updateCalculator();
     })();
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Ruleto Drive",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Android, Web",
+    "description": "App para conductores de Uber, DiDi, inDrive y taxi en Mexico. Calcula ganancia real con gasolina, comision y gastos fijos, y muestra un semaforo de ofertas en Android.",
+    "offers": [
+      { "@type": "Offer", "price": "0", "priceCurrency": "MXN", "name": "Ruleto Drive Free" },
+      { "@type": "Offer", "price": "97", "priceCurrency": "MXN", "name": "Ruleto Drive Pro mensual" },
+      { "@type": "Offer", "price": "497", "priceCurrency": "MXN", "name": "Ruleto Drive Pro anual" }
+    ]
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {"@type":"Question","name":"¿Me cobran después de los 14 días si no pongo tarjeta?","acceptedAnswer":{"@type":"Answer","text":"No. La prueba Pro empieza sin tarjeta, así que no hay cobro automático. Al terminar, puedes seguir en Free o elegir Pro."}},
+      {"@type":"Question","name":"¿Gasta batería o datos?","acceptedAnswer":{"@type":"Answer","text":"El Copiloto y GPS pueden usar batería como cualquier app que trabaja encima de otras apps o registra ubicación. Los datos dependen de sincronización, IA y funciones en línea."}},
+      {"@type":"Question","name":"¿Me pueden suspender Uber o DiDi por usarla?","acceptedAnswer":{"@type":"Answer","text":"Ruleto no entra a tu cuenta, no automatiza aceptación de viajes y no está afiliada a esas plataformas. Usa Ruleto como apoyo informativo y revisa los términos de cada plataforma."}},
+      {"@type":"Question","name":"¿Funciona en iPhone?","acceptedAnswer":{"@type":"Answer","text":"Puedes usar la versión web para registrar y consultar tu operación. El Copiloto que lee ofertas sobre otras apps es solo Android por limitaciones de iOS."}},
+      {"@type":"Question","name":"¿Funciona con inDrive y viajes particulares?","acceptedAnswer":{"@type":"Answer","text":"Sí puedes configurar comisiones y registrar viajes particulares. El Copiloto depende de que los datos de la oferta sean visibles y legibles en pantalla."}},
+      {"@type":"Question","name":"¿Cómo cancelo?","acceptedAnswer":{"@type":"Answer","text":"Desde Configuración puedes cancelar Pro cuando quieras, sin llamadas. Al cancelar, conservas el acceso Free de por vida con las funciones incluidas en ese plan."}}
+    ]
+  }
   </script>
 </body>
 </html>
