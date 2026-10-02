@@ -39,6 +39,7 @@ import { ConsentGate, DeleteAccountModal } from "./components/ConsentGate";
 import { PRIVACY_VERSION, consentIsCurrent, deleteAccount, loadConsent, locationConsentGranted, saveConsent, setLocationConsent } from "./consent";
 import { DEFAULT_COUNTRY, normalizePhone, formatPhone } from "./phone";
 import { DEMO_TRIPS, DEMO_EVENTS } from "./demoData";
+import { makeMetaEventId, trackMetaEvent } from "./metaConversions";
 
 // ─── localStorage ─────────────────────────────────────────────────────────────
 const LS={
@@ -2270,7 +2271,7 @@ function Auth(){
         await supabase.from("profiles").upsert({id:data.user.id,full_name:name,email,config:{}});
         // La prueba de 14 días se activa al entrar por primera vez, cuando ya
         // podemos ligarla a este celular y a este número (ver PhoneGate).
-      }setSuccess("¡Cuenta creada! Revisa tu correo para confirmar.");setLoading(false);if(!Capacitor.isNativePlatform())window.location.assign("https://ruleto.mx/descargar?cuenta=creada");};
+      }if(data?.session)await trackMetaEvent(data.session,{event_name:"CompleteRegistration",event_id:makeMetaEventId("registration",data.user?.id),action_source:"website",event_source_url:window.location.href});setSuccess("¡Cuenta creada! Revisa tu correo para confirmar.");setLoading(false);if(!Capacitor.isNativePlatform())window.location.assign("https://ruleto.mx/descargar?cuenta=creada");};
   const handleForgot=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:redir()});if(err)setError(err.message);else setSuccess("Te enviamos un link para restablecer tu contraseña.");setLoading(false);};
   const handleGoogle=async()=>{
     reset();setLoading(true);
@@ -2624,6 +2625,11 @@ export default function RuletoDriveApp(){
       if(oauthReturn)window.history.replaceState({},"",`${window.location.pathname}${window.location.hash}`);
       if(uid){if(authUserRef.current!==uid){
         authUserRef.current=uid;
+        const loginKey=`ruleto_meta_login_${uid}`;
+        if(!sessionStorage.getItem(loginKey)){
+          sessionStorage.setItem(loginKey,"1");
+          trackMetaEvent(nextSession,{event_name:"Login",event_id:makeMetaEventId("login",uid),action_source:Capacitor.isNativePlatform()?"app":"website",event_source_url:Capacitor.isNativePlatform()?undefined:window.location.href});
+        }
         (async () => {
           let ui, cachedDay;
           if (FLAGS.offline_v2) {
