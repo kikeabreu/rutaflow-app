@@ -3,6 +3,17 @@
   "buildCommand": "node scripts/build-vercel.js",
   "redirects": [
     {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.ruleto.mx"
+        }
+      ],
+      "destination": "https://ruleto.mx/:path*",
+      "permanent": true
+    },
+    {
       "source": "/android/ruleto-drive.apk",
       "destination": "https://github.com/kikeabreu/rutaflow-app/releases/download/v1.4.13-beta/Ruleto-Drive-1.4.13-beta.apk?download=1",
       "permanent": false
@@ -137,6 +148,16 @@
         }
       ],
       "destination": "/landing.html"
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.ruleto.mx"
+        }
+      ],
+      "destination": "/app.html"
     },
     {
       "source": "/carrito",
