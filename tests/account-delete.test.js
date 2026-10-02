@@ -53,3 +53,21 @@ test("account deletion skips Stripe when there is no live subscription",async()=
     assert.ok(!calls.some(c=>c.url.includes("api.stripe.com")),"Stripe is not required for local trials or already-cancelled accounts");
   }finally{global.fetch=original;}
 });
+
+test("account deletion continues when Stripe cancellation is unavailable",async()=>{
+  configure();const original=global.fetch;const originalError=console.error;console.error=()=>{};const calls=[];
+  global.fetch=async(url,opts={})=>{
+    const u=String(url);calls.push({url:u,method:opts.method||"GET"});
+    if(u.includes("/auth/v1/user"))return{ok:true,json:async()=>({id:USER})};
+    if(u.includes("billing_subscriptions"))return{ok:true,json:async()=>[{stripe_subscription_id:"sub_1"}]};
+    if(u.includes("billing_customers"))return{ok:true,json:async()=>[{stripe_customer_id:"cus_1"}]};
+    if(u.includes("api.stripe.com"))return{ok:false,status:403,json:async()=>({error:{code:"permission_denied"}})};
+    return{ok:true,status:200,json:async()=>({})};
+  };
+  try{
+    const res=response();await handler({method:"POST",headers:{authorization:"Bearer t"},body:{confirm:"ELIMINAR"}},res);
+    assert.equal(res.statusCode,200);assert.equal(res.body.deleted,true);
+    assert.ok(calls.some(c=>c.url.includes("/rest/v1/trips?user_id=eq.")));
+    assert.ok(calls.some(c=>c.url.includes("/auth/v1/admin/users/")));
+  }finally{global.fetch=original;console.error=originalError;}
+});

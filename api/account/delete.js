@@ -39,10 +39,14 @@ async function cancelStripeSubscriptions(userId){
   if(!await hasLiveStripeSubscription(userId))return;
   const customer=await findCustomerForUser(userId);
   if(!customer)return;
-  const list=await stripeRequest(`subscriptions?customer=${encodeURIComponent(customer)}&status=all&limit=100`,{method:"GET"});
-  for(const sub of list?.data||[]){
-    if(["canceled","incomplete_expired"].includes(sub.status))continue;
-    await stripeRequest(`subscriptions/${encodeURIComponent(sub.id)}`,{method:"DELETE"});
+  try{
+    const list=await stripeRequest(`subscriptions?customer=${encodeURIComponent(customer)}&status=all&limit=100`,{method:"GET"});
+    for(const sub of list?.data||[]){
+      if(["canceled","incomplete_expired"].includes(sub.status))continue;
+      await stripeRequest(`subscriptions/${encodeURIComponent(sub.id)}`,{method:"DELETE"});
+    }
+  }catch(error){
+    console.error("Account deletion Stripe cancellation skipped",error?.stripeCode||error?.message||error);
   }
 }
 

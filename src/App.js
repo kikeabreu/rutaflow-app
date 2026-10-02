@@ -90,6 +90,22 @@ const openBillingPortal=async(session)=>{
     alert("No se pudo abrir la gestión de tu suscripción. Escríbenos a soporte si el problema continúa.");
   }
 };
+const openAnnualUpgrade=async(session)=>{
+  try{
+    const token=session?.access_token;
+    if(!token){alert("Sesión no válida. Recarga la página.");return;}
+    const res=await fetch(apiUrl("/api/billing/upgrade-annual"),{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`,'Idempotency-Key':`ruleto-annual-${session?.user?.id}-${Date.now()}`},
+    });
+    const data=await res.json();
+    if(data?.url){await openExternalUrl(data.url);return;}
+    alert(data?.error||"No se pudo abrir la actualización a anual. Escríbenos a soporte si el problema continúa.");
+  }catch(e){
+    console.warn("Annual upgrade error",e);
+    alert("No se pudo abrir la actualización a anual. Intenta de nuevo más tarde.");
+  }
+};
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const fmt=(n,d=2)=>(parseFloat(n)||0).toFixed(d);
@@ -2032,28 +2048,34 @@ function ConfigTab({cfg,saveConfig,onLogout,onChangePhone,onCheckUpdates,onOpenU
   const[updateError,setUpdateError]=useState('');
   const toggleUpdates=async()=>{try{setUpdateError('');if(updateConsent){await disableUpdateNotifications(session.user.id);setUpdateConsent(false);}else{await enableUpdateNotifications(session.user.id);setUpdateConsent(true);}}catch(e){setUpdateError(e.message);}};
   const[portalManageable,setPortalManageable]=useState(null);
+  const[billingInfo,setBillingInfo]=useState(null);
   useEffect(()=>{
-    if(!isPro||!session?.access_token){setPortalManageable(false);return;}
+    if(!isPro||!session?.access_token){setPortalManageable(false);setBillingInfo(null);return;}
     let active=true;
     setPortalManageable(null);
     fetch(apiUrl("/api/billing/portal-status"),{headers:{Authorization:`Bearer ${session.access_token}`}})
-      .then(async response=>response.ok?(await response.json()).manageable:null)
-      .then(manageable=>{if(active)setPortalManageable(manageable===null?null:Boolean(manageable));})
-      .catch(()=>{if(active)setPortalManageable(null);});
+      .then(async response=>response.ok?await response.json():null)
+      .then(info=>{if(active){setPortalManageable(info===null?null:Boolean(info.manageable));setBillingInfo(info?.subscription||null);}})
+      .catch(()=>{if(active){setPortalManageable(null);setBillingInfo(null);}});
     return()=>{active=false;};
   },[isPro,session?.access_token]);
   const fmtPlanDate=iso=>new Date(iso).toLocaleDateString("es-MX",{day:"numeric",month:"short",year:"numeric"});
+  const daysUntil=iso=>iso?Math.max(0,Math.ceil((new Date(iso).getTime()-Date.now())/(1000*60*60*24))):null;
+  const proUntil=profile?.pro_until||billingInfo?.current_period_end;
+  const proDaysLeft=daysUntil(proUntil);
   const planLabel=(()=>{
     const status=String(profile?.subscription_status||"").toLowerCase();
     if(planTier==="TRIAL")return `Prueba Pro · ${trialDaysLeft} día${trialDaysLeft===1?"":"s"} restante${trialDaysLeft===1?"":"s"}`;
-    if(isPro&&profile?.cancel_at_period_end&&profile?.pro_until)return `Pro cancelado · vence ${fmtPlanDate(profile.pro_until)}`;
-    if(isPro&&profile?.pro_until)return `Pro activo · vence ${fmtPlanDate(profile.pro_until)}`;
+    if(isPro&&(profile?.cancel_at_period_end||billingInfo?.cancel_at_period_end)&&proUntil)return `Pro cancelado · vence ${fmtPlanDate(proUntil)}`;
+    if(isPro&&proUntil)return `Pro activo · ${proDaysLeft} día${proDaysLeft===1?"":"s"} restante${proDaysLeft===1?"":"s"}`;
     if(isPro)return status==="active"?"Pro activo":"Pro";
     return "FREE";
   })();
   const packageLabel=(()=>{
     if(planTier==="TRIAL")return "Prueba gratis";
     if(!isPro)return "Plan gratuito";
+    if(billingInfo?.interval==="annual")return "Suscripción anual";
+    if(billingInfo?.interval==="monthly")return "Suscripción mensual";
     if(profile?.plan_label)return profile.plan_label;
     return "Suscripción Pro";
   })();
@@ -2160,9 +2182,15 @@ function ConfigTab({cfg,saveConfig,onLogout,onChangePhone,onCheckUpdates,onOpenU
             <div style={{fontSize:9,color:C.muted,letterSpacing:"0.1em",marginBottom:3}}>TU PLAN</div>
             <div style={{fontSize:14,fontWeight:800,color:isPro?C.teal:C.text}}>{planLabel}</div>
             <div style={{fontSize:10,color:C.muted,marginTop:3}}>{packageLabel}</div>
+            {isPro&&proUntil&&<div style={{fontSize:10,color:C.muted,marginTop:3}}>Vence el {fmtPlanDate(proUntil)}</div>}
           </div>
           {!isPro&&<Btn sm onClick={onUpgrade} color={C.accent}>Actualizar a PRO</Btn>}
         </div>
+        {isPro&&billingInfo?.interval==="monthly"&&<div style={{background:`${C.teal}12`,border:`1px solid ${C.teal}44`,borderRadius:9,padding:"10px 11px",marginBottom:10,fontSize:11,color:C.text,lineHeight:1.45}}>
+          <strong style={{color:C.teal}}>Ahorra 53% con el plan anual.</strong>
+          <div style={{marginTop:3,color:C.muted}}>Cambia de mensual a anual desde Stripe sin crear otra cuenta.</div>
+          <button disabled={portalLoading} onClick={async()=>{setPortalLoading(true);await openAnnualUpgrade(session);setPortalLoading(false);}} style={{marginTop:8,width:"100%",padding:"9px 10px",borderRadius:8,border:`1px solid ${C.teal}`,background:"transparent",color:C.teal,fontSize:11,fontWeight:800,cursor:"pointer"}}>{portalLoading?"Abriendo…":"Cambiar a anual"}</button>
+        </div>}
         {isPro&&portalManageable&&<button disabled={portalLoading} onClick={async()=>{setPortalLoading(true);await openBillingPortal(session);setPortalLoading(false);}} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.text,fontSize:12,fontWeight:700,cursor:"pointer"}}>{portalLoading?"Abriendo…":"Gestionar o cancelar suscripción"}</button>}
         {isPro&&portalManageable===false&&<div style={{fontSize:10,color:C.muted,lineHeight:1.45}}>No tienes una suscripción de Stripe que gestionar o cancelar desde aquí.</div>}
         {profile?.phone&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
@@ -3221,7 +3249,7 @@ export default function RuletoDriveApp(){
       {toast&&<Toast msg={toast.msg} type={toast.type}/>}
       {updateState?.available&&(!postponed(updateState.release.id)||updateState.required)&&!noticeDismissed&&<div role="status" style={{position:'fixed',top:8,left:'50%',transform:'translateX(-50%)',maxWidth:460,width:'calc(100% - 24px)',zIndex:15000,background:C.card,border:`2px solid ${updateState.required?C.danger:C.accent}`,borderRadius:12,padding:16,boxShadow:'0 12px 35px #0008'}}><strong>{updateState.required?'Actualización necesaria':'Nueva versión disponible'}: {updateState.release.version_label}</strong><p style={{whiteSpace:'pre-wrap',fontSize:12}}>{updateState.release.notes}</p>{updateState.required&&activeDay?.running&&<p style={{fontSize:12}}>Termina y guarda tu jornada antes de actualizar.</p>}<button className="text-link" onClick={doUpdate} style={{marginRight:16}}>Actualizar</button>{!updateState.required&&<button className="text-link" onClick={()=>{postpone(updateState.release.id);setNoticeDismissed(true);}}>Después</button>}{updateState.required&&<button className="text-link" onClick={()=>setShowSupport(true)} style={{marginLeft:16}}>Soporte</button>}</div>}
       {updateError&&tab==='config'&&<div role="alert" style={{padding:8,color:C.danger}}>{updateError}</div>}
-      {showUpdatesAdmin&&platform==='web'&&isUpdatesAdmin(session?.user)&&<div style={{position:'fixed',inset:0,zIndex:16000,overflowY:'auto',background:C.bg,color:C.text}}><UpdatePanel onClose={()=>setShowUpdatesAdmin(false)}/></div>}
+      {showUpdatesAdmin&&isUpdatesAdmin(session?.user)&&<div style={{position:'fixed',inset:0,zIndex:16000,overflowY:'auto',background:C.bg,color:C.text}}><UpdatePanel onClose={()=>setShowUpdatesAdmin(false)}/></div>}
       <div style={{background:C.bg,minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative"}}>
         <div style={{background:C.card,padding:`calc(10px + env(safe-area-inset-top)) 15px 10px`,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10,borderBottom:`1px solid ${C.border}`}}>
           <div>
@@ -3266,7 +3294,7 @@ export default function RuletoDriveApp(){
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)}/>}
         {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)} userId={session.user.id}/>}
-        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={logout} onChangePhone={()=>setShowPhoneEdit(true)} onCheckUpdates={()=>refreshUpdates(true).then(result=>{if(result&&!result.available)showToast('Ya tienes la versión más reciente');})} onOpenUpdatesAdmin={platform==='web'&&isUpdatesAdmin(session?.user)?()=>setShowUpdatesAdmin(true):null} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode} isPro={isPro} planTier={planTier} profile={profile} trialDaysLeft={trialDaysLeft} session={session} onUpgrade={()=>setShowPlanPicker(true)} consent={consent} onToggleLocation={toggleLocationConsent} onDeleteAccount={()=>setShowDeleteAccount(true)}/>}
+        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={logout} onChangePhone={()=>setShowPhoneEdit(true)} onCheckUpdates={()=>refreshUpdates(true).then(result=>{if(result&&!result.available)showToast('Ya tienes la versión más reciente');})} onOpenUpdatesAdmin={isUpdatesAdmin(session?.user)?()=>setShowUpdatesAdmin(true):null} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode} isPro={isPro} planTier={planTier} profile={profile} trialDaysLeft={trialDaysLeft} session={session} onUpgrade={()=>setShowPlanPicker(true)} consent={consent} onToggleLocation={toggleLocationConsent} onDeleteAccount={()=>setShowDeleteAccount(true)}/>}
 
         {!showNew&&!showOperation&&<GpsRunningPill userId={session.user.id} onOpenTrip={()=>setShowNew(true)} onOpenDead={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}}/>}
 

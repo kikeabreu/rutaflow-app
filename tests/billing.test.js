@@ -51,9 +51,14 @@ test("portal is available only with a live Stripe subscription",async()=>{
   try{
     let res=response();await portalStatus({method:"GET",headers:{authorization:"Bearer token"}},res);
     assert.equal(res.statusCode,200);assert.equal(res.body.manageable,false);
-    subscriptions=[{stripe_subscription_id:"sub_test"}];
+    process.env.STRIPE_PRICE_ID_MONTHLY="price_monthly";
+    process.env.STRIPE_PRICE_ID_ANNUAL="price_annual";
+    subscriptions=[{stripe_subscription_id:"sub_test",status:"active",price_id:"price_monthly",current_period_end:"2026-11-01T00:00:00Z",cancel_at_period_end:false}];
     res=response();await portalStatus({method:"GET",headers:{authorization:"Bearer token"}},res);
     assert.equal(res.body.manageable,true);
+    assert.equal(res.body.subscription.interval,"monthly");
+    assert.equal(res.body.subscription.can_upgrade_annual,true);
+    assert.equal(res.body.subscription.current_period_end,"2026-11-01T00:00:00Z");
   }finally{global.fetch=original;}
 });
 
