@@ -1,0 +1,8 @@
+{
+  "platform": "android",
+  "version_label": "1.4.12-beta",
+  "build_number": 17,
+  "minimum_build": 0,
+  "notes": "Corrige detalles de suscripción, consentimiento, eliminación de cuenta, panel admin y detección de actualizaciones.",
+  "artifact_url": "https://github.com/kikeabreu/rutaflow-app/releases/download/v1.4.12-beta/Ruleto-Drive-1.4.12-beta.apk"
+}
