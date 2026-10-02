@@ -16,3 +16,9 @@ test("el enlace viejo abre la PWA y su manifiesto instala app.ruleto.mx",()=>{
   assert.equal(manifest.start_url,"https://app.ruleto.mx/");
   assert.equal(manifest.scope,"https://app.ruleto.mx/");
 });
+
+test("la ruta de recuperacion de contraseña carga la PWA",()=>{
+  const routes=JSON.parse(fs.readFileSync(path.join(root,"vercel.json"),"utf8"));
+  const recovery=routes.rewrites.find(route=>route.source==="/auth/restablecer");
+  assert.equal(recovery?.destination,"/app.html");
+});

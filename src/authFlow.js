@@ -6,6 +6,15 @@ export const ANDROID_AUTH_CALLBACK = "mx.ruleto.drive://auth/callback";
 export const ANDROID_AUTH_CALLBACK_FALLBACK = "https://app.ruleto.mx/";
 export const WEB_APP_ORIGIN = "https://app.ruleto.mx";
 
+export function appRedirect(path = "/") {
+  const local = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  return new URL(path, local ? window.location.origin : WEB_APP_ORIGIN).toString();
+}
+
+export function passwordRecoveryRedirect() {
+  return appRedirect("/auth/restablecer");
+}
+
 export function googleOAuthOptions(origin, native = false) {
   if (native) {
     return { redirectTo: ANDROID_AUTH_CALLBACK, skipBrowserRedirect: true };
