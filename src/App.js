@@ -53,6 +53,8 @@ const saveTripDraft=(userId,draft)=>{
   else writeScoped(window.localStorage,userId,"trip-draft",draft);
 };
 const isStandaloneApp=()=>typeof window!=="undefined"&&(window.matchMedia?.("(display-mode: standalone)").matches||window.navigator.standalone===true);
+const TERMS_URL="https://ruleto.mx/terminos.html";
+const PRIVACY_URL="https://ruleto.mx/privacidad.html";
 
 const openExternalUrl=async url=>{
   if(Capacitor.isNativePlatform()){await Browser.open({url});return;}
@@ -2212,8 +2214,8 @@ function ConfigTab({cfg,saveConfig,onLogout,onChangePhone,onCheckUpdates,onOpenU
           {locationError&&<div style={{fontSize:10,color:C.danger,marginTop:4}}>{locationError}</div>}
         </div>}
         <div style={{fontSize:9,color:C.dim,marginTop:10,display:"flex",gap:12,flexWrap:"wrap"}}>
-          <a href="/terminos.html" target="_blank" rel="noopener noreferrer">Términos y condiciones</a>
-          <a href="/privacidad.html" target="_blank" rel="noopener noreferrer">Aviso de privacidad</a>
+          <a href={TERMS_URL} target="_blank" rel="noopener noreferrer">Términos y condiciones</a>
+          <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">Aviso de privacidad</a>
         </div>
       </Card>
 
@@ -2310,7 +2312,7 @@ function Auth(){
             {mode==="register"&&<div style={{position:"relative"}}><FI d={IC.lock}/><input type={showPw?"text":"password"} placeholder="Confirmar contraseña" value={confirm} onChange={e=>setConfirm(e.target.value)} required style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>}
             {mode==="register"&&<label style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:11,color:C.muted,lineHeight:1.5,cursor:"pointer"}}>
               <input type="checkbox" checked={acceptedTerms} onChange={e=>setAcceptedTerms(e.target.checked)} style={{marginTop:2,accentColor:C.accent}}/>
-              <span>Acepto los <a href="/terminos.html" target="_blank" rel="noopener noreferrer">Términos y Condiciones</a> y el <a href="/privacidad.html" target="_blank" rel="noopener noreferrer">Aviso de Privacidad</a>.</span>
+              <span>Acepto los <a href={TERMS_URL} target="_blank" rel="noopener noreferrer">Términos y Condiciones</a> y el <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">Aviso de Privacidad</a>.</span>
             </label>}
             {mode==="login"&&<div style={{textAlign:"right"}}><button type="button" className="text-link" onClick={()=>{setMode("forgot");reset();}} style={{fontSize:10}}>¿Olvidaste tu contraseña?</button></div>}
             {error&&<div style={{background:`${C.danger}12`,border:`1px solid ${C.danger}33`,borderRadius:8,padding:"9px 13px",fontSize:12,color:C.danger}}>⚠️ {error}</div>}
@@ -2325,7 +2327,7 @@ function Auth(){
                 Continuar con Google
               </button>
               <div style={{textAlign:"center",fontSize:9.5,color:C.dim,lineHeight:1.5}}>
-                Al continuar, aceptas nuestros <a href="/terminos.html" target="_blank" rel="noopener noreferrer">Términos</a> y <a href="/privacidad.html" target="_blank" rel="noopener noreferrer">Aviso de Privacidad</a>.
+                Al continuar, aceptas nuestros <a href={TERMS_URL} target="_blank" rel="noopener noreferrer">Términos</a> y <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">Aviso de Privacidad</a>.
               </div>
             </>}
           </div>
@@ -3059,7 +3061,9 @@ export default function RuletoDriveApp(){
 
   const updateOperation=async(id,data)=>{
     try{
-      const{data:updated,error}=await supabase.from("operational_events").update({...data,date:data.date||dateOf(data)}).eq("id",id).select().single();
+      const{end_location_promise,start_location,...clean}=data;
+      const payload={...clean,date:clean.date||dateOf(clean)};
+      const{data:updated,error}=await supabase.from("operational_events").update(payload).eq("id",id).select().single();
       if(error){showToast("No se pudo actualizar el movimiento","err");return false;}
       setEvents(p=>p.map(e=>e.id===id?updated:e).sort((a,b)=>eventMs(b)-eventMs(a)));showToast("Movimiento actualizado");return true;
     }catch(e){showToast("Error de conexion","err");return false;}

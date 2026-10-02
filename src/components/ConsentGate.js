@@ -7,6 +7,8 @@ const shell = { background: C.bg, minHeight: "100vh", display: "flex", alignItem
 const card = { width: "100%", maxWidth: 420, background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: "22px 18px" };
 const primary = disabled => ({ width: "100%", padding: "13px", background: disabled ? C.card2 : ACCENT_FILL, color: disabled ? C.muted : "#000", border: "none", borderRadius: 11, fontSize: 12, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", cursor: disabled ? "default" : "pointer" });
 const link = { color: C.teal, fontWeight: 700 };
+const TERMS_URL = "https://ruleto.mx/terminos.html";
+const PRIVACY_URL = "https://ruleto.mx/privacidad.html";
 
 function Check({ checked, onChange, children }) {
   return (
@@ -39,7 +41,7 @@ export function ConsentGate({ onDone, onLogout }) {
           Antes de continuar, confirma cómo tratamos tus datos. Puedes cambiar la ubicación o eliminar tu cuenta cuando quieras desde Configuración.
         </div>
         <Check checked={terms} onChange={setTerms}>
-          He leído y acepto los <a style={link} href="/terminos.html" target="_blank" rel="noopener noreferrer">Términos y Condiciones</a> y el <a style={link} href="/privacidad.html" target="_blank" rel="noopener noreferrer">Aviso de Privacidad</a>. <strong>(Obligatorio)</strong>
+          He leído y acepto los <a style={link} href={TERMS_URL} target="_blank" rel="noopener noreferrer">Términos y Condiciones</a> y el <a style={link} href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">Aviso de Privacidad</a>. <strong>(Obligatorio)</strong>
         </Check>
         <Check checked={financial} onChange={setFinancial}>
           Consiento expresamente el tratamiento de mis <strong>datos financieros y operativos</strong> (viajes, tarifas, gastos y ganancias) para calcular mis resultados y generar respuestas de Ruleto IA, que se procesan con proveedores en México y el extranjero. <strong>(Obligatorio)</strong>
