@@ -19,10 +19,28 @@
 <main class="shell">
 <section class="hero"><span class="eyebrow">Instalación</span><h1>Tu siguiente viaje empieza aquí.</h1><p class="lead">En Android instala la app oficial. En iPhone usa Ruleto desde Safari y guárdalo en tu pantalla de inicio.</p><div id="account-created" class="success">Tu cuenta quedó creada. Revisa tu correo y confirma tu dirección antes de iniciar sesión en la app.</div></section>
 <div class="grid">
-  <section class="card android" id="android"><span class="pill">Experiencia completa · Android</span><h2>Instala Ruleto Drive</h2><p>Descarga la APK oficial directamente desde Ruleto. La app requiere Android 7 o posterior.</p><a class="button" href="/android/ruleto-drive.apk" download>Descargar APK para Android</a><ol class="steps"><li>Abre el archivo descargado en tu teléfono.</li><li>Si Android pregunta por permisos, autoriza a tu navegador o gestor de archivos a instalar esta app.</li><li>Verifica que el archivo proviene de <strong>ruleto.mx</strong> y que la app se llama <strong>Ruleto Drive</strong>.</li><li>Si Google Play Protect muestra una advertencia por instalar fuera de Play Store, lee el aviso y decide si deseas continuar. La opción puede aparecer en «Más detalles».</li><li>Abre Ruleto e inicia sesión con la cuenta que acabas de crear.</li></ol><p class="fine">La APK aún no se distribuye en Google Play. No instales copias enviadas por terceros. Si tu teléfono bloquea la instalación, puedes usar la versión web.</p><div class="after"><a href="https://app.ruleto.mx/?auth=login">Ya tengo la app: iniciar sesión</a></div></section>
-  <section class="card iphone" id="iphone"><span class="pill">Versión web · iPhone</span><h2>Úsala como PWA</h2><p>Abre la app web en Safari. Puedes registrar y consultar tu operación, pero iOS limita la lectura de ofertas de otras apps y algunas funciones de fondo.</p><a class="button" href="https://app.ruleto.mx/?auth=login">Abrir app.ruleto.mx</a><ol class="steps"><li>En Safari, entra a <strong>app.ruleto.mx</strong> e inicia sesión.</li><li>Toca <strong>Compartir</strong>.</li><li>Elige <strong>Agregar a pantalla de inicio</strong> y confirma que la dirección mostrada sea <strong>app.ruleto.mx</strong>.</li></ol><p class="fine">Si tu icono anterior muestra rutaflow-app.vercel.app, elimínalo y agrega Ruleto de nuevo desde app.ruleto.mx. Por ahora Ruleto Pro está orientado a conductores Android; el acceso desde iPhone no equivale a la app Android.</p></section>
+  <section class="card android" id="android"><span class="pill">Experiencia completa · Android</span><h2>Instala Ruleto Drive</h2><p>Descarga la APK oficial directamente desde Ruleto. La app requiere Android 7 o posterior.</p><a class="button" href="/android/ruleto-drive.apk" download>Descargar APK para Android</a><ol class="steps"><li>Abre el archivo descargado en tu teléfono.</li><li>Si Android pregunta por permisos, toca <strong>Ajustes</strong> o <strong>Configuración</strong> y activa <strong>Permitir de esta fuente</strong> para Chrome, Archivos o el navegador que usaste.</li><li>Regresa a la descarga, toca <strong>Instalar</strong> y verifica que el archivo venga de <strong>ruleto.mx</strong> y que la app se llame <strong>Ruleto Drive</strong>.</li><li>Si Google Play Protect muestra una advertencia, toca <strong>Más detalles</strong> y luego <strong>Instalar de todos modos</strong> o <strong>Instalar de todas formas</strong>.</li><li>Abre Ruleto e inicia sesión con la cuenta que acabas de crear.</li></ol><p class="fine">La APK aún no se distribuye en Google Play. No instales copias enviadas por terceros; usa siempre la descarga oficial de ruleto.mx.</p><div class="after"><a href="https://app.ruleto.mx/?auth=login">Ya tengo la app: iniciar sesión</a></div></section>
+  <section class="card iphone" id="iphone"><span class="pill">Versión web · iPhone</span><h2>Úsala como PWA</h2><p>Abre la app web en Safari. Puedes registrar y consultar tu operación, pero iOS limita la lectura de ofertas de otras apps y algunas funciones de fondo.</p><a class="button" href="https://app.ruleto.mx/?auth=login">Abrir app.ruleto.mx</a><ol class="steps"><li>En Safari, entra a <strong>app.ruleto.mx</strong> e inicia sesión.</li><li>Toca <strong>Compartir</strong>.</li><li>Elige <strong>Agregar a pantalla de inicio</strong> y confirma que la dirección mostrada sea <strong>app.ruleto.mx</strong>.</li></ol></section>
 </div>
 </main>
-<script>if(new URLSearchParams(location.search).get('cuenta')==='creada')document.getElementById('account-created').classList.add('on');</script>
+<script>
+  (function(){
+    const trackRuletoEvent = (name, payload = {}) => {
+      if (window.gtag) window.gtag('event', name, payload);
+      else if (window.dataLayer) window.dataLayer.push({ event: name, ...payload });
+    };
+    trackRuletoEvent('landing_view', { page: 'download' });
+    document.querySelectorAll('a[href="/android/ruleto-drive.apk"]').forEach(link => {
+      link.addEventListener('click', () => {
+        trackRuletoEvent('cta_download_apk', { placement: 'download_page' });
+        trackRuletoEvent('apk_download_started', { placement: 'download_page' });
+      });
+    });
+    document.querySelectorAll('a[href^="https://app.ruleto.mx"]').forEach(link => {
+      link.addEventListener('click', () => trackRuletoEvent('create_account', { placement: 'download_page' }));
+    });
+    if(new URLSearchParams(location.search).get('cuenta')==='creada')document.getElementById('account-created').classList.add('on');
+  })();
+</script>
 </body>
 </html>
