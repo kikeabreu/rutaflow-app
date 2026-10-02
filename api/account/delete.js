@@ -24,8 +24,19 @@ async function purgeTable(table,column,userId){
   if(!response.ok&&response.status!==404)throw Object.assign(new Error("No se pudo eliminar tu información. Escríbenos a privacidad@ruleto.mx."),{statusCode:502,table});
 }
 
+async function hasLiveStripeSubscription(userId){
+  const response=await fetch(`${supabaseUrl()}/rest/v1/billing_subscriptions?user_id=eq.${encodeURIComponent(userId)}&status=in.(active,trialing,past_due,unpaid,paused)&select=stripe_subscription_id&limit=1`,{
+    headers:{apikey:serviceKey(),Authorization:`Bearer ${serviceKey()}`},
+  });
+  if(response.status===404)return false;
+  if(!response.ok)return true;
+  const rows=await response.json().catch(()=>[]);
+  return Boolean(rows?.length);
+}
+
 async function cancelStripeSubscriptions(userId){
   if(!process.env.STRIPE_SECRET_KEY)return;
+  if(!await hasLiveStripeSubscription(userId))return;
   const customer=await findCustomerForUser(userId);
   if(!customer)return;
   const list=await stripeRequest(`subscriptions?customer=${encodeURIComponent(customer)}&status=all&limit=100`,{method:"GET"});

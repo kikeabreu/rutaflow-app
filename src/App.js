@@ -36,7 +36,7 @@ import { useGpsTracker, readTracker, startTracker, stopTracker, clearTracker, pa
 import { claimDevice, releaseDevice } from "./accountClient";
 import { DeviceGate, PhoneGate, PhoneField } from "./components/AccountGates";
 import { ConsentGate, DeleteAccountModal } from "./components/ConsentGate";
-import { consentIsCurrent, deleteAccount, loadConsent, locationConsentGranted, saveConsent, setLocationConsent } from "./consent";
+import { PRIVACY_VERSION, consentIsCurrent, deleteAccount, loadConsent, locationConsentGranted, saveConsent, setLocationConsent } from "./consent";
 import { DEFAULT_COUNTRY, normalizePhone, formatPhone } from "./phone";
 import { DEMO_TRIPS, DEMO_EVENTS } from "./demoData";
 
@@ -101,6 +101,7 @@ const haversine=(a,b)=>{const R=6371,r=x=>x*Math.PI/180;const dLat=r(b.lat-a.lat
 const dateOf=x=>dateKey(x?.end_time||x?.occurred_at||x?.paid_at||x?.created_at||x?.date||Date.now());
 const inDateRange=(item,range)=>{const d=dateOf(item);return(!range.from||d>=range.from)&&(!range.to||d<=range.to);};
 const locationName=point=>point?.zone||point?.city||(Number.isFinite(Number(point?.latitude??point?.lat))?`${Number(point.latitude??point.lat).toFixed(3)}, ${Number(point.longitude??point.lon).toFixed(3)}`:"");
+const isUpdatesAdmin=user=>user?.app_metadata?.support_role==="admin"||String(user?.email||"").toLowerCase()==="e.abreuespinoza@gmail.com";
 
 const retainCheckpoints=rows=>[...rows.filter(row=>row._pending),...rows.filter(row=>!row._pending).slice(0,500)];
 const openSettings=()=>NativeSettings.open({optionAndroid:AndroidSettings.ApplicationDetails,optionIOS:IOSSettings.App}).catch(()=>{});
@@ -2041,12 +2042,20 @@ function ConfigTab({cfg,saveConfig,onLogout,onChangePhone,onCheckUpdates,onOpenU
       .catch(()=>{if(active)setPortalManageable(null);});
     return()=>{active=false;};
   },[isPro,session?.access_token]);
+  const fmtPlanDate=iso=>new Date(iso).toLocaleDateString("es-MX",{day:"numeric",month:"short",year:"numeric"});
   const planLabel=(()=>{
     const status=String(profile?.subscription_status||"").toLowerCase();
-    if(planTier==="TRIAL")return `TRIAL · ${trialDaysLeft} día${trialDaysLeft===1?"":"s"} restante${trialDaysLeft===1?"":"s"}`;
-    if(isPro&&profile?.cancel_at_period_end&&profile?.pro_until)return `Pro hasta el ${new Date(profile.pro_until).toLocaleDateString("es-MX",{day:"numeric",month:"short",year:"numeric"})} (cancelado)`;
-    if(isPro)return "Pro activo";
+    if(planTier==="TRIAL")return `Prueba Pro · ${trialDaysLeft} día${trialDaysLeft===1?"":"s"} restante${trialDaysLeft===1?"":"s"}`;
+    if(isPro&&profile?.cancel_at_period_end&&profile?.pro_until)return `Pro cancelado · vence ${fmtPlanDate(profile.pro_until)}`;
+    if(isPro&&profile?.pro_until)return `Pro activo · vence ${fmtPlanDate(profile.pro_until)}`;
+    if(isPro)return status==="active"?"Pro activo":"Pro";
     return "FREE";
+  })();
+  const packageLabel=(()=>{
+    if(planTier==="TRIAL")return "Prueba gratis";
+    if(!isPro)return "Plan gratuito";
+    if(profile?.plan_label)return profile.plan_label;
+    return "Suscripción Pro";
   })();
   const[local,setLocal]=useState(cfg);
   const[advancedEnergy,setAdvancedEnergy]=useState(false);
@@ -2150,6 +2159,7 @@ function ConfigTab({cfg,saveConfig,onLogout,onChangePhone,onCheckUpdates,onOpenU
           <div>
             <div style={{fontSize:9,color:C.muted,letterSpacing:"0.1em",marginBottom:3}}>TU PLAN</div>
             <div style={{fontSize:14,fontWeight:800,color:isPro?C.teal:C.text}}>{planLabel}</div>
+            <div style={{fontSize:10,color:C.muted,marginTop:3}}>{packageLabel}</div>
           </div>
           {!isPro&&<Btn sm onClick={onUpgrade} color={C.accent}>Actualizar a PRO</Btn>}
         </div>
@@ -2228,7 +2238,7 @@ function Auth(){
   const reset=()=>{setError("");setSuccess("");};
   const redir=()=>["localhost","127.0.0.1"].includes(window.location.hostname)?`${window.location.origin}/`:`${WEB_APP_ORIGIN}/`;
   const handleLogin=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.signInWithPassword({email,password:pass});if(err)setError("Correo o contraseña incorrectos");setLoading(false);};
-  const handleRegister=async e=>{e.preventDefault();reset();if(!name.trim()){setError("Ingresa tu nombre completo");return;}let phone;try{phone=normalizePhone(phoneCountry,phoneLocal);}catch(phoneError){setError(phoneError.message);return;}if(pass.length<6){setError("Contraseña mínima: 6 caracteres");return;}if(pass!==confirm){setError("Las contraseñas no coinciden");return;}if(!acceptedTerms){setError("Debes aceptar los Términos y el Aviso de Privacidad para continuar.");return;}setLoading(true);const{data,error:err}=await supabase.auth.signUp({email,password:pass,options:{data:{full_name:name,phone,phone_country:phoneCountry},emailRedirectTo:redir()}});if(err){setError(err.message);setLoading(false);return;}if(data?.user){
+  const handleRegister=async e=>{e.preventDefault();reset();if(!name.trim()){setError("Ingresa tu nombre completo");return;}let phone;try{phone=normalizePhone(phoneCountry,phoneLocal);}catch(phoneError){setError(phoneError.message);return;}if(pass.length<6){setError("Contraseña mínima: 6 caracteres");return;}if(pass!==confirm){setError("Las contraseñas no coinciden");return;}if(!acceptedTerms){setError("Debes aceptar los Términos y el Aviso de Privacidad para continuar.");return;}setLoading(true);const{data,error:err}=await supabase.auth.signUp({email,password:pass,options:{data:{full_name:name,phone,phone_country:phoneCountry,privacy_notice_version:PRIVACY_VERSION,privacy_terms_accepted:true,privacy_financial_accepted:true},emailRedirectTo:redir()}});if(err){setError(err.message);setLoading(false);return;}if(data?.user){
         await supabase.from("profiles").upsert({id:data.user.id,full_name:name,email,config:{}});
         // La prueba de 14 días se activa al entrar por primera vez, cuando ya
         // podemos ligarla a este celular y a este número (ver PhoneGate).
@@ -2452,9 +2462,18 @@ export default function RuletoDriveApp(){
   useEffect(()=>{
     if(!consentUid){setConsent(undefined);setConsentLoaded(false);setLocationConsent(null);return;}
     let alive=true;
-    loadConsent(consentUid).then(row=>{if(!alive)return;setConsent(row);setConsentLoaded(true);setLocationConsent(row?row.accepted_location:null);});
+    loadConsent(consentUid).then(async row=>{
+      if(!alive)return;
+      const meta=session?.user?.user_metadata||{};
+      if(row===null&&meta.privacy_notice_version===PRIVACY_VERSION&&meta.privacy_terms_accepted&&meta.privacy_financial_accepted){
+        try{row=await saveConsent({location:false,source:"signup"});}
+        catch(error){console.warn("No se pudo sincronizar el consentimiento de registro",error?.message||error);}
+      }
+      if(!alive)return;
+      setConsent(row);setConsentLoaded(true);setLocationConsent(row?row.accepted_location:null);
+    });
     return()=>{alive=false;};
-  },[consentUid]);
+  },[consentUid,session?.user?.user_metadata]);
   const acceptConsent=row=>{setConsent(row);setLocationConsent(row.accepted_location);};
   const toggleLocationConsent=async()=>{
     const next=!(consent?.accepted_location);
@@ -3202,7 +3221,7 @@ export default function RuletoDriveApp(){
       {toast&&<Toast msg={toast.msg} type={toast.type}/>}
       {updateState?.available&&(!postponed(updateState.release.id)||updateState.required)&&!noticeDismissed&&<div role="status" style={{position:'fixed',top:8,left:'50%',transform:'translateX(-50%)',maxWidth:460,width:'calc(100% - 24px)',zIndex:15000,background:C.card,border:`2px solid ${updateState.required?C.danger:C.accent}`,borderRadius:12,padding:16,boxShadow:'0 12px 35px #0008'}}><strong>{updateState.required?'Actualización necesaria':'Nueva versión disponible'}: {updateState.release.version_label}</strong><p style={{whiteSpace:'pre-wrap',fontSize:12}}>{updateState.release.notes}</p>{updateState.required&&activeDay?.running&&<p style={{fontSize:12}}>Termina y guarda tu jornada antes de actualizar.</p>}<button className="text-link" onClick={doUpdate} style={{marginRight:16}}>Actualizar</button>{!updateState.required&&<button className="text-link" onClick={()=>{postpone(updateState.release.id);setNoticeDismissed(true);}}>Después</button>}{updateState.required&&<button className="text-link" onClick={()=>setShowSupport(true)} style={{marginLeft:16}}>Soporte</button>}</div>}
       {updateError&&tab==='config'&&<div role="alert" style={{padding:8,color:C.danger}}>{updateError}</div>}
-      {showUpdatesAdmin&&platform==='web'&&session?.user?.app_metadata?.support_role==='admin'&&<div style={{position:'fixed',inset:0,zIndex:16000,overflowY:'auto',background:C.bg,color:C.text}}><UpdatePanel onClose={()=>setShowUpdatesAdmin(false)}/></div>}
+      {showUpdatesAdmin&&platform==='web'&&isUpdatesAdmin(session?.user)&&<div style={{position:'fixed',inset:0,zIndex:16000,overflowY:'auto',background:C.bg,color:C.text}}><UpdatePanel onClose={()=>setShowUpdatesAdmin(false)}/></div>}
       <div style={{background:C.bg,minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative"}}>
         <div style={{background:C.card,padding:`calc(10px + env(safe-area-inset-top)) 15px 10px`,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10,borderBottom:`1px solid ${C.border}`}}>
           <div>
@@ -3247,7 +3266,7 @@ export default function RuletoDriveApp(){
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)}/>}
         {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)} userId={session.user.id}/>}
-        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={logout} onChangePhone={()=>setShowPhoneEdit(true)} onCheckUpdates={()=>refreshUpdates(true).then(result=>{if(result&&!result.available)showToast('Ya tienes la versión más reciente');})} onOpenUpdatesAdmin={platform==='web'&&session?.user?.app_metadata?.support_role==='admin'?()=>setShowUpdatesAdmin(true):null} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode} isPro={isPro} planTier={planTier} profile={profile} trialDaysLeft={trialDaysLeft} session={session} onUpgrade={()=>setShowPlanPicker(true)} consent={consent} onToggleLocation={toggleLocationConsent} onDeleteAccount={()=>setShowDeleteAccount(true)}/>}
+        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={logout} onChangePhone={()=>setShowPhoneEdit(true)} onCheckUpdates={()=>refreshUpdates(true).then(result=>{if(result&&!result.available)showToast('Ya tienes la versión más reciente');})} onOpenUpdatesAdmin={platform==='web'&&isUpdatesAdmin(session?.user)?()=>setShowUpdatesAdmin(true):null} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode} isPro={isPro} planTier={planTier} profile={profile} trialDaysLeft={trialDaysLeft} session={session} onUpgrade={()=>setShowPlanPicker(true)} consent={consent} onToggleLocation={toggleLocationConsent} onDeleteAccount={()=>setShowDeleteAccount(true)}/>}
 
         {!showNew&&!showOperation&&<GpsRunningPill userId={session.user.id} onOpenTrip={()=>setShowNew(true)} onOpenDead={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}}/>}
 

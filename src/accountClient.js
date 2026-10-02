@@ -39,8 +39,8 @@ const PHONE_ERRORS = {
 export const TRIAL_REASONS = {
   already_used: "Esta cuenta ya usó su prueba gratis.",
   subscribed: "Tu cuenta ya tiene una suscripción.",
-  device_used: "Este celular ya usó la prueba gratis de Ruleto con otra cuenta.",
-  phone_used: "Este número ya usó la prueba gratis de Ruleto.",
+  device_used: "Este dispositivo ya ha utilizado la prueba gratuita.",
+  phone_used: "Este número ya ha utilizado la prueba gratuita.",
   no_device: "No pudimos identificar este dispositivo.",
 };
 

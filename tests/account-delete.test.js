@@ -21,6 +21,7 @@ test("account deletion cancels Stripe first, purges user tables, then removes th
   global.fetch=async(url,opts={})=>{
     const u=String(url);calls.push({url:u,method:opts.method||"GET"});
     if(u.includes("/auth/v1/user"))return{ok:true,json:async()=>({id:USER})};
+    if(u.includes("billing_subscriptions"))return{ok:true,json:async()=>[{stripe_subscription_id:"sub_1"}]};
     if(u.includes("billing_customers"))return{ok:true,json:async()=>[{stripe_customer_id:"cus_1"}]};
     if(u.includes("api.stripe.com")&&u.includes("subscriptions?"))return{ok:true,json:async()=>({data:[{id:"sub_1",status:"active"},{id:"sub_2",status:"canceled"}]})};
     return{ok:true,status:200,json:async()=>({})};
@@ -35,5 +36,20 @@ test("account deletion cancels Stripe first, purges user tables, then removes th
     assert.ok(order.some(u=>u.includes("/rest/v1/profiles?id=eq.")));
     assert.match(order[order.length-1],/\/auth\/v1\/admin\/users\//);
     assert.ok(!order.some(u=>u.includes("trial_devices")||u.includes("trial_phones")),"anti-abuse records are retained");
+  }finally{global.fetch=original;}
+});
+
+test("account deletion skips Stripe when there is no live subscription",async()=>{
+  configure();const original=global.fetch;const calls=[];
+  global.fetch=async(url,opts={})=>{
+    const u=String(url);calls.push({url:u,method:opts.method||"GET"});
+    if(u.includes("/auth/v1/user"))return{ok:true,json:async()=>({id:USER})};
+    if(u.includes("billing_subscriptions"))return{ok:true,json:async()=>[]};
+    return{ok:true,status:200,json:async()=>({})};
+  };
+  try{
+    const res=response();await handler({method:"POST",headers:{authorization:"Bearer t"},body:{confirm:"ELIMINAR"}},res);
+    assert.equal(res.statusCode,200);assert.equal(res.body.deleted,true);
+    assert.ok(!calls.some(c=>c.url.includes("api.stripe.com")),"Stripe is not required for local trials or already-cancelled accounts");
   }finally{global.fetch=original;}
 });
