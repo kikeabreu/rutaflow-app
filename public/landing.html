@@ -300,13 +300,12 @@
           </div>
           <div class="story-panel">
             <h3>Datos verificables</h3>
-            <!-- TODO: Reemplazar estos espacios cuando existan cifras verificables de producción: conductores activos, viajes analizados y calificación pública. No inventar métricas. -->
-            <div class="stats-grid">
-              <div class="stat-todo"><b>Próximo</b><span>Conductores activos verificados</span></div>
-              <div class="stat-todo"><b>Próximo</b><span>Viajes analizados por Ruleto</span></div>
-              <div class="stat-todo"><b>Próximo</b><span>Calificación pública de la app</span></div>
+            <div class="stats-grid" id="supabase-stats" aria-live="polite">
+              <div class="stat-todo"><b data-metric="registered_drivers">Cargando</b><span>Conductores registrados en Ruleto</span></div>
+              <div class="stat-todo"><b data-metric="analyzed_trips">Cargando</b><span>Viajes registrados y calculados</span></div>
+              <div class="stat-todo"><b data-metric="pro_or_trial_accounts">Cargando</b><span>Cuentas con Pro o prueba activa</span></div>
             </div>
-            <p style="margin-top:18px">Cuando esos datos estén disponibles en una fuente confiable del proyecto, este bloque queda listo para mostrarlos sin maquillaje.</p>
+            <p style="margin-top:18px">Datos agregados desde Supabase, sin mostrar información personal. Calificación pública: pendiente hasta tener una ficha pública verificable.</p>
           </div>
         </div>
       </div>
@@ -666,6 +665,7 @@
         else if (window.dataLayer) window.dataLayer.push({ event: name, ...payload });
       };
       window.trackRuletoEvent = window.trackRuletoEvent || trackRuletoEvent;
+      window.trackRuletoEvent('landing_view', { page: 'landing' });
 
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       document.querySelectorAll('.js-primary-cta').forEach(link => {
@@ -677,6 +677,7 @@
         }
         link.addEventListener('click', () => {
           window.trackRuletoEvent(isIOS ? 'cta_create_account_ios' : 'cta_download_apk', { placement: link.closest('section')?.id || 'nav' });
+          if (!isIOS) window.trackRuletoEvent('apk_download_started', { placement: link.closest('section')?.id || 'nav' });
         });
       });
       document.querySelectorAll('a[href="/crear-cuenta"]').forEach(link => {
@@ -686,6 +687,25 @@
         const note = document.querySelector('.js-platform-note');
         if (note) note.innerHTML = '<strong>14 días de Pro sin tarjeta.</strong> En iPhone puedes usar Ruleto web; el Copiloto que lee ofertas sobre otras apps es solo Android.';
       }
+
+      const formatMetric = value => {
+        const number = Number(value);
+        if (!Number.isFinite(number) || number <= 0) return 'Pendiente';
+        return new Intl.NumberFormat('es-MX').format(number);
+      };
+      fetch('/api/public-metrics')
+        .then(response => response.ok ? response.json() : null)
+        .then(data => {
+          const metrics = data?.metrics || {};
+          document.querySelectorAll('[data-metric]').forEach(node => {
+            node.textContent = formatMetric(metrics[node.dataset.metric]);
+          });
+        })
+        .catch(() => {
+          document.querySelectorAll('[data-metric]').forEach(node => {
+            node.textContent = 'Pendiente';
+          });
+        });
 
       const nav = document.querySelector('.nav');
       const menuToggle = nav.querySelector('.menu-toggle');
