@@ -7,8 +7,8 @@ android {
         applicationId "mx.ruleto.drive"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 12
-        versionName "1.4.7-beta"
+        versionCode 16
+        versionName "1.4.11-beta"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -46,11 +46,8 @@ dependencies {
 
 apply from: 'capacitor.build.gradle'
 
-try {
-    def servicesJSON = file('google-services.json')
-    if (servicesJSON.text) {
-        apply plugin: 'com.google.gms.google-services'
-    }
-} catch(Exception e) {
-    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+def servicesJSON = file('google-services.json')
+if (!servicesJSON.exists() || !servicesJSON.text.trim()) {
+    throw new GradleException("Falta android/app/google-services.json: no se puede compilar una APK con push sin Firebase")
 }
+apply plugin: 'com.google.gms.google-services'

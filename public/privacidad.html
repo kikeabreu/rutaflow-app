@@ -15,7 +15,7 @@
   @media (prefers-color-scheme: light){:root{--bg:#F3F4F6;--panel:#FFFFFF;--panel2:#F7F9F8;--border:#E1E5E3;--text:#111827;--muted:#6B7280;--accent:#0F2D27;--teal:#0D9488;--danger:#DC2626;}}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);font-family:"Inter",sans-serif;line-height:1.65}
-  a{color:var(--teal)}
+  a{color:var(--teal);text-decoration:underline;text-underline-offset:3px;font-weight:700}
   .wrap{width:min(760px,calc(100% - 32px));margin:0 auto;padding:40px 0 80px}
   .brand{display:flex;align-items:center;gap:10px;font-weight:900;font-size:18px;margin-bottom:8px}
   .brand img{width:30px;height:30px;border-radius:8px}
@@ -27,7 +27,7 @@
   li{margin-bottom:6px}
   .notice{background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:16px 18px;font-size:12.5px;color:var(--muted);margin-bottom:30px}
   .notice strong{color:var(--text)}
-  .back{display:inline-block;margin-top:30px;font-size:13px;color:var(--muted)}
+  .back{display:inline-block;margin-top:30px;font-size:13px;color:var(--teal)}
   table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13px}
   td,th{border:1px solid var(--border);padding:8px 10px;text-align:left;vertical-align:top}
   th{color:var(--accent)}
@@ -37,73 +37,84 @@
 <div class="wrap">
   <div class="brand"><img src="/icons/icon-192.png" alt=""/> Ruleto Drive</div>
   <h1>Aviso de Privacidad</h1>
-  <div class="updated">Última actualización: 27 de septiembre de 2026</div>
+  <div class="updated">Última actualización: 1 de octubre de 2026</div>
 
   <h2>1. Identidad y domicilio del responsable</h2>
-  <p><strong>Enrique Abreu Espinoza</strong>, persona física, es el responsable del tratamiento de tus datos personales como operador de la aplicación Ruleto Drive, con domicilio en la República Mexicana. Para cualquier asunto relacionado con este Aviso, puedes contactarnos en <a href="mailto:soporte@ruleto.mx">soporte@ruleto.mx</a>.</p>
+  <p><strong>Ruleto Drive</strong> (en adelante, "Ruleto Drive", "nosotros") es el responsable del tratamiento de tus datos personales recabados a través de la aplicación Ruleto Drive (versión web/PWA y aplicación Android) y del sitio <a href="https://ruleto.mx">ruleto.mx</a>. Domicilio para oír y recibir notificaciones: Mérida, Yucatán, México. Para cualquier asunto de datos personales, el canal de contacto es <a href="mailto:privacidad@ruleto.mx">privacidad@ruleto.mx</a>.</p>
 
   <h2>2. Datos personales que recabamos</h2>
   <table>
     <tr><th>Categoría</th><th>Ejemplos</th></tr>
-    <tr><td>Identificación y contacto</td><td>Nombre completo, correo electrónico, foto de perfil (si inicias sesión con Google)</td></tr>
+    <tr><td>Identificación y contacto</td><td>Nombre, correo electrónico, teléfono (si lo proporcionas), foto de perfil (si inicias sesión con Google)</td></tr>
     <tr><td>Cuenta y autenticación</td><td>Contraseña (almacenada de forma cifrada por nuestro proveedor de base de datos, nunca en texto plano), identificador único de tu cuenta</td></tr>
     <tr><td>Datos operativos y financieros</td><td>Viajes registrados, tarifas, comisiones de plataformas, gastos de gasolina/mantenimiento/seguro, ganancias calculadas</td></tr>
-    <tr><td>Ubicación (GPS)</td><td>Coordenadas de ubicación durante jornadas activas que tú decides iniciar, para calcular kilómetros recorridos y tiempos</td></tr>
-    <tr><td>Contenido que tú generas</td><td>Fotografías que subas para "Foto IA" (por ejemplo, capturas de pantalla de otras apps), grabaciones o texto transcrito al usar funciones de voz</td></tr>
-    <tr><td>Identificador de dispositivo</td><td>Un identificador técnico del dispositivo, usado únicamente para limitar la prueba gratuita a un uso por dispositivo</td></tr>
-    <tr><td>Datos de pago</td><td>No almacenamos números de tarjeta. Los procesa directamente Stripe, Inc., cumpliendo el estándar PCI-DSS; nosotros solo recibimos confirmación de pago y un identificador de cliente</td></tr>
-    <tr><td>Datos técnicos de uso</td><td>Tipo de dispositivo, sistema operativo, registros de errores</td></tr>
+    <tr><td>Ubicación (GPS)</td><td>Coordenadas durante las jornadas que tú decides iniciar, para calcular kilómetros recorridos y tiempos. También puede enviarse una coordenada a un servicio de geocodificación para obtener la dirección o zona correspondiente</td></tr>
+    <tr><td>Contenido que tú generas</td><td>Fotografías que subas para "Foto IA" (por ejemplo, capturas de pantalla de otras apps), texto o voz transcrita al usar funciones de voz o de Ruleto IA / Ruleto Copiloto</td></tr>
+    <tr><td>Identificador de dispositivo</td><td>Un identificador técnico del dispositivo, usado para limitar la prueba gratuita a un uso por dispositivo y para enviarte notificaciones</td></tr>
+    <tr><td>Datos de pago</td><td>No almacenamos números de tarjeta. Los procesa directamente Stripe, Inc., conforme al estándar PCI-DSS; nosotros solo recibimos confirmación de pago, estado de la suscripción e identificador de cliente</td></tr>
+    <tr><td>Datos técnicos de uso</td><td>Tipo de dispositivo, sistema operativo, versión de la App, registros de errores</td></tr>
   </table>
-  <p>Algunos de estos datos —en particular los financieros y de ubicación— se consideran <strong>datos personales sensibles o de mayor cuidado</strong> conforme a la LFPDPPP. Los tratamos con controles de acceso restringido y no los usamos para fines distintos a los descritos en este Aviso.</p>
+  <p><strong>Copiloto de ofertas (Android).</strong> Si activas esta función, Android te pedirá permiso para compartir la pantalla. Ruleto Drive lee el texto de las tarjetas de viaje directamente en tu teléfono para calcular tu ganancia. Las capturas de pantalla utilizadas por el Copiloto no se guardan ni se envían a nuestros servidores. Puedes apagar la función en cualquier momento. La función de Foto IA es distinta: solo envía la imagen que tú eliges subir.</p>
+  <p><strong>Datos sensibles y de mayor cuidado.</strong> Tus datos de ubicación y financieros requieren especial protección. Te solicitaremos tu <strong>consentimiento expreso</strong> dentro de la App antes de activar el seguimiento GPS y el Copiloto, y puedes revocarlo en cualquier momento. Aplicamos controles de acceso restringido y no usamos estos datos para fines distintos a los descritos en este Aviso. No vendemos datos de ubicación ni financieros.</p>
+  <p>Ruleto Drive no recaba datos de salud, origen étnico, creencias religiosas ni afiliación política.</p>
 
   <h2>3. Finalidades del tratamiento</h2>
   <p><strong>Finalidades necesarias para el Servicio:</strong></p>
   <ul>
-    <li>Crear y administrar tu cuenta.</li>
+    <li>Crear y administrar tu cuenta y autenticarte.</li>
     <li>Calcular tus ganancias, gastos y estadísticas operativas.</li>
-    <li>Registrar tu ubicación durante jornadas activas que tú inicias, únicamente para medir kilómetros y tiempos de tu jornada.</li>
+    <li>Registrar tu ubicación durante jornadas activas que tú inicias, únicamente para medir kilómetros y tiempos.</li>
     <li>Procesar pagos de suscripción y prevenir abuso del periodo de prueba gratuita.</li>
-    <li>Brindar soporte cuando lo solicitas.</li>
     <li>Generar respuestas de Ruleto IA / Ruleto Copiloto cuando usas esas funciones.</li>
+    <li>Enviarte notificaciones del servicio (por ejemplo, actualizaciones de la App o estado de tu suscripción).</li>
+    <li>Brindar soporte cuando lo solicitas y cumplir obligaciones legales, fiscales y contables.</li>
   </ul>
-  <p><strong>Finalidades secundarias (no necesarias para el Servicio, puedes oponerte sin que se cancele tu cuenta):</strong></p>
+  <p><strong>Finalidades secundarias (no necesarias para el Servicio; puedes oponerte sin que se cancele tu cuenta):</strong></p>
   <ul>
     <li>Enviarte comunicaciones sobre nuevas funciones o promociones.</li>
-    <li>Análisis estadístico agregado para mejorar la App.</li>
+    <li>Análisis estadístico agregado y disociado para mejorar la App.</li>
   </ul>
-  <p>Si no deseas que tus datos se usen para las finalidades secundarias, escríbenos a <a href="mailto:soporte@ruleto.mx">soporte@ruleto.mx</a> indicando tu solicitud.</p>
+  <p>Si no deseas que tus datos se usen para las finalidades secundarias, escríbenos a <a href="mailto:privacidad@ruleto.mx">privacidad@ruleto.mx</a> indicando tu solicitud. Tu negativa no afecta el acceso al Servicio.</p>
 
-  <h2>4. Con quién compartimos tus datos (transferencias)</h2>
-  <p>No vendemos tus datos personales. Los compartimos únicamente con proveedores que nos ayudan a operar el Servicio, bajo sus propios términos de confidencialidad y seguridad:</p>
+  <h2>4. Con quién compartimos tus datos (encargados y transferencias)</h2>
+  <p>No vendemos tus datos personales. Los compartimos únicamente con proveedores que nos ayudan a operar el Servicio, que actúan por cuenta nuestra y están obligados a protegerlos:</p>
   <table>
     <tr><th>Proveedor</th><th>Para qué</th></tr>
     <tr><td>Supabase</td><td>Base de datos y autenticación de tu cuenta</td></tr>
     <tr><td>Stripe, Inc.</td><td>Procesamiento de pagos de la suscripción Pro</td></tr>
-    <tr><td>Groq</td><td>Procesamiento de las funciones de inteligencia artificial (Ruleto IA, Foto IA, Ruleto Copiloto) cuando las usas</td></tr>
-    <tr><td>Google (Google Cloud / Google Sign-In)</td><td>Inicio de sesión con Google, y reconocimiento/síntesis de voz en dispositivos Android</td></tr>
-    <tr><td>Vercel Inc.</td><td>Alojamiento de la aplicación web y sus funciones de servidor</td></tr>
+    <tr><td>Groq</td><td>Procesamiento de las funciones de inteligencia artificial (Ruleto IA, Foto IA, Ruleto Copiloto) cuando las usas. Enviamos solo el texto o imagen necesarios para la respuesta</td></tr>
+    <tr><td>Google (Google Sign-In, Firebase Cloud Messaging, reconocimiento y síntesis de voz)</td><td>Inicio de sesión con Google, notificaciones push y funciones de voz en Android</td></tr>
+    <tr><td>OpenStreetMap / Nominatim</td><td>Geocodificación inversa: convertir coordenadas en una dirección o zona</td></tr>
+    <tr><td>Vercel Inc.</td><td>Alojamiento de la aplicación web y de sus funciones de servidor</td></tr>
   </table>
-  <p>Algunos de estos proveedores procesan datos en servidores fuera de México (Estados Unidos u otras jurisdicciones). Al usar la App, aceptas esta transferencia internacional necesaria para operar el Servicio.</p>
+  <p>Algunos de estos proveedores procesan datos en servidores fuera de México (principalmente Estados Unidos y la Unión Europea). Estas transferencias son necesarias para operar el Servicio. También podremos compartir información cuando una autoridad competente lo requiera conforme a la ley.</p>
 
-  <h2>5. Derechos ARCO</h2>
-  <p>Tienes derecho a Acceder a tus datos personales, Rectificarlos si son inexactos, Cancelarlos cuando consideres que no se requieren para alguna de las finalidades señaladas, y Oponerte a su uso para fines específicos (derechos ARCO). También puedes revocar tu consentimiento para el tratamiento de tus datos en cualquier momento.</p>
-  <p>Para ejercer cualquiera de estos derechos, envía tu solicitud a <a href="mailto:soporte@ruleto.mx">soporte@ruleto.mx</a> indicando: (a) tu nombre y correo registrado, (b) el derecho que deseas ejercer, (c) una descripción clara de tu solicitud. Responderemos dentro de un plazo razonable, no mayor a 20 días hábiles conforme a la ley aplicable.</p>
-  <p>También puedes eliminar directamente varios de tus datos desde la App, o solicitar la eliminación total de tu cuenta por correo.</p>
+  <h2>5. Derechos ARCO y revocación del consentimiento</h2>
+  <p>Tienes derecho a <strong>A</strong>cceder a tus datos personales, <strong>R</strong>ectificarlos si son inexactos, <strong>C</strong>ancelarlos cuando consideres que no se requieren para las finalidades señaladas u <strong>O</strong>ponerte a su uso para fines específicos. También puedes revocar tu consentimiento y limitar el uso o divulgación de tus datos.</p>
+  <p><strong>Cómo ejercerlos:</strong> envía tu solicitud a <a href="mailto:privacidad@ruleto.mx">privacidad@ruleto.mx</a> con: (a) tu nombre y el correo con el que te registraste; (b) el derecho que deseas ejercer; (c) una descripción clara de los datos o del tratamiento; (d) un documento que acredite tu identidad (o la de tu representante, con carta poder), y (e) cualquier elemento que facilite localizar tus datos.</p>
+  <p><strong>Plazos:</strong> te responderemos en un máximo de 20 días hábiles contados desde la recepción de tu solicitud completa. Si procede, la haremos efectiva dentro de los 15 días hábiles siguientes a la respuesta. Podemos pedirte información adicional una sola vez dentro de los primeros 5 días hábiles.</p>
+  <p><strong>Eliminación de cuenta:</strong> puedes eliminar tu cuenta y tus datos tú mismo desde la App, en <strong>Configuración → Eliminar mi cuenta y mis datos</strong>, o solicitarlo a <a href="mailto:privacidad@ruleto.mx">privacidad@ruleto.mx</a>. La eliminación es inmediata, cancela tu suscripción Pro y no se puede deshacer.</p>
+  <p><strong>Consentimiento de ubicación:</strong> puedes revocarlo en cualquier momento en <strong>Configuración</strong>; sin él, el GPS deja de usarse.</p>
+  <p>Si consideras que tu derecho no fue atendido, puedes acudir ante la autoridad competente en materia de protección de datos personales en México (actualmente, la Secretaría Anticorrupción y Buen Gobierno).</p>
 
-  <h2>6. Uso de cookies y almacenamiento local</h2>
-  <p>La App usa almacenamiento local del navegador (localStorage) y un service worker para funcionar sin conexión y recordar tu sesión. No usamos cookies de rastreo publicitario de terceros.</p>
+  <h2>6. Conservación de datos</h2>
+  <p>Conservamos tus datos mientras tu cuenta esté activa. Al eliminar tu cuenta, tus viajes, jornadas, gastos, ubicaciones, conversaciones con la IA y perfil se borran de inmediato de nuestra base de datos. Solo conservamos: (a) el registro de que un dispositivo y un número de celular ya usaron la prueba gratuita, únicamente para prevenir su abuso; (b) los registros fiscales de pagos que Stripe y la ley exigen guardar, por el plazo legal; y (c) lo necesario para atender una reclamación pendiente. Las copias de respaldo de nuestros proveedores pueden tardar hasta 30 días en depurarse. Los datos de ubicación y las imágenes de Foto IA se conservan únicamente el tiempo necesario para las finalidades descritas.</p>
 
-  <h2>7. Medidas de seguridad</h2>
-  <p>Aplicamos medidas razonables de seguridad técnica y administrativa para proteger tus datos, incluyendo cifrado en tránsito (HTTPS), control de acceso basado en roles, y separación de credenciales sensibles del código de la aplicación. Ningún sistema es 100% infalible; si detectamos una brecha de seguridad que afecte tus datos, te lo notificaremos conforme lo exige la ley.</p>
+  <h2>7. Cookies, almacenamiento local y permisos del dispositivo</h2>
+  <p>La App usa almacenamiento local del navegador (localStorage), bases de datos locales y un service worker para funcionar sin conexión y recordar tu sesión. No usamos cookies de rastreo publicitario de terceros.</p>
+  <p>La aplicación Android puede solicitar permisos de ubicación, micrófono, notificaciones, mostrar sobre otras apps y captura de pantalla. Cada permiso solo se usa para la función correspondiente, y puedes revocarlo desde los ajustes de Android.</p>
 
-  <h2>8. Menores de edad</h2>
-  <p>El Servicio está dirigido a conductores mayores de edad. No recabamos intencionalmente datos de menores de edad.</p>
+  <h2>8. Medidas de seguridad</h2>
+  <p>Aplicamos medidas razonables de seguridad técnica, física y administrativa para proteger tus datos, incluyendo cifrado en tránsito (HTTPS), control de acceso basado en roles y separación de credenciales sensibles del código de la aplicación. Ningún sistema es 100% infalible. Si ocurre una vulneración de seguridad que afecte de forma significativa tus derechos, te lo notificaremos conforme lo exige la ley.</p>
 
-  <h2>9. Cambios a este Aviso</h2>
-  <p>Podemos actualizar este Aviso de Privacidad. Los cambios relevantes se notificarán dentro de la App o por correo electrónico, con la fecha de "última actualización" reflejada en la parte superior de este documento.</p>
+  <h2>9. Menores de edad</h2>
+  <p>El Servicio está dirigido exclusivamente a personas mayores de edad. No recabamos intencionalmente datos de menores. Si detectamos que un menor creó una cuenta, la eliminaremos.</p>
 
-  <h2>10. Contacto</h2>
-  <p>Dudas, solicitudes ARCO o quejas relacionadas con tus datos personales: <a href="mailto:soporte@ruleto.mx">soporte@ruleto.mx</a></p>
+  <h2>10. Cambios a este Aviso</h2>
+  <p>Podemos actualizar este Aviso para reflejar cambios legales o del Servicio. Los cambios relevantes se notificarán dentro de la App o por correo electrónico, y la fecha de "última actualización" se reflejará en la parte superior. Si el cambio altera las finalidades para las que diste consentimiento, te pediremos que lo confirmes de nuevo.</p>
+
+  <h2>11. Contacto</h2>
+  <p>Dudas, solicitudes ARCO o quejas sobre tus datos personales: <a href="mailto:privacidad@ruleto.mx">privacidad@ruleto.mx</a>. Para soporte general: <a href="mailto:soporte@ruleto.mx">soporte@ruleto.mx</a>.</p>
 
   <a class="back" href="/">← Volver a Ruleto Drive</a>
 </div>

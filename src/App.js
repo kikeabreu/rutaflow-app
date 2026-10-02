@@ -27,9 +27,17 @@ import { SupportModal } from "./components/SupportModal";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { PermissionGate, necesitaPuertaDePermisos } from "./components/PermissionGate";
 import { Logo } from "./components/Logo";
+import { UpdatePanel } from "./components/UpdatePanel";
+import { buildNumber, buildLabel, platform, consentKey, checkUpdates, postponed, postpone, updateNow, reportInstallation, enableUpdateNotifications, disableUpdateNotifications, listenToUpdatePush, setupWorkerReload, unlinkInstallation } from "./updateClient";
 import { fixedCostPerHour } from "./fixedCosts";
 import { ENERGY_DEFAULTS, energyCostPerKm, validateEnergy, calculationSnapshot, kwhPer100FromKmPerKwh } from "./energy";
 import { C, ACCENT_FILL, useTheme } from "./theme";
+import { useGpsTracker, readTracker, startTracker, stopTracker, clearTracker, patchTracker, trackerElapsedMs } from "./gpsTracker";
+import { claimDevice, releaseDevice } from "./accountClient";
+import { DeviceGate, PhoneGate, PhoneField } from "./components/AccountGates";
+import { ConsentGate, DeleteAccountModal } from "./components/ConsentGate";
+import { consentIsCurrent, deleteAccount, loadConsent, locationConsentGranted, saveConsent, setLocationConsent } from "./consent";
+import { DEFAULT_COUNTRY, normalizePhone, formatPhone } from "./phone";
 import { DEMO_TRIPS, DEMO_EVENTS } from "./demoData";
 
 // ─── localStorage ─────────────────────────────────────────────────────────────
@@ -39,6 +47,10 @@ const LS={
   del:(k)=>{try{localStorage.removeItem(k);}catch{}},
 };
 const K={DAYGPS:"rf_daygps",CHATS:"rf_ai_conversations",LOCATIONS:"rf_location_checkpoints",AIVOICE:"rf_ai_voice_auto"};
+const saveTripDraft=(userId,draft)=>{
+  if(FLAGS.offline_v2)import('./storage/db').then(DexieDB=>DexieDB.UIStateStore.set(`${userId}:trip-draft`,draft));
+  else writeScoped(window.localStorage,userId,"trip-draft",draft);
+};
 const isStandaloneApp=()=>typeof window!=="undefined"&&(window.matchMedia?.("(display-mode: standalone)").matches||window.navigator.standalone===true);
 
 const openExternalUrl=async url=>{
@@ -350,6 +362,8 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 input[type=date]::-webkit-calendar-picker-indicator,input[type=datetime-local]::-webkit-calendar-picker-indicator{filter:${mode==="light"?"none":"invert(1)"};opacity:1;cursor:pointer;}
 button{cursor:pointer;font-family:'Inter',sans-serif;border:none;background:none;}
 button:active{transform:scale(0.97);}
+#root a:not(.btn):not(.button),#root .text-link{color:${mode==='light'?'#087A70':C.accent};text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1.5px;font-weight:700;}
+#root a:not(.btn):not(.button):focus-visible,#root .text-link:focus-visible{outline:2px solid ${C.teal};outline-offset:3px;border-radius:3px;}
 .B{font-family:'Inter',sans-serif;font-weight:800;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
@@ -417,7 +431,7 @@ function useDayGPS(isActive,userId,sessionId){
     }
   },[]);
   const start=useCallback(()=>{
-    if(!navigator.geolocation)return;
+    if(!navigator.geolocation||!locationConsentGranted())return;
     return navigator.geolocation.watchPosition(
       ({coords:{latitude:lat,longitude:lon}})=>{
         if(lastRef.current){
@@ -734,9 +748,8 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
   const [trip, setTrip] = useState(DRAFT0);
   const [mode, setMode] = useState("manual");
   const [phase, setPhase] = useState(0);
-  const [gpsOn, setGpsOn] = useState(false);
-  const [gpsMs, setGpsMs] = useState(0);
-  const [gpsStatus, setGpsStatus] = useState("");
+  const {state:gps,elapsedMs:gpsMs}=useGpsTracker(userId,"trip");
+  const gpsOn=!!gps?.running;
   const [startLocation, setStartLocation] = useState(null);
   
   useEffect(() => {
@@ -748,14 +761,17 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
       } else {
         storedDraft = readScoped(window.localStorage,userId,"trip-draft",DRAFT0);
       }
-      const draft={...storedDraft,draft_calculation_config:storedDraft.draft_calculation_config||cfg,platform:platforms.some(p=>p.id===storedDraft.platform)?storedDraft.platform:(platforms[0]?.id||"")};
+      let draft={...storedDraft,draft_calculation_config:storedDraft.draft_calculation_config||cfg,platform:platforms.some(p=>p.id===storedDraft.platform)?storedDraft.platform:(platforms[0]?.id||"")};
+      // Borradores anteriores guardaban el GPS dentro del viaje; ahora vive en
+      // gpsTracker para seguir midiendo con el modal cerrado.
+      if(draft.gpsOn&&draft.gpsStartMs){
+        if(!readTracker(userId,"trip"))startTracker(userId,"trip",{startedAt:draft.gpsStartMs,distKm:parseFloat(draft.gpsDistKm)||0});
+        draft={...draft,gpsOn:false,gpsStartMs:null,gpsDistKm:null};
+        saveTripDraft(userId,draft);
+      }
       setTrip(draft);
       setMode(draft.mode||"manual");
       setPhase(draft.phase||0);
-      if(draft.gpsOn&&draft.gpsStartMs){
-        setGpsMs(Date.now()-draft.gpsStartMs);
-      }
-      if(draft.gps_km) setGpsStatus(`✅ ${fmt(draft.gps_km,2)} km · ${fmt(draft.gps_min,0)} min`);
       setStartLocation(draft.start_location||null);
       setDraftLoaded(true);
     })();
@@ -765,38 +781,20 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
   const [saving,setSaving]=useState(false);
   const [toast,setToast]=useState(null);
 
-  const watchRef=useRef(null),timerRef=useRef(null),startRef=useRef(null);
-  const distRef=useRef(0),lastRef=useRef(null);
   const startLocationRef=useRef(null);
   const fileRef=useRef();
 
   useEffect(()=>{
     if (!draftLoaded) return;
-    if(trip.gpsOn&&trip.gpsStartMs){
-      startRef.current=trip.gpsStartMs;
-      distRef.current=parseFloat(trip.gpsDistKm)||0;
-      _activateGPS(false);
-    }
-    if(!trip.gpsOn){
+    if(!readTracker(userId,"trip")?.running&&!trip.start_location){
       locateDriver({timeout:8000}).then(point=>{
-        startLocationRef.current=point;setStartLocation(point);persist({start_location:point});
+        startLocationRef.current=point;setStartLocation(point);
+        setTrip(p=>{const n={...p,start_location:point};saveTripDraft(userId,n);return n;});
       }).catch(()=>{});
     }
   },[draftLoaded]);
 
-  useEffect(()=>()=>{
-    if(watchRef.current)navigator.geolocation.clearWatch(watchRef.current);
-    clearInterval(timerRef.current);
-  },[]);
-
-  const persist=(updates)=>{
-    const m={...trip,...updates};
-    if (FLAGS.offline_v2) {
-      import('./storage/db').then(DexieDB => DexieDB.UIStateStore.set(`${userId}:trip-draft`, m));
-    } else {
-      writeScoped(window.localStorage,userId,"trip-draft",m);
-    }
-  };
+  const persist=(updates)=>saveTripDraft(userId,{...trip,...updates});
   // Elegir plataforma no es "llenar el viaje": el tour solo cuenta los datos.
   const TRIP_DATA_FIELDS=["fare","pickup_km","pickup_min","dest_km","dest_min"];
   const setF=(k,v)=>{if(v!==""&&v!=null&&TRIP_DATA_FIELDS.includes(k))emitTourEvent(TOUR_EVENTS.TRIP_FIELD_FILLED,k);setTrip(p=>{const n={...p,[k]:v};persist(n);return n;});};
@@ -806,40 +804,24 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
 
   if (!draftLoaded) return <div className="p-4 text-center text-muted">Cargando...</div>;
 
-  const _activateGPS=(isNew=true)=>{
-    if(!navigator.geolocation){setGpsStatus("GPS no disponible");return;}
-    if(isNew){distRef.current=0;lastRef.current=null;startRef.current=Date.now();}
-    setGpsOn(true);
-    clearInterval(timerRef.current);
-    timerRef.current=setInterval(()=>{
-      setGpsMs(Date.now()-startRef.current);
-      persist({gpsDistKm:distRef.current});
-    },1000);
-    if(watchRef.current)navigator.geolocation.clearWatch(watchRef.current);
-    watchRef.current=navigator.geolocation.watchPosition(
-      ({coords:{latitude:lat,longitude:lon}})=>{
-        if(lastRef.current){const d=haversine(lastRef.current,{lat,lon});if(d>0.005)distRef.current+=d;}
-        lastRef.current={lat,lon};
-        setGpsStatus(`📍 ${distRef.current.toFixed(2)} km`);
-      },
-      ()=>setGpsStatus("⚠️ Error GPS — activa 'Permitir todo el tiempo' y 'Precisa'"),
-      {enableHighAccuracy:true,maximumAge:0,timeout:15000}
-    );
-  };
+  const gpsStatus=!navigator.geolocation?"GPS no disponible"
+    :gpsOn?(gps.error?"⚠️ Error GPS — activa 'Permitir todo el tiempo' y 'Precisa'":gps.last?`📍 ${fmt(gps.distKm,2)} km`:"📍 Buscando señal GPS...")
+    :trip.gps_km?`✅ ${fmt(trip.gps_km,2)} km · ${fmt(trip.gps_min,0)} min`:"";
 
   const startGPS=()=>{
     if(!isPro){onUpgrade();return;}
-    persist({gpsOn:true,gpsStartMs:Date.now(),gpsDistKm:0});setGpsStatus("📍 Buscando señal GPS...");_activateGPS(true);
+    if(!navigator.geolocation)return;
+    startTracker(userId,"trip");
   };
   const stopGPS=()=>{
-    if(watchRef.current)navigator.geolocation.clearWatch(watchRef.current);
-    clearInterval(timerRef.current);
-    const mins=((Date.now()-startRef.current)/60000).toFixed(1);
-    const km=distRef.current.toFixed(2);
-    setGpsOn(false);
-    setGpsStatus(`✅ ${km} km · ${mins} min`);
-    setTrip(p=>{const n={...p,gps_km:km,gps_min:mins};persist({...n,gpsOn:false});return n;});
+    const result=stopTracker(userId,"trip");
+    if(!result)return;
+    const mins=(trackerElapsedMs(result)/60000).toFixed(1);
+    const km=(Number(result.distKm)||0).toFixed(2);
+    setTrip(p=>{const n={...p,gps_km:km,gps_min:mins,gps_end:result.last||null};saveTripDraft(userId,n);return n;});
+    clearTracker(userId,"trip");
   };
+  const discardGPS=()=>{if(window.confirm("¿Descartar la medición GPS en curso?"))clearTracker(userId,"trip");};
 
   const handlePhoto=async e=>{
     if(!isPro){onUpgrade();return;}
@@ -866,7 +848,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
     let endLocation=null;
     try{endLocation=await locateDriver({timeout:8000});}
     catch{
-      if(lastRef.current)endLocation={...lastRef.current,accuracy_m:null,captured_at:new Date().toISOString()};
+      if(trip.gps_end)endLocation={...trip.gps_end,accuracy_m:null,captured_at:new Date().toISOString()};
     }
     const endedAt=toStorageInstant();
     const ok=await saveTrip({
@@ -957,13 +939,17 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
           {mode==="gps"&&(
             <div data-tour="trip-gps-panel" style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:12,padding:15,marginBottom:12}}>
               <Lbl s={{marginBottom:10}}>Rastreo GPS en tiempo real</Lbl>
-              {!isPro&&<UpgradeCard onUpgrade={onUpgrade} daysLeft={trialDaysLeft||null} s={{marginBottom:12}}/>}
+              {!isPro&&<UpgradeCard onUpgrade={onUpgrade} daysLeft={null} s={{marginBottom:12}}/>}
               {gpsOn&&<div className="B" style={{fontSize:46,fontWeight:900,color:C.teal,textAlign:"center",marginBottom:8}}>{fmtClock(gpsMs)}</div>}
               {gpsStatus&&<div style={{fontSize:13,color:gpsOn?C.teal:C.muted,textAlign:"center",marginBottom:10}}>{gpsStatus}{gpsStatus.includes("Error")&&<div style={{marginTop:8}}><button onClick={openSettings} style={{color:C.danger,textDecoration:"underline",fontWeight:700,fontSize:11}}>Abrir ajustes de ubicación</button></div>}</div>}
               {!gpsOn?(
                 <Btn full onClick={startGPS} color={C.teal}><SVG d={IC.gps} size={13} color={C.teal}/>Iniciar GPS</Btn>
               ):(
-                <Btn full onClick={stopGPS} color={C.danger}><SVG d={IC.stop} size={13} color={C.danger} fill={C.danger}/>Finalizar GPS</Btn>
+                <>
+                  <Btn full onClick={stopGPS} color={C.danger}><SVG d={IC.stop} size={13} color={C.danger} fill={C.danger}/>Finalizar GPS</Btn>
+                  <div style={{fontSize:10,color:C.muted,textAlign:"center",marginTop:8,lineHeight:1.45}}>Puedes cerrar esta ventana: la medición sigue y la verás al volver.</div>
+                  <button type="button" onClick={discardGPS} style={{display:"block",margin:"6px auto 0",color:C.dim,fontSize:10,textDecoration:"underline"}}>Descartar medición</button>
+                </>
               )}
               {trip.gps_km&&!gpsOn&&(
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginTop:10}}>
@@ -987,7 +973,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
           {mode==="photo"&&(
             <div data-tour="trip-photo-panel" style={{marginBottom:12}}>
               <input ref={fileRef} type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}}/>
-              {!isPro&&<UpgradeCard onUpgrade={onUpgrade} daysLeft={trialDaysLeft||null} s={{marginBottom:12}}/>}
+              {!isPro&&<UpgradeCard onUpgrade={onUpgrade} daysLeft={null} s={{marginBottom:12}}/>}
               {proc?(
                 <div style={{textAlign:"center",padding:"28px 0"}}>
                   <div className="sp" style={{width:28,height:28,border:`2px solid ${C.border}`,borderTopColor:C.accent,borderRadius:"50%",margin:"0 auto 10px"}}/>
@@ -1032,7 +1018,7 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
 
 // ─── REGISTRO OPERATIVO ───────────────────────────────────────────────────────
 const OP0={type:"dead_km",km:"",amount:"",kwh:"",liters:"",tank_liters:"",odometer:"",fare:"",trip_km:"",platform:"didi",note:"",occurred_at:"",bonus_mode:"paid",bonus_type:"racha",required_trips:"",completed_trips:"",extra_km:"",extra_min:"",expires_at:""};
-function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,onSaveBonus,onUpdateBonus,initial,initialKind="event",cfg,isPro}){
+function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,onSaveBonus,onUpdateBonus,initial,initialKind="event",cfg,isPro,userId}){
   const platforms=enabledPlatforms(cfg);
   const defaultPlatform=platforms.find(p=>p.id===OP0.platform)?.id||platforms[0]?.id||"";
   const[form,setForm]=useState(()=>{
@@ -1042,6 +1028,9 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
       note:initial.note||initial.notes||"",bonus_mode:initialKind==="bonus"?(initial.status||"paid"):OP0.bonus_mode,
       occurred_at:localDateTime(initial.occurred_at||initial.paid_at||initial.starts_at||initial.created_at),expires_at:initial.expires_at?localDateTime(initial.expires_at):localDateTime(),
     }:{...OP0,occurred_at:localDateTime(),expires_at:localDateTime()};
+    // Si dejaste midiendo km sin pasajero y cerraste, retomamos justo ahí.
+    const pendingDead=!initial&&readTracker(userId,"dead_km");
+    if(pendingDead)Object.assign(base,{type:"dead_km",km:(Number(pendingDead.distKm)||0).toFixed(2)});
     return{...base,platform:platforms.some(p=>p.id===base.platform)?base.platform:defaultPlatform};
   });
   const[text,setText]=useState("");
@@ -1051,45 +1040,30 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
   const[voiceError,setVoiceError]=useState("");
   const[receiptBusy,setReceiptBusy]=useState(false);
   const[currencyNeedsReview,setCurrencyNeedsReview]=useState(false);
-  const[deadGpsOn,setDeadGpsOn]=useState(false);
-  const[deadGpsMs,setDeadGpsMs]=useState(0);
+  const{state:deadGps,elapsedMs:deadGpsMs}=useGpsTracker(userId,"dead_km");
+  const deadGpsOn=!!deadGps?.running;
   const recRef=useRef(null);
-  const deadWatchRef=useRef(null),deadTimerRef=useRef(null),deadStartRef=useRef(null);
-  const deadStartLocationRef=useRef(null);
   const deadEndLocationPromiseRef=useRef(null);
-  const deadDistRef=useRef(0),deadLastRef=useRef(null);
 
   const startDeadGps=()=>{
     if(!navigator.geolocation)return;
-    deadDistRef.current=0;deadLastRef.current=null;deadStartRef.current=Date.now();
-    deadStartLocationRef.current=null;
     deadEndLocationPromiseRef.current=null;
-    locateDriver({timeout:6000,includePlace:false}).then(point=>{deadStartLocationRef.current=point;}).catch(()=>{});
-    setDeadGpsOn(true);
-    clearInterval(deadTimerRef.current);
-    deadTimerRef.current=setInterval(()=>setDeadGpsMs(Date.now()-deadStartRef.current),1000);
-    if(deadWatchRef.current)navigator.geolocation.clearWatch(deadWatchRef.current);
-    deadWatchRef.current=navigator.geolocation.watchPosition(
-      ({coords:{latitude:lat,longitude:lon}})=>{
-        if(deadLastRef.current){const d=haversine(deadLastRef.current,{lat,lon});if(d>0.005)deadDistRef.current+=d;}
-        deadLastRef.current={lat,lon};
-        set("km",deadDistRef.current.toFixed(2));
-      },
-      ()=>{},{enableHighAccuracy:true,maximumAge:3000,timeout:15000}
-    );
+    startTracker(userId,"dead_km");
+    set("km","0.00");
+    locateDriver({timeout:6000,includePlace:false}).then(point=>patchTracker(userId,"dead_km",{startLocation:point})).catch(()=>{});
   };
   const stopDeadGps=()=>{
-    deadEndLocationPromiseRef.current=locateDriver({timeout:6000,includePlace:false}).catch(()=>null);
-    if(deadWatchRef.current)navigator.geolocation.clearWatch(deadWatchRef.current);
-    clearInterval(deadTimerRef.current);
-    deadWatchRef.current=null;
-    setDeadGpsOn(false);
-    set("km",deadDistRef.current.toFixed(2));
+    const result=stopTracker(userId,"dead_km");
+    const km=(Number(result?.distKm)||0).toFixed(2);
+    deadEndLocationPromiseRef.current=locateDriver({timeout:6000,includePlace:false})
+      .then(point=>{patchTracker(userId,"dead_km",{endLocation:point});return point;})
+      .catch(()=>result?.last?{...result.last,accuracy_m:null,captured_at:new Date().toISOString()}:null);
+    set("km",km);
+    return km;
   };
-  useEffect(()=>()=>{
-    if(deadWatchRef.current)navigator.geolocation.clearWatch(deadWatchRef.current);
-    clearInterval(deadTimerRef.current);
-  },[]);
+  const discardDeadGps=()=>{deadEndLocationPromiseRef.current=null;clearTracker(userId,"dead_km");set("km","");};
+  // Mientras mide, el campo de km refleja el GPS (también tras reabrir el modal).
+  useEffect(()=>{if(deadGpsOn)set("km",(Number(deadGps.distKm)||0).toFixed(2));},[deadGpsOn,deadGps?.distKm]);
   const set=(k,v)=>{if(k==="amount")setCurrencyNeedsReview(false);setForm(p=>({...p,[k]:v}));};
   const TYPES=[
     {id:"trip",label:"Viaje",d:IC.trips},
@@ -1174,8 +1148,11 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
       ok=initial&&initialKind==="bonus"?await onUpdateBonus(initial.id,payload):await onSaveBonus(payload);
     }
     else{
-      const payload={type:form.type,km:Number(form.km)||0,amount:form.type==="charge"&&form.amount===""?null:Number(form.amount)||0,kwh:form.type==="charge"&&form.kwh!==""?Number(form.kwh):null,liters:Number(form.liters)||0,tank_liters:Number(form.tank_liters)||0,odometer:Number(form.odometer)||0,platform:form.platform||"",note:form.note||"",occurred_at:occurredAt,date:dateKey(form.occurred_at),start_location:form.type==="dead_km"?deadStartLocationRef.current:null,end_location_promise:form.type==="dead_km"?deadEndLocationPromiseRef.current:null};
+      const deadKm=form.type==="dead_km"&&deadGpsOn?stopDeadGps():null;
+      const deadEnd=form.type==="dead_km"?(deadEndLocationPromiseRef.current||(deadGps?.endLocation?Promise.resolve(deadGps.endLocation):null)):null;
+      const payload={type:form.type,km:Number(deadKm??form.km)||0,amount:form.type==="charge"&&form.amount===""?null:Number(form.amount)||0,kwh:form.type==="charge"&&form.kwh!==""?Number(form.kwh):null,liters:Number(form.liters)||0,tank_liters:Number(form.tank_liters)||0,odometer:Number(form.odometer)||0,platform:form.platform||"",note:form.note||"",occurred_at:occurredAt,date:dateKey(form.occurred_at),start_location:form.type==="dead_km"?readTracker(userId,"dead_km")?.startLocation||null:null,end_location_promise:deadEnd};
       ok=initial?await onUpdateOperation(initial.id,payload):await onSaveOperation(payload);
+      if(ok&&form.type==="dead_km"&&!initial)clearTracker(userId,"dead_km");
     }
     setSaving(false);if(ok)onClose();
   };
@@ -1203,12 +1180,14 @@ function OperationModal({onClose,onSaveOperation,onUpdateOperation,onSaveTrip,on
                 </button>
               ):(
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:`${C.teal}12`,border:`1px solid ${C.teal}`,borderRadius:8,padding:"8px 10px"}}>
-                  <div style={{fontSize:11,fontWeight:800,color:C.teal}}>📍 GPS: {fmtClock(deadGpsMs)} · {deadDistRef.current.toFixed(2)} km</div>
+                  <div style={{fontSize:11,fontWeight:800,color:C.teal}}>📍 GPS: {fmtClock(deadGpsMs)} · {(Number(deadGps.distKm)||0).toFixed(2)} km{deadGps.error?" · sin señal":""}</div>
                   <button type="button" onClick={stopDeadGps} style={{padding:"5px 9px",borderRadius:6,background:`${C.danger}18`,border:`1px solid ${C.danger}`,color:C.danger,fontSize:9,fontWeight:800,cursor:"pointer"}}>
                     Detener GPS
                   </button>
                 </div>
               )}
+              {deadGpsOn&&<div style={{fontSize:9,color:C.muted,marginTop:6,lineHeight:1.45}}>Puedes cerrar esta ventana: la medición sigue y la verás al volver. <button type="button" onClick={discardDeadGps} style={{color:C.dim,textDecoration:"underline",fontSize:9}}>Descartar</button></div>}
+              {!deadGpsOn&&deadGps&&!initial&&<div style={{fontSize:9,color:C.muted,marginTop:6,lineHeight:1.45}}>Medición GPS lista: {(Number(deadGps.distKm)||0).toFixed(2)} km en {fmtClock(deadGpsMs)}. Guárdala o <button type="button" onClick={discardDeadGps} style={{color:C.dim,textDecoration:"underline",fontSize:9}}>descártala</button>.</div>}
             </div>
           </div>
         )}
@@ -2044,8 +2023,13 @@ ULTIMOS ${last3||"s/d"}`;
 }
 
 // ─── CONFIG TAB ───────────────────────────────────────────────────────────────
-function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboarding,themeMode,setThemeMode,isPro,planTier,profile,trialDaysLeft,session,onUpgrade}){
+function ConfigTab({cfg,saveConfig,onLogout,onChangePhone,onCheckUpdates,onOpenUpdatesAdmin,installApp,onOpenSupport,onOpenOnboarding,themeMode,setThemeMode,isPro,planTier,profile,trialDaysLeft,session,onUpgrade,consent,onToggleLocation,onDeleteAccount}){
   const[portalLoading,setPortalLoading]=useState(false);
+  const[locationBusy,setLocationBusy]=useState(false);
+  const[locationError,setLocationError]=useState("");
+  const[updateConsent,setUpdateConsent]=useState(()=>localStorage.getItem(consentKey(session?.user?.id))==='yes');
+  const[updateError,setUpdateError]=useState('');
+  const toggleUpdates=async()=>{try{setUpdateError('');if(updateConsent){await disableUpdateNotifications(session.user.id);setUpdateConsent(false);}else{await enableUpdateNotifications(session.user.id);setUpdateConsent(true);}}catch(e){setUpdateError(e.message);}};
   const[portalManageable,setPortalManageable]=useState(null);
   useEffect(()=>{
     if(!isPro||!session?.access_token){setPortalManageable(false);return;}
@@ -2090,6 +2074,13 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
   return(
     <div className="fu" style={{padding:"15px 14px 100px"}}>
       <div className="B" style={{fontSize:22,fontWeight:800,color:C.accent,marginBottom:16,letterSpacing:1}}>CONFIGURACIÓN</div>
+      <div style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:10,padding:14,marginBottom:16}}>
+        <strong>Actualizaciones</strong><p style={{fontSize:12,color:C.muted}}>Versión instalada: {buildLabel} ({buildNumber})</p>
+        <button className="text-link" onClick={onCheckUpdates} style={{marginRight:12}}>Buscar actualizaciones</button>
+        <button className="text-link" onClick={toggleUpdates}>{updateConsent?'Desactivar avisos':'Activar avisos de nuevas versiones'}</button>
+        {updateError&&<p role="alert" style={{fontSize:12,color:C.danger}}>{updateError}</p>}
+        {onOpenUpdatesAdmin&&<p style={{marginTop:10}}><button className="text-link" onClick={onOpenUpdatesAdmin}>Versiones y avisos (admin) →</button></p>}
+      </div>
       {installApp?.available&&<div style={{background:`${C.teal}10`,border:`1px solid ${C.teal}33`,borderRadius:10,padding:"12px 13px",display:"flex",alignItems:"center",gap:11,marginBottom:14}}><SVG d={IC.home} size={18} color={C.teal}/><div style={{flex:1}}><div style={{fontSize:12,color:C.text,fontWeight:700}}>Instalar Ruleto Drive</div><div style={{fontSize:10,color:C.muted,marginTop:3}}>Acceso directo a pantalla completa</div></div><button onClick={installApp.install} style={{padding:"8px 10px",border:`1px solid ${C.teal}`,borderRadius:7,color:C.teal,fontSize:9,fontWeight:800}}>INSTALAR</button></div>}
       <Lbl s={{marginBottom:9}}>Apariencia</Lbl>
       <Card s={{marginBottom:13}}>
@@ -2164,9 +2155,26 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
         </div>
         {isPro&&portalManageable&&<button disabled={portalLoading} onClick={async()=>{setPortalLoading(true);await openBillingPortal(session);setPortalLoading(false);}} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.text,fontSize:12,fontWeight:700,cursor:"pointer"}}>{portalLoading?"Abriendo…":"Gestionar o cancelar suscripción"}</button>}
         {isPro&&portalManageable===false&&<div style={{fontSize:10,color:C.muted,lineHeight:1.45}}>No tienes una suscripción de Stripe que gestionar o cancelar desde aquí.</div>}
+        {profile?.phone&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+          <div><div style={{fontSize:9,color:C.muted,letterSpacing:"0.1em",marginBottom:3}}>CELULAR</div><div style={{fontSize:13,fontWeight:700,color:C.text}}>{formatPhone(profile.phone)}</div></div>
+          <button className="text-link" onClick={onChangePhone} style={{fontSize:11}}>Cambiar</button>
+        </div>}
+        {session?.user?.email&&<div style={{marginTop:10,...(!profile?.phone?{paddingTop:10,borderTop:`1px solid ${C.border}`}:{})}}>
+          <div style={{fontSize:9,color:C.muted,letterSpacing:"0.1em",marginBottom:3}}>CORREO ELECTRÓNICO</div>
+          <div style={{fontSize:13,fontWeight:700,color:C.text,overflowWrap:"anywhere"}}>{session.user.email}</div>
+        </div>}
+        {profile?.active_device_label&&<div style={{fontSize:10,color:C.muted,marginTop:8,lineHeight:1.45}}>Ruleto está activo en <strong style={{color:C.text}}>{profile.active_device_label}</strong>. Tu cuenta solo puede usarse en un dispositivo a la vez.</div>}
+        {consent&&<div style={{marginTop:12,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+            <div><div style={{fontSize:9,color:C.muted,letterSpacing:"0.1em",marginBottom:3}}>CONSENTIMIENTO DE UBICACIÓN</div><div style={{fontSize:12,fontWeight:700,color:consent.accepted_location?C.teal:C.muted}}>{consent.accepted_location?"Activo":"Desactivado"}</div></div>
+            <button className="text-link" disabled={locationBusy} onClick={async()=>{setLocationBusy(true);setLocationError("");try{await onToggleLocation();}catch(e){setLocationError(e.message);}setLocationBusy(false);}} style={{fontSize:11}}>{consent.accepted_location?"Revocar":"Dar consentimiento"}</button>
+          </div>
+          <div style={{fontSize:10,color:C.muted,marginTop:6,lineHeight:1.45}}>Sin este consentimiento el GPS no se usa. Puedes cambiarlo cuando quieras.</div>
+          {locationError&&<div style={{fontSize:10,color:C.danger,marginTop:4}}>{locationError}</div>}
+        </div>}
         <div style={{fontSize:9,color:C.dim,marginTop:10,display:"flex",gap:12,flexWrap:"wrap"}}>
-          <a href="/terminos.html" target="_blank" rel="noopener noreferrer" style={{color:C.dim,textDecoration:"underline"}}>Términos y condiciones</a>
-          <a href="/privacidad.html" target="_blank" rel="noopener noreferrer" style={{color:C.dim,textDecoration:"underline"}}>Aviso de privacidad</a>
+          <a href="/terminos.html" target="_blank" rel="noopener noreferrer">Términos y condiciones</a>
+          <a href="/privacidad.html" target="_blank" rel="noopener noreferrer">Aviso de privacidad</a>
         </div>
       </Card>
 
@@ -2175,7 +2183,29 @@ function ConfigTab({cfg,saveConfig,onLogout,installApp,onOpenSupport,onOpenOnboa
         <Btn full onClick={onOpenOnboarding} color={C.accent} outline>📖 Ver Tutorial</Btn>
       </div>
       <Btn full onClick={onLogout} color={C.danger} outline><SVG d={IC.out} size={13} color={C.danger}/>Cerrar sesión</Btn>
+      <button onClick={onDeleteAccount} style={{display:"block",margin:"14px auto 0",background:"none",border:"none",color:C.muted,fontSize:11,textDecoration:"underline",cursor:"pointer"}}>Eliminar mi cuenta y mis datos</button>
       <div style={{fontSize:8,color:C.dim,textAlign:"center",marginTop:12}}>Zonas por OpenStreetMap contributors</div>
+    </div>
+  );
+}
+
+// Recordatorio de que hay una medición GPS corriendo con el modal cerrado.
+function GpsRunningPill({userId,onOpenTrip,onOpenDead}){
+  const{state:trip,elapsedMs:tripMs}=useGpsTracker(userId,"trip");
+  const{state:dead,elapsedMs:deadMs}=useGpsTracker(userId,"dead_km");
+  const items=[
+    trip?.running&&{key:"trip",label:"Viaje",km:trip.distKm,ms:tripMs,onClick:onOpenTrip},
+    dead?.running&&{key:"dead",label:"Sin pasajero",km:dead.distKm,ms:deadMs,onClick:onOpenDead},
+  ].filter(Boolean);
+  if(!items.length)return null;
+  return(
+    <div style={{position:"fixed",left:"50%",transform:"translateX(-50%)",bottom:"calc(84px + env(safe-area-inset-bottom))",zIndex:101,display:"flex",gap:6,maxWidth:"calc(100% - 24px)"}}>
+      {items.map(item=>(
+        <button key={item.key} onClick={item.onClick} style={{display:"flex",alignItems:"center",gap:7,padding:"8px 12px",borderRadius:999,background:C.card,border:`1px solid ${C.teal}`,color:C.teal,fontSize:11,fontWeight:800,boxShadow:"0 6px 18px rgba(0,0,0,.25)",whiteSpace:"nowrap"}}>
+          <span className="pu" style={{width:7,height:7,borderRadius:"50%",background:C.teal,flexShrink:0}}/>
+          GPS {item.label} · {fmt(item.km,2)} km · {fmtClock(item.ms)}
+        </button>
+      ))}
     </div>
   );
 }
@@ -2186,6 +2216,8 @@ function Auth(){
   const migrated=new URLSearchParams(window.location.search).has("actualizado");
   const[name,setName]=useState("");
   const[email,setEmail]=useState("");
+  const[phoneCountry,setPhoneCountry]=useState(DEFAULT_COUNTRY);
+  const[phoneLocal,setPhoneLocal]=useState("");
   const[pass,setPass]=useState("");
   const[confirm,setConfirm]=useState("");
   const[showPw,setShowPw]=useState(false);
@@ -2196,10 +2228,10 @@ function Auth(){
   const reset=()=>{setError("");setSuccess("");};
   const redir=()=>["localhost","127.0.0.1"].includes(window.location.hostname)?`${window.location.origin}/`:`${WEB_APP_ORIGIN}/`;
   const handleLogin=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.signInWithPassword({email,password:pass});if(err)setError("Correo o contraseña incorrectos");setLoading(false);};
-  const handleRegister=async e=>{e.preventDefault();reset();if(!name.trim()){setError("Ingresa tu nombre completo");return;}if(pass.length<6){setError("Contraseña mínima: 6 caracteres");return;}if(pass!==confirm){setError("Las contraseñas no coinciden");return;}if(!acceptedTerms){setError("Debes aceptar los Términos y el Aviso de Privacidad para continuar.");return;}setLoading(true);const{data,error:err}=await supabase.auth.signUp({email,password:pass,options:{data:{full_name:name},emailRedirectTo:redir()}});if(err){setError(err.message);setLoading(false);return;}if(data?.user){
+  const handleRegister=async e=>{e.preventDefault();reset();if(!name.trim()){setError("Ingresa tu nombre completo");return;}let phone;try{phone=normalizePhone(phoneCountry,phoneLocal);}catch(phoneError){setError(phoneError.message);return;}if(pass.length<6){setError("Contraseña mínima: 6 caracteres");return;}if(pass!==confirm){setError("Las contraseñas no coinciden");return;}if(!acceptedTerms){setError("Debes aceptar los Términos y el Aviso de Privacidad para continuar.");return;}setLoading(true);const{data,error:err}=await supabase.auth.signUp({email,password:pass,options:{data:{full_name:name,phone,phone_country:phoneCountry},emailRedirectTo:redir()}});if(err){setError(err.message);setLoading(false);return;}if(data?.user){
         await supabase.from("profiles").upsert({id:data.user.id,full_name:name,email,config:{}});
-        // Start 14-day trial without credit card
-        await fetch(apiUrl("/api/billing/start-trial"),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:data.user.id})}).catch(()=>{});
+        // La prueba de 14 días se activa al entrar por primera vez, cuando ya
+        // podemos ligarla a este celular y a este número (ver PhoneGate).
       }setSuccess("¡Cuenta creada! Revisa tu correo para confirmar.");setLoading(false);if(!Capacitor.isNativePlatform())window.location.assign("https://ruleto.mx/descargar?cuenta=creada");};
   const handleForgot=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:redir()});if(err)setError(err.message);else setSuccess("Te enviamos un link para restablecer tu contraseña.");setLoading(false);};
   const handleGoogle=async()=>{
@@ -2230,17 +2262,18 @@ function Auth(){
         {mode!=="forgot"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:20,background:C.card2,borderRadius:11,padding:4}}>{["login","register"].map(m=><button key={m} onClick={()=>{setMode(m);reset();}} style={{padding:"9px",background:mode===m?C.card:"transparent",border:`1px solid ${mode===m?C.bord2:"transparent"}`,borderRadius:8,color:mode===m?C.text:C.muted,fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700}}>{m==="login"?"Iniciar sesión":"Crear cuenta"}</button>)}</div>}
         <form onSubmit={mode==="login"?handleLogin:mode==="register"?handleRegister:handleForgot}>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            {mode==="register"&&<div style={{padding:"10px 12px",borderRadius:10,background:`${C.teal}13`,border:`1px solid ${C.teal}45`,color:C.text,fontSize:11,lineHeight:1.5}}>Al crear tu cuenta se activa una prueba de <strong>14 días de Pro sin tarjeta</strong>. Después puedes seguir en Free o contratar Pro. No es un mes de suscripción.</div>}
-            {mode==="forgot"&&<button type="button" onClick={()=>{setMode("login");reset();}} style={{color:C.accent,fontSize:11,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><SVG d={IC.back} size={13} color={C.accent}/>Volver</button>}
+            {mode==="register"&&<div style={{padding:"10px 12px",borderRadius:10,background:`${C.teal}13`,border:`1px solid ${C.teal}45`,color:C.text,fontSize:11,lineHeight:1.5}}>Al entrar por primera vez se activa una prueba de <strong>14 días de Pro sin tarjeta</strong> (una por celular y por número). Después puedes seguir en Free o contratar Pro.</div>}
+            {mode==="forgot"&&<button type="button" className="text-link" onClick={()=>{setMode("login");reset();}} style={{fontSize:11,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><SVG d={IC.back} size={13} color={C.accent}/>Volver</button>}
             {mode==="register"&&<div style={{position:"relative"}}><FI d={IC.user}/><input type="text" placeholder="Tu nombre completo" value={name} onChange={e=>setName(e.target.value)} style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>}
+            {mode==="register"&&<PhoneField country={phoneCountry} onCountry={setPhoneCountry} value={phoneLocal} onChange={setPhoneLocal}/>}
             <div style={{position:"relative"}}><FI d={IC.mail}/><input type="email" placeholder="correo@ejemplo.com" value={email} onChange={e=>setEmail(e.target.value)} required style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>
             {mode!=="forgot"&&<div style={{position:"relative"}}><FI d={IC.lock}/><input type={showPw?"text":"password"} placeholder="Contraseña (mín. 6 caracteres)" value={pass} onChange={e=>setPass(e.target.value)} required style={{...inp,paddingRight:44}} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/><button type="button" onClick={()=>setShowPw(!showPw)} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",color:C.muted}}><SVG d={IC.eye} size={15} color={C.muted}/></button></div>}
             {mode==="register"&&<div style={{position:"relative"}}><FI d={IC.lock}/><input type={showPw?"text":"password"} placeholder="Confirmar contraseña" value={confirm} onChange={e=>setConfirm(e.target.value)} required style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>}
             {mode==="register"&&<label style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:11,color:C.muted,lineHeight:1.5,cursor:"pointer"}}>
               <input type="checkbox" checked={acceptedTerms} onChange={e=>setAcceptedTerms(e.target.checked)} style={{marginTop:2,accentColor:C.accent}}/>
-              <span>Acepto los <a href="/terminos.html" target="_blank" rel="noopener noreferrer" style={{color:C.accent,textDecoration:"underline"}}>Términos y Condiciones</a> y el <a href="/privacidad.html" target="_blank" rel="noopener noreferrer" style={{color:C.accent,textDecoration:"underline"}}>Aviso de Privacidad</a>.</span>
+              <span>Acepto los <a href="/terminos.html" target="_blank" rel="noopener noreferrer">Términos y Condiciones</a> y el <a href="/privacidad.html" target="_blank" rel="noopener noreferrer">Aviso de Privacidad</a>.</span>
             </label>}
-            {mode==="login"&&<div style={{textAlign:"right"}}><button type="button" onClick={()=>{setMode("forgot");reset();}} style={{color:C.accent,fontSize:10,textDecoration:"underline"}}>¿Olvidaste tu contraseña?</button></div>}
+            {mode==="login"&&<div style={{textAlign:"right"}}><button type="button" className="text-link" onClick={()=>{setMode("forgot");reset();}} style={{fontSize:10}}>¿Olvidaste tu contraseña?</button></div>}
             {error&&<div style={{background:`${C.danger}12`,border:`1px solid ${C.danger}33`,borderRadius:8,padding:"9px 13px",fontSize:12,color:C.danger}}>⚠️ {error}</div>}
             {success&&<div style={{background:`${C.teal}12`,border:`1px solid ${C.teal}33`,borderRadius:8,padding:"9px 13px",fontSize:12,color:C.teal}}>✅ {success}</div>}
             <button type="submit" disabled={loading} style={{padding:"13px",background:`${C.accent}1e`,border:`2px solid ${C.accent}`,borderRadius:11,color:C.accent,fontSize:12,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",marginTop:2,display:"flex",alignItems:"center",justifyContent:"center",gap:9}}>
@@ -2253,7 +2286,7 @@ function Auth(){
                 Continuar con Google
               </button>
               <div style={{textAlign:"center",fontSize:9.5,color:C.dim,lineHeight:1.5}}>
-                Al continuar, aceptas nuestros <a href="/terminos.html" target="_blank" rel="noopener noreferrer" style={{color:C.dim,textDecoration:"underline"}}>Términos</a> y <a href="/privacidad.html" target="_blank" rel="noopener noreferrer" style={{color:C.dim,textDecoration:"underline"}}>Aviso de Privacidad</a>.
+                Al continuar, aceptas nuestros <a href="/terminos.html" target="_blank" rel="noopener noreferrer">Términos</a> y <a href="/privacidad.html" target="_blank" rel="noopener noreferrer">Aviso de Privacidad</a>.
               </div>
             </>}
           </div>
@@ -2303,6 +2336,10 @@ export default function RuletoDriveApp(){
   const[selectedRecord,setSelectedRecord]=useState(null);
   const[selectedClosure,setSelectedClosure]=useState(null);
   const[showSupport,setShowSupport]=useState(false);
+  const[showUpdatesAdmin,setShowUpdatesAdmin]=useState(false);
+  const[updateState,setUpdateState]=useState(null);
+  const[updateError,setUpdateError]=useState("");
+  const[noticeDismissed,setNoticeDismissed]=useState(false);
   const[showOnboarding,setShowOnboarding]=useState(()=>LS.get("rf_onboarding_dismissed",false)!==true);
   const[billingModal,setBillingModal]=useState(null);
   const[showPlanPicker,setShowPlanPicker]=useState(false);
@@ -2313,6 +2350,10 @@ export default function RuletoDriveApp(){
   const syncingRef=useRef(false);
   const syncRequestedRef=useRef(false);
   const installApp=useInstallApp();
+  const refreshUpdates=useCallback(async(force=false)=>{try{const result=await checkUpdates(force);setUpdateState(result);setNoticeDismissed(false);setUpdateError('');return result;}catch(e){setUpdateError(e.message);return null;}},[]);
+  useEffect(()=>{if(!session?.user?.id)return;reportInstallation(session.user.id).catch(e=>console.warn('Registro de actualización',e));refreshUpdates();const onVisible=()=>{if(document.visibilityState==='visible')refreshUpdates();};const onMessage=e=>{if(e.data?.type==='CHECK_UPDATES')refreshUpdates(true);};document.addEventListener('visibilitychange',onVisible);navigator.serviceWorker?.addEventListener?.('message',onMessage);const stopPush=listenToUpdatePush(()=>refreshUpdates(true));const stopReload=setupWorkerReload();return()=>{document.removeEventListener('visibilitychange',onVisible);navigator.serviceWorker?.removeEventListener?.('message',onMessage);stopPush();stopReload();};},[session?.user?.id,refreshUpdates]);
+  const doUpdate=async()=>{try{if(showNew||showOperation||editingEvent)throw new Error('Cierra el formulario abierto antes de actualizar');if(syncingRef.current||pendingCount>0||locations.some(x=>x._pending))throw new Error('Espera a que terminen de sincronizarse tus datos');await updateNow(session.user.id,activeDay);}catch(e){showToast(e.message,'err');}};
+
 
   useEffect(()=>{
     const uid=session?.user?.id;
@@ -2398,6 +2439,72 @@ export default function RuletoDriveApp(){
     document.addEventListener("visibilitychange",refreshClock);
     return()=>{clearInterval(timer);document.removeEventListener("visibilitychange",refreshClock);};
   },[]);
+  // Una cuenta = un dispositivo a la vez. Se revisa al entrar, al volver a la
+  // app y cada 2 min; sin conexión no bloqueamos (la app es offline-first).
+  const[deviceBlock,setDeviceBlock]=useState(null);
+  const[deviceBusy,setDeviceBusy]=useState(false);
+  const[deviceError,setDeviceError]=useState("");
+  const[showPhoneEdit,setShowPhoneEdit]=useState(false);
+  const[consent,setConsent]=useState(undefined);
+  const[consentLoaded,setConsentLoaded]=useState(false);
+  const[showDeleteAccount,setShowDeleteAccount]=useState(false);
+  const consentUid=session?.user?.id;
+  useEffect(()=>{
+    if(!consentUid){setConsent(undefined);setConsentLoaded(false);setLocationConsent(null);return;}
+    let alive=true;
+    loadConsent(consentUid).then(row=>{if(!alive)return;setConsent(row);setConsentLoaded(true);setLocationConsent(row?row.accepted_location:null);});
+    return()=>{alive=false;};
+  },[consentUid]);
+  const acceptConsent=row=>{setConsent(row);setLocationConsent(row.accepted_location);};
+  const toggleLocationConsent=async()=>{
+    const next=!(consent?.accepted_location);
+    const row=await saveConsent({location:next,source:"settings"});
+    acceptConsent(row);
+    if(!next)nativeTracking.stopSession().catch(()=>{});
+  };
+  const removeAccount=async()=>{
+    await deleteAccount(session);
+    try{await supabase.auth.signOut({scope:"local"});}catch{}
+    try{window.localStorage.clear();}catch{}
+    try{const dbs=await (indexedDB.databases?.()||[]);dbs.forEach(d=>d.name&&indexedDB.deleteDatabase(d.name));}catch{}
+    window.location.reload();
+  };
+  useEffect(()=>{
+    const uid=session?.user?.id;
+    setDeviceBlock(null);setDeviceError("");
+    if(!uid)return undefined;
+    let alive=true;
+    const check=async()=>{
+      try{const result=await claimDevice();if(alive&&authUserRef.current===uid)setDeviceBlock(result?.active?null:result);}
+      catch(error){console.warn("Dispositivo activo",error?.message||error);}
+    };
+    check();
+    const timer=setInterval(()=>{if(document.visibilityState==="visible")check();},120000);
+    const onVisible=()=>{if(document.visibilityState==="visible")check();};
+    document.addEventListener("visibilitychange",onVisible);
+    return()=>{alive=false;clearInterval(timer);document.removeEventListener("visibilitychange",onVisible);};
+  },[session?.user?.id]);
+  const takeoverDevice=async()=>{
+    setDeviceBusy(true);setDeviceError("");
+    try{
+      const result=await claimDevice({takeover:true});
+      if(result?.active){setDeviceBlock(null);showToast("Ruleto ahora está activo en este dispositivo");}
+      else setDeviceBlock(result);
+    }catch(error){setDeviceError(error?.message||"No se pudo cambiar de dispositivo.");}
+    setDeviceBusy(false);
+  };
+  const refreshProfile=async uid=>{
+    const{data:pr}=await supabase.from("profiles").select("*").eq("id",uid).single();
+    if(pr)setProfile(pr);
+    return pr;
+  };
+  const logout=async()=>{
+    const uid=session?.user?.id;
+    await releaseDevice();
+    if(uid)await unlinkInstallation(uid);
+    await supabase.auth.signOut();
+  };
+
   const planTier=getPlanTier(profile,billingNow);
   const isPro=planTier!=="FREE";
   const{dayKm,reset:resetDayGPS}=useDayGPS(!!activeDay?.running&&isPro,session?.user?.id,activeDay?.id);
@@ -2914,6 +3021,7 @@ export default function RuletoDriveApp(){
 
   const startDay=async()=>{
     if(!session)return;
+    if(updateState?.required){showToast("Actualiza Ruleto antes de iniciar otra jornada","err");return;}
     const locationPromise=locateDriver({timeout:8000}).catch(()=>null);
     const startedAt=toStorageInstant();
     const{data,error}=await supabase.from("active_days").upsert({user_id:session.user.id,date:dateKey(startedAt),start_time:startedAt,calculation_snapshot:{...calculationSnapshot(cfg,""),fixedCostPerHour:fixedCostPerHour(cfg)}},{onConflict:"user_id"}).select().single();
@@ -3071,6 +3179,17 @@ export default function RuletoDriveApp(){
   );
   if(!session)return <><style>{buildCSS(C,themeMode)}</style><Auth/></>;
   if(!permisosListos)return <><style>{buildCSS(C,themeMode)}</style><PermissionGate onReady={()=>setPermisosListos(true)}/></>;
+  if(deviceBlock)return(
+    <><style>{buildCSS(C,themeMode)}</style>
+    <DeviceGate info={deviceBlock} busy={deviceBusy} error={deviceError} onTakeover={takeoverDevice} onLogout={logout} onSupport={()=>setShowSupport(true)}/>
+    {showSupport&&<SupportModal isOpen={showSupport} onClose={()=>setShowSupport(false)} userId={session?.user?.id} userEmail={session?.user?.email} onReportSent={sent=>showToast(sent?"Reporte enviado con éxito":"Reporte guardado; se enviará al recuperar la conexión",sent?"ok":"warn")}/>}
+    {toast&&<Toast msg={toast.msg} type={toast.type}/>}</>
+  );
+  // Sin la migración la columna no existe y no pedimos nada.
+  if(profile&&("phone" in profile)&&!profile.phone)return <><style>{buildCSS(C,themeMode)}</style><PhoneGate session={session} onDone={()=>refreshProfile(session.user.id)} onLogout={logout}/></>;
+
+  if(session&&!consentLoaded)return <div style={{background:C.bg,minHeight:"100vh"}}/>;
+  if(session&&consentLoaded&&!consentIsCurrent(consent))return <><style>{buildCSS(C,themeMode)}</style><ConsentGate onDone={acceptConsent} onLogout={logout}/></>;
 
   const uname=session?.user?.user_metadata?.full_name||session?.user?.email?.split("@")[0]||"Driver";
   const todayNet=operationalSummary(trips,events,cfg,today(),dayKm,bonuses).net;
@@ -3081,6 +3200,9 @@ export default function RuletoDriveApp(){
     <>
       <style>{buildCSS(C,themeMode)}</style>
       {toast&&<Toast msg={toast.msg} type={toast.type}/>}
+      {updateState?.available&&(!postponed(updateState.release.id)||updateState.required)&&!noticeDismissed&&<div role="status" style={{position:'fixed',top:8,left:'50%',transform:'translateX(-50%)',maxWidth:460,width:'calc(100% - 24px)',zIndex:15000,background:C.card,border:`2px solid ${updateState.required?C.danger:C.accent}`,borderRadius:12,padding:16,boxShadow:'0 12px 35px #0008'}}><strong>{updateState.required?'Actualización necesaria':'Nueva versión disponible'}: {updateState.release.version_label}</strong><p style={{whiteSpace:'pre-wrap',fontSize:12}}>{updateState.release.notes}</p>{updateState.required&&activeDay?.running&&<p style={{fontSize:12}}>Termina y guarda tu jornada antes de actualizar.</p>}<button className="text-link" onClick={doUpdate} style={{marginRight:16}}>Actualizar</button>{!updateState.required&&<button className="text-link" onClick={()=>{postpone(updateState.release.id);setNoticeDismissed(true);}}>Después</button>}{updateState.required&&<button className="text-link" onClick={()=>setShowSupport(true)} style={{marginLeft:16}}>Soporte</button>}</div>}
+      {updateError&&tab==='config'&&<div role="alert" style={{padding:8,color:C.danger}}>{updateError}</div>}
+      {showUpdatesAdmin&&platform==='web'&&session?.user?.app_metadata?.support_role==='admin'&&<div style={{position:'fixed',inset:0,zIndex:16000,overflowY:'auto',background:C.bg,color:C.text}}><UpdatePanel onClose={()=>setShowUpdatesAdmin(false)}/></div>}
       <div style={{background:C.bg,minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative"}}>
         <div style={{background:C.card,padding:`calc(10px + env(safe-area-inset-top)) 15px 10px`,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10,borderBottom:`1px solid ${C.border}`}}>
           <div>
@@ -3089,7 +3211,7 @@ export default function RuletoDriveApp(){
               <span style={{background:planTier==="FREE"?C.card2:ACCENT_FILL,color:planTier==="FREE"?C.muted:"#000",border:planTier==="FREE"?`1px solid ${C.border}`:"none",fontSize:9,fontWeight:900,letterSpacing:"0.08em",padding:"2px 6px",borderRadius:5}}>{planTier}</span>
             </div>
             <div style={{fontSize:9,color:C.dim,letterSpacing:"0.18em"}}>{uname.toUpperCase()}</div>
-            {pendingCount>0&&<button onClick={()=>syncPendingFor(session.user.id)} style={{fontSize:9,color:syncError?C.danger:C.accent,marginTop:4,textAlign:"left"}} title={syncError||"Toca para sincronizar"}>{pendingCount} registro{pendingCount===1?"":"s"} pendiente{pendingCount===1?"":"s"} · {syncError?"reintentar":"sincronizando"}</button>}
+            {pendingCount>0&&<button className="text-link" onClick={()=>syncPendingFor(session.user.id)} style={{fontSize:9,marginTop:4,textAlign:"left"}} title={syncError||"Toca para sincronizar"}>{pendingCount} registro{pendingCount===1?"":"s"} pendiente{pendingCount===1?"":"s"} · {syncError?"reintentar":"sincronizando"}</button>}
           </div>
           <div style={{textAlign:"right"}}>
             <div style={{fontSize:10,color:C.muted}}>hoy neto</div>
@@ -3125,7 +3247,9 @@ export default function RuletoDriveApp(){
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)}/>}
         {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)} userId={session.user.id}/>}
-        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={()=>supabase.auth.signOut()} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode} isPro={isPro} planTier={planTier} profile={profile} trialDaysLeft={trialDaysLeft} session={session} onUpgrade={()=>setShowPlanPicker(true)}/>}
+        {tab==="config" &&<ConfigTab cfg={cfg} saveConfig={saveConfig} onLogout={logout} onChangePhone={()=>setShowPhoneEdit(true)} onCheckUpdates={()=>refreshUpdates(true).then(result=>{if(result&&!result.available)showToast('Ya tienes la versión más reciente');})} onOpenUpdatesAdmin={platform==='web'&&session?.user?.app_metadata?.support_role==='admin'?()=>setShowUpdatesAdmin(true):null} installApp={installApp} onOpenSupport={()=>setShowSupport(true)} onOpenOnboarding={()=>setShowOnboarding(true)} themeMode={themeMode} setThemeMode={setThemeMode} isPro={isPro} planTier={planTier} profile={profile} trialDaysLeft={trialDaysLeft} session={session} onUpgrade={()=>setShowPlanPicker(true)} consent={consent} onToggleLocation={toggleLocationConsent} onDeleteAccount={()=>setShowDeleteAccount(true)}/>}
+
+        {!showNew&&!showOperation&&<GpsRunningPill userId={session.user.id} onOpenTrip={()=>setShowNew(true)} onOpenDead={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);}}/>}
 
         {/* NAVEGACIÓN FIJA */}
         <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100,paddingBottom:"calc(10px + env(safe-area-inset-bottom))",paddingTop:"10px"}}>
@@ -3141,12 +3265,14 @@ export default function RuletoDriveApp(){
 
       {/* MODALES FUERA DEL DIV — flotan sobre todo incluyendo la NAV */}
       {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} activeBonuses={bonuses.filter(b=>String(b.status||"")==="active")} onClose={()=>{setShowNew(false);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_CLOSED);}} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)} copilotState={copilotState} userId={session.user.id}/>}
-      {showOperation&&<OperationModal cfg={cfg} isPro={isPro} initial={editingEvent} initialKind={editingKind} onClose={()=>{setShowOperation(false);setEditingEvent(null);setEditingKind("event");emitTourEvent(TOUR_EVENTS.QUICK_CLOSED);}} onSaveOperation={saveOperation} onUpdateOperation={updateOperation} onSaveTrip={saveTrip} onSaveBonus={saveBonus} onUpdateBonus={updateBonus}/>}
+      {showOperation&&<OperationModal cfg={cfg} isPro={isPro} userId={session.user.id} initial={editingEvent} initialKind={editingKind} onClose={()=>{setShowOperation(false);setEditingEvent(null);setEditingKind("event");emitTourEvent(TOUR_EVENTS.QUICK_CLOSED);}} onSaveOperation={saveOperation} onUpdateOperation={updateOperation} onSaveTrip={saveTrip} onSaveBonus={saveBonus} onUpdateBonus={updateBonus}/>}
       {selectedRecord&&<RecordDetail kind={selectedRecord.kind} record={selectedRecord.record} cfg={cfg} onClose={()=>setSelectedRecord(null)} onEdit={()=>{setEditingEvent(selectedRecord.record);setEditingKind(selectedRecord.kind);setSelectedRecord(null);setShowOperation(true);}} onDelete={async()=>{const deleted=selectedRecord.kind==="bonus"?await deleteBonus(selectedRecord.record.id):await deleteOperation(selectedRecord.record.id);if(deleted)setSelectedRecord(null);}}/>}
       {selectedClosure&&<ClosureModal closure={selectedClosure} cfg={cfg} trips={trips} events={events} bonuses={bonuses} onClose={()=>setSelectedClosure(null)} onSelectTrip={trip=>{setSelectedClosure(null);setSelTrip(trip);}} onSelectRecord={(kind,record)=>{setSelectedClosure(null);setSelectedRecord({kind,record});}}/>}
       {selTrip&&<TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)}
         onSave={async(id,d)=>{await updateTrip(id,d);setSelTrip(null);}}
         onDelete={async id=>{await deleteTrip(id);setSelTrip(null);}}/>}
+      {showDeleteAccount&&<DeleteAccountModal onCancel={()=>setShowDeleteAccount(false)} onConfirm={removeAccount}/>}
+      {showPhoneEdit&&profile&&<div style={{position:"fixed",inset:0,zIndex:16000,overflowY:"auto"}}><PhoneGate session={{user:{user_metadata:{phone:profile.phone,phone_country:profile.phone_country}}}} onCancel={()=>setShowPhoneEdit(false)} onDone={async()=>{setShowPhoneEdit(false);await refreshProfile(session.user.id);}}/></div>}
       {showSupport&&<SupportModal isOpen={showSupport} onClose={()=>setShowSupport(false)} userId={session?.user?.id} userEmail={session?.user?.email} onReportSent={sent=>showToast(sent?"Reporte enviado con éxito":"Reporte guardado; se enviará al recuperar la conexión",sent?"ok":"warn")}/>}
       {showOnboarding&&<OnboardingWizard isOpen={showOnboarding} onComplete={()=>setShowOnboarding(false)} onDismissNever={()=>{setShowOnboarding(false);LS.set("rf_onboarding_dismissed",true);}} currentTab={tab}/>}
 

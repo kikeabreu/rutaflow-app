@@ -2,3 +2,6 @@ android/
 build/
 dist/
 node_modules/
+.env
+.env.*
+.gradle_home/

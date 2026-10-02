@@ -22,13 +22,24 @@ self.addEventListener("install", (event) => {
       const assets = [...new Set([...CACHE_STATIC, ...entries.map(path => path.startsWith("/") ? path : `/${path}`)])];
       const cache = await caches.open(VERSION);
       await cache.addAll(assets);
-      await self.skipWaiting();
+      // A new worker waits until the user accepts the update.
     })()
   );
 });
 
 // ─── ACTIVACIÓN ──────────────────────────────────────────────────────────────
 // Limpia cachés viejas cuando hay una nueva versión
+self.addEventListener("message", event => {
+  if (event.data?.type === "ACTIVATE_UPDATE") {
+    event.waitUntil((async () => {
+      const windows = await self.clients.matchAll({type:"window",includeUncontrolled:true});
+      if (windows.length > 1) { event.ports?.[0]?.postMessage({ok:false,reason:"Cierra las otras pestañas de Ruleto antes de actualizar"}); return; }
+      event.ports?.[0]?.postMessage({ok:true});
+      await self.skipWaiting();
+    })());
+  }
+});
+
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(
@@ -46,7 +57,7 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
 
   // API responses may contain user data or payment state. Never cache them.
-  if (url.origin !== self.location.origin || request.method !== "GET" || url.pathname.startsWith("/api/")) return;
+  if (url.origin !== self.location.origin || request.method !== "GET" || url.pathname.startsWith("/api/") || url.pathname.startsWith("/android/") || url.pathname === "/build-info.json") return;
 
   // Para navegación (abrir la app): siempre servir index.html
   if (request.mode === "navigate") {
@@ -74,19 +85,26 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-// ─── NOTIFICACIONES PUSH (preparado para futuro) ──────────────────────────────
+// ─── NOTIFICACIONES PUSH ──────────────────────────────
 self.addEventListener("push", (event) => {
   if (!event.data) return;
-  const data = event.data.json();
-  self.registration.showNotification(data.title || "Ruleto Drive", {
+  let data;
+  try { data = event.data.json(); } catch { return; }
+  event.waitUntil(self.registration.showNotification(data.title || "Ruleto Drive", {
     body: data.body || "",
     icon: "/icons/icon-192.png",
     badge: "/icons/icon-192.png",
-    data: data,
-  });
+    tag: data.releaseId ? `update-${data.releaseId}` : undefined,
+    data: { releaseId: data.releaseId },
+  }));
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  event.waitUntil(clients.openWindow("/"));
+  event.waitUntil((async () => {
+    const windows = await clients.matchAll({ type: "window", includeUncontrolled: true });
+    const existing = windows.find(client => new URL(client.url).origin === self.location.origin);
+    if (existing) { await existing.focus(); existing.postMessage({ type: "CHECK_UPDATES" }); }
+    else await clients.openWindow("/");
+  })());
 });

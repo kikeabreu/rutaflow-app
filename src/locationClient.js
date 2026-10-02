@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { apiUrl } from "./apiClient";
+import { assertLocationConsent } from "./consent";
 
 const cacheName=userId=>`rf_zone_cache_${userId}`;
 const readCache=userId=>{try{return JSON.parse(localStorage.getItem(cacheName(userId))||"{}");}catch{return{};}};
@@ -8,6 +9,7 @@ const cacheKey=(lat,lon)=>`${Number(lat).toFixed(5)},${Number(lon).toFixed(5)}`;
 
 export function getCurrentLocation(options={}){
   return new Promise((resolve,reject)=>{
+    try{assertLocationConsent();}catch(error){reject(error);return;}
     if(!navigator.geolocation){reject(new Error("GPS no disponible"));return;}
     navigator.geolocation.getCurrentPosition(
       ({coords,timestamp})=>resolve({

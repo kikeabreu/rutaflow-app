@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient";
 import { apiUrl } from "./apiClient";
+import { deviceHeader } from "./accountClient";
 
 export async function callGroq(mode, messages, maxTokens = 700) {
   const { data: { session } } = await supabase.auth.getSession();
@@ -10,6 +11,7 @@ export async function callGroq(mode, messages, maxTokens = 700) {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${session.access_token}`,
+      ...(await deviceHeader()),
     },
     body: JSON.stringify({ mode, messages, max_tokens: maxTokens }),
   });

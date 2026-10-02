@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "215225159438",
+    "project_id": "ruleto-drive",
+    "storage_bucket": "ruleto-drive.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:215225159438:android:628bd02f47f3629a8ed15f",
+        "android_client_info": {
+          "package_name": "mx.ruleto.drive"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyANZ92063bnaFotqJP9QYOgd_QppOfHIXA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

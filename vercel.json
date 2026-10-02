@@ -4,14 +4,21 @@
   "redirects": [
     {
       "source": "/android/ruleto-drive.apk",
-      "destination": "https://github.com/kikeabreu/rutaflow-app/releases/download/v1.4.7-beta/Ruleto-Drive-1.4.7-beta.apk?download=1",
+      "destination": "https://github.com/kikeabreu/rutaflow-app/releases/download/v1.4.11-beta/Ruleto-Drive-1.4.11-beta.apk?download=1",
       "permanent": false
     },
     {
       "source": "/",
       "has": [
-        { "type": "host", "value": "rutaflow-app.vercel.app" },
-        { "type": "query", "key": "billing", "value": "(?<billing>return|cancelled|portal-return)" }
+        {
+          "type": "host",
+          "value": "rutaflow-app.vercel.app"
+        },
+        {
+          "type": "query",
+          "key": "billing",
+          "value": "(?<billing>return|cancelled|portal-return)"
+        }
       ],
       "destination": "https://app.ruleto.mx/?billing=:billing",
       "permanent": false
@@ -114,6 +121,10 @@
   ],
   "rewrites": [
     {
+      "source": "/api/updates/:route",
+      "destination": "/api/updates?route=:route"
+    },
+    {
       "source": "/.well-known/assetlinks.json",
       "destination": "/api/assetlinks"
     },
@@ -150,6 +161,12 @@
     {
       "source": "/",
       "destination": "/app.html"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/updates/worker",
+      "schedule": "0 9 * * *"
     }
   ]
 }

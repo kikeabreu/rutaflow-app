@@ -104,10 +104,31 @@ async function authenticate(req) {
   return response.ok;
 }
 
+// Ruleto solo funciona en un dispositivo a la vez. Si la cuenta ya se movió a
+// otro celular, la IA deja de responder aquí. Ante cualquier fallo del check
+// (red, migración pendiente) dejamos pasar: solo un `false` explícito bloquea.
+async function deviceAllowed(req) {
+  const auth = req.headers.authorization || "";
+  const supabaseUrl = env("SUPABASE_URL", "REACT_APP_SUPABASE_URL") || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = env("SUPABASE_ANON_KEY", "REACT_APP_SUPABASE_ANON_KEY") || process.env.SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const device = String(req.headers["x-ruleto-device"] || "").slice(0, 200) || null;
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/rpc/ruleto_device_allowed`, {
+      method: "POST",
+      headers: { Authorization: auth, apikey: supabaseAnonKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ p_device_id: device }),
+    });
+    if (!response.ok) return true;
+    return (await response.json().catch(() => true)) !== false;
+  } catch {
+    return true;
+  }
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Ruleto-Device");
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
@@ -120,6 +141,9 @@ module.exports = async function handler(req, res) {
   try {
     if (!(await authenticate(req))) {
       return res.status(401).json({ error: "Inicia sesion nuevamente para usar la IA." });
+    }
+    if (!(await deviceAllowed(req))) {
+      return res.status(409).json({ error: "Tu cuenta de Ruleto está activa en otro dispositivo. Vuelve a abrir Ruleto para usarla aquí.", code: "device_inactive" });
     }
 
     const apiKey = env("GROQ_API_KEY", "REACT_APP_GROQ_API_KEY");
