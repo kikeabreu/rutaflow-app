@@ -1,8 +1,8 @@
 {
   "platform": "android",
-  "version_label": "1.4.15-beta",
-  "build_number": 20,
+  "version_label": "1.4.16-beta",
+  "build_number": 21,
   "minimum_build": 0,
-  "notes": "Corrige enlaces legales en login/consentimiento, logo del inicio y edición de cargas de combustible.",
-  "artifact_url": "https://github.com/kikeabreu/rutaflow-app/releases/download/v1.4.15-beta/Ruleto-Drive-1.4.15-beta.apk"
+  "notes": "Corrige bonos activos, registra viajes del copiloto y mantiene borradores de viaje al cerrar el modal.",
+  "artifact_url": "https://github.com/kikeabreu/rutaflow-app/releases/download/v1.4.16-beta/Ruleto-Drive-1.4.16-beta.apk"
 }
