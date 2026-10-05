@@ -1,4 +1,4 @@
-import { ANDROID_AUTH_CALLBACK, ANDROID_AUTH_CALLBACK_FALLBACK, googleOAuthOptions, parseOAuthCallback } from "./authFlow";
+import { ANDROID_AUTH_CALLBACK, ANDROID_AUTH_CALLBACK_FALLBACK, googleOAuthOptions, parseOAuthCallback, passwordRecoveryRedirect } from "./authFlow";
 
 test("Google vuelve al mismo origen sin abrir un flujo OAuth separado", () => {
   expect(googleOAuthOptions("https://app.ruleto.mx")).toEqual({
@@ -48,4 +48,8 @@ test("acepta el retorno explícito desde Chrome hacia la app Android", () => {
 
 test("el App Link https sigue siendo un callback válido de respaldo", () => {
   expect(parseOAuthCallback(`${ANDROID_AUTH_CALLBACK_FALLBACK}?code=abc`).code).toBe("abc");
+});
+
+test("la recuperacion de contraseña vuelve al dominio unico de la PWA", () => {
+  expect(passwordRecoveryRedirect()).toBe("https://app.ruleto.mx/auth/restablecer");
 });

@@ -18,7 +18,7 @@ import { App as CapacitorApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 import { NativeSettings, AndroidSettings, IOSSettings } from 'capacitor-native-settings';
 import { Capacitor } from "@capacitor/core";
-import { ANDROID_AUTH_CALLBACK, ANDROID_AUTH_CALLBACK_FALLBACK, WEB_APP_ORIGIN, googleOAuthOptions, restoreOAuthSession } from "./authFlow";
+import { ANDROID_AUTH_CALLBACK, ANDROID_AUTH_CALLBACK_FALLBACK, WEB_APP_ORIGIN, googleOAuthOptions, passwordRecoveryRedirect, restoreOAuthSession } from "./authFlow";
 import { TOUR_EVENTS, emitTourEvent } from "./tourBus";
 import { normalizeUiState, readScoped, removeScoped, resolveActiveDay, writeScoped } from "./localState";
 import { acknowledge, enqueue, pendingFor, readSnapshot, saveSnapshot } from "./offlineStore";
@@ -592,6 +592,19 @@ const Toast=({msg,type="ok"})=>msg?(
   </div>
 ):null;
 const MarkdownMessage=({children})=><div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{table:({children})=><div className="table-wrap"><table>{children}</table></div>}}>{String(children||"")}</ReactMarkdown></div>;
+const authInputStyle={width:"100%",background:C.well,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",color:C.text,fontSize:14,fontFamily:"inherit",outline:"none"};
+const cardInputStyle={width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 11px",color:C.text,fontSize:14,fontFamily:"inherit",outline:"none"};
+
+function AuthShell({children,maxWidth=400}){
+  return(
+    <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{width:"100%",maxWidth}}>
+        <div style={{textAlign:"center",marginBottom:24}}><Logo size={38} iconSize={72} stacked tagline={false} s={{marginBottom:10}}/></div>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 function DateRangeControl({value,onChange}){
   const setPreset=id=>{
@@ -2055,6 +2068,95 @@ ULTIMOS ${last3||"s/d"}`;
 }
 
 // ─── CONFIG TAB ───────────────────────────────────────────────────────────────
+function AccountSecurityCard({session,onEmailChanged}){
+  const[pw,setPw]=useState({current:"",next:"",confirm:""});
+  const[email,setEmail]=useState({next:"",currentPassword:"",code:""});
+  const[emailPending,setEmailPending]=useState("");
+  const[busy,setBusy]=useState("");
+  const[msg,setMsg]=useState("");
+  const[err,setErr]=useState("");
+  const clear=()=>{setMsg("");setErr("");};
+  const changePassword=async e=>{
+    e.preventDefault();clear();
+    if(pw.next.length<6){setErr("La nueva contraseña debe tener al menos 6 caracteres.");return;}
+    if(pw.next!==pw.confirm){setErr("La confirmación no coincide.");return;}
+    setBusy("password");
+    const{error}=await supabase.auth.updateUser({password:pw.next,current_password:pw.current});
+    if(error){
+      const googleOnly=/identity|provider|password/i.test(error.message);
+      setErr(googleOnly?"Esta cuenta no tiene contraseña. Usa Olvidé mi contraseña para crear una.":"La contraseña actual no es correcta.");
+    }else{
+      setMsg("Contraseña actualizada.");
+      setPw({current:"",next:"",confirm:""});
+    }
+    setBusy("");
+  };
+  const requestEmailChange=async e=>{
+    e.preventDefault();clear();
+    const next=email.next.trim().toLowerCase();
+    if(!next){setErr("Ingresa el nuevo correo.");return;}
+    setBusy("email");
+    try{
+      const response=await fetch(apiUrl("/api/account/email-change"),{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${session.access_token}`},body:JSON.stringify({email:next,currentPassword:email.currentPassword})});
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(data.error||"No se pudo validar el cambio.");
+      if(data.bypassed){
+        setMsg("Correo de prueba actualizado.");
+        setEmail({next:"",currentPassword:"",code:""});
+        await supabase.auth.refreshSession();
+        onEmailChanged?.(data.email);
+      }else{
+        const{error}=await supabase.auth.updateUser({email:next});
+        if(error)throw error;
+        setEmailPending(next);
+        setMsg("Te enviamos un código al correo nuevo.");
+      }
+    }catch(error){setErr(error.message||"No se pudo cambiar el correo.");}
+    setBusy("");
+  };
+  const confirmEmailChange=async e=>{
+    e.preventDefault();clear();
+    setBusy("email-code");
+    const{error}=await supabase.auth.verifyOtp({email:emailPending,token:email.code,type:"email_change"});
+    if(error)setErr("Código inválido o vencido.");
+    else{
+      setMsg("Correo actualizado.");
+      setEmail({next:"",currentPassword:"",code:""});
+      setEmailPending("");
+      await supabase.from("profiles").update({email:emailPending}).eq("id",session.user.id);
+      await supabase.auth.refreshSession();
+      onEmailChanged?.(emailPending);
+    }
+    setBusy("");
+  };
+  return(
+    <Card s={{marginBottom:13}}>
+      <div style={{fontSize:14,fontWeight:800,color:C.text,marginBottom:4}}>Seguridad de la cuenta</div>
+      <div style={{fontSize:10,color:C.muted,lineHeight:1.45,marginBottom:12}}>La recuperación por correo sigue siendo necesaria para entrar si olvidas tu contraseña.</div>
+      <form onSubmit={changePassword} style={{display:"grid",gap:8,marginBottom:14}}>
+        <Lbl>Cambiar contraseña</Lbl>
+        <input type="password" placeholder="Contraseña actual" value={pw.current} onChange={e=>setPw(p=>({...p,current:e.target.value}))} style={cardInputStyle}/>
+        <input type="password" placeholder="Nueva contraseña" value={pw.next} onChange={e=>setPw(p=>({...p,next:e.target.value}))} style={cardInputStyle}/>
+        <input type="password" placeholder="Confirmar nueva contraseña" value={pw.confirm} onChange={e=>setPw(p=>({...p,confirm:e.target.value}))} style={cardInputStyle}/>
+        <Btn full disabled={busy==="password"}>{busy==="password"?"Guardando...":"Cambiar contraseña"}</Btn>
+      </form>
+      <form onSubmit={requestEmailChange} style={{display:"grid",gap:8}}>
+        <Lbl>Cambiar correo</Lbl>
+        <input type="email" placeholder="Nuevo correo" value={email.next} onChange={e=>setEmail(p=>({...p,next:e.target.value}))} style={cardInputStyle}/>
+        <input type="password" placeholder="Contraseña actual" value={email.currentPassword} onChange={e=>setEmail(p=>({...p,currentPassword:e.target.value}))} style={cardInputStyle}/>
+        <Btn full disabled={busy==="email"}>{busy==="email"?"Validando...":"Enviar código"}</Btn>
+      </form>
+      {emailPending&&<form onSubmit={confirmEmailChange} style={{display:"grid",gap:8,marginTop:10}}>
+        <div style={{fontSize:10,color:C.muted}}>Código enviado a <strong style={{color:C.text}}>{emailPending}</strong></div>
+        <input inputMode="numeric" pattern="[0-9]*" placeholder="Código de verificación" value={email.code} onChange={e=>setEmail(p=>({...p,code:e.target.value.replace(/\D/g,"").slice(0,6)}))} style={{...cardInputStyle,letterSpacing:"0.18em",fontWeight:800,textAlign:"center"}}/>
+        <Btn full disabled={busy==="email-code"}>{busy==="email-code"?"Confirmando...":"Confirmar correo"}</Btn>
+      </form>}
+      {err&&<div role="alert" style={{fontSize:11,color:C.danger,marginTop:10}}>{err}</div>}
+      {msg&&<div style={{fontSize:11,color:C.teal,marginTop:10}}>{msg}</div>}
+    </Card>
+  );
+}
+
 function ConfigTab({cfg,saveConfig,onLogout,onChangePhone,onCheckUpdates,onOpenUpdatesAdmin,installApp,onOpenSupport,onOpenOnboarding,themeMode,setThemeMode,isPro,planTier,profile,trialDaysLeft,session,onUpgrade,consent,onToggleLocation,onDeleteAccount}){
   const[portalLoading,setPortalLoading]=useState(false);
   const[locationBusy,setLocationBusy]=useState(false);
@@ -2230,6 +2332,7 @@ function ConfigTab({cfg,saveConfig,onLogout,onChangePhone,onCheckUpdates,onOpenU
           <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">Aviso de privacidad</a>
         </div>
       </Card>
+      <AccountSecurityCard session={session}/>
 
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:9}}>
         <Btn full onClick={onOpenSupport} color={C.teal} outline>❓ Ayuda & Soporte</Btn>
@@ -2263,6 +2366,118 @@ function GpsRunningPill({userId,onOpenTrip,onOpenDead}){
   );
 }
 
+function PasswordRecoveryPage(){
+  const params=new URLSearchParams(window.location.search);
+  const tokenHash=params.get("token_hash");
+  const type=params.get("type")||"recovery";
+  const[ready,setReady]=useState(!tokenHash);
+  const[verified,setVerified]=useState(false);
+  const[pass,setPass]=useState("");
+  const[confirm,setConfirm]=useState("");
+  const[email,setEmail]=useState("");
+  const[loading,setLoading]=useState(false);
+  const[error,setError]=useState("");
+  const[success,setSuccess]=useState("");
+  useEffect(()=>{
+    if(!tokenHash)return;
+    let active=true;
+    (async()=>{
+      const{error:err}=await supabase.auth.verifyOtp({token_hash:tokenHash,type});
+      if(!active)return;
+      if(err)setError("El enlace ya venció o no es válido. Solicita uno nuevo.");
+      else setVerified(true);
+      setReady(true);
+    })();
+    return()=>{active=false;};
+  },[tokenHash,type]);
+  const submitPassword=async e=>{
+    e.preventDefault();setError("");setSuccess("");
+    if(pass.length<6){setError("Contraseña mínima: 6 caracteres.");return;}
+    if(pass!==confirm){setError("Las contraseñas no coinciden.");return;}
+    setLoading(true);
+    const{error:err}=await supabase.auth.updateUser({password:pass});
+    if(err)setError(err.message);
+    else{
+      setSuccess("Contraseña actualizada. Ya puedes iniciar sesión.");
+      setTimeout(()=>window.location.assign("/?auth=login"),900);
+    }
+    setLoading(false);
+  };
+  const resend=async e=>{
+    e.preventDefault();setError("");setSuccess("");
+    if(!email){setError("Ingresa tu correo.");return;}
+    setLoading(true);
+    const{error:err}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:passwordRecoveryRedirect()});
+    if(err)setError(err.message);
+    else setSuccess("Te enviamos un nuevo enlace para crear contraseña.");
+    setLoading(false);
+  };
+  return(
+    <AuthShell>
+      <Card>
+        <button type="button" className="text-link" onClick={()=>window.location.assign("/?auth=login")} style={{fontSize:11,display:"flex",alignItems:"center",gap:5,marginBottom:12}}><SVG d={IC.back} size={13} color={C.accent}/>Iniciar sesión</button>
+        <div style={{fontSize:18,fontWeight:800,color:C.accent,marginBottom:6}}>Crear nueva contraseña</div>
+        <div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginBottom:14}}>Usa una contraseña nueva para volver a entrar a Ruleto Drive.</div>
+        {!ready&&<div style={{fontSize:12,color:C.muted}}>Validando enlace...</div>}
+        {ready&&verified&&<form onSubmit={submitPassword} style={{display:"flex",flexDirection:"column",gap:10}}>
+          <input type="password" placeholder="Nueva contraseña" value={pass} onChange={e=>setPass(e.target.value)} style={authInputStyle}/>
+          <input type="password" placeholder="Confirmar nueva contraseña" value={confirm} onChange={e=>setConfirm(e.target.value)} style={authInputStyle}/>
+          {error&&<div style={{fontSize:12,color:C.danger}}>{error}</div>}
+          {success&&<div style={{fontSize:12,color:C.teal}}>{success}</div>}
+          <Btn full disabled={loading}>{loading?"Guardando...":"Guardar contraseña"}</Btn>
+        </form>}
+        {ready&&!verified&&<form onSubmit={resend} style={{display:"flex",flexDirection:"column",gap:10}}>
+          <input type="email" placeholder="correo@ejemplo.com" value={email} onChange={e=>setEmail(e.target.value)} style={authInputStyle}/>
+          {error&&<div style={{fontSize:12,color:C.danger}}>{error}</div>}
+          {success&&<div style={{fontSize:12,color:C.teal}}>{success}</div>}
+          <Btn full disabled={loading}>{loading?"Enviando...":"Solicitar otro enlace"}</Btn>
+        </form>}
+      </Card>
+    </AuthShell>
+  );
+}
+
+function EmailVerificationPage({initialEmail,onDone}){
+  const[email,setEmail]=useState(initialEmail||"");
+  const[token,setToken]=useState("");
+  const[loading,setLoading]=useState(false);
+  const[error,setError]=useState("");
+  const[success,setSuccess]=useState("");
+  const verify=async e=>{
+    e.preventDefault();setError("");setSuccess("");
+    if(!email||!token){setError("Ingresa tu correo y el código.");return;}
+    setLoading(true);
+    const{error:err}=await supabase.auth.verifyOtp({email,token,type:"signup"});
+    if(err)setError("Código inválido o vencido.");
+    else{setSuccess("Correo verificado. Entrando...");await supabase.auth.refreshSession();onDone?.();}
+    setLoading(false);
+  };
+  const resend=async()=>{
+    setError("");setSuccess("");
+    if(!email){setError("Ingresa tu correo.");return;}
+    setLoading(true);
+    const{error:err}=await supabase.auth.resend({type:"signup",email});
+    if(err)setError(err.message);
+    else setSuccess("Código reenviado.");
+    setLoading(false);
+  };
+  return(
+      <Card s={{marginTop:12}}>
+        <div style={{fontSize:18,fontWeight:800,color:C.accent,marginBottom:6}}>Verifica tu correo</div>
+        <div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginBottom:14}}>Te enviamos un código de 6 dígitos para confirmar que el correo es válido.</div>
+        <form onSubmit={verify} style={{display:"flex",flexDirection:"column",gap:10}}>
+          <input type="email" placeholder="correo@ejemplo.com" value={email} onChange={e=>setEmail(e.target.value)} style={authInputStyle}/>
+          <input inputMode="numeric" pattern="[0-9]*" placeholder="Código de verificación" value={token} onChange={e=>setToken(e.target.value.replace(/\D/g,"").slice(0,6))} style={{...authInputStyle,letterSpacing:"0.18em",fontWeight:800,textAlign:"center"}}/>
+          {error&&<div style={{fontSize:12,color:C.danger}}>{error}</div>}
+          {success&&<div style={{fontSize:12,color:C.teal}}>{success}</div>}
+          <Btn full disabled={loading}>{loading?"Validando...":"Verificar correo"}</Btn>
+          <button type="button" className="text-link" disabled={loading} onClick={resend} style={{fontSize:11}}>Reenviar código</button>
+          <button type="button" className="text-link" onClick={()=>supabase.auth.signOut()} style={{fontSize:11,color:C.muted}}>Usar otro correo</button>
+        </form>
+      </Card>
+  );
+}
+
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 function Auth(){
   const[mode,setMode]=useState(()=>new URLSearchParams(window.location.search).get("auth")==="register"||new URLSearchParams(window.location.search).has("buy")?"register":"login");
@@ -2281,12 +2496,8 @@ function Auth(){
   const reset=()=>{setError("");setSuccess("");};
   const redir=()=>["localhost","127.0.0.1"].includes(window.location.hostname)?`${window.location.origin}/`:`${WEB_APP_ORIGIN}/`;
   const handleLogin=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.signInWithPassword({email,password:pass});if(err)setError("Correo o contraseña incorrectos");setLoading(false);};
-  const handleRegister=async e=>{e.preventDefault();reset();if(!name.trim()){setError("Ingresa tu nombre completo");return;}let phone;try{phone=normalizePhone(phoneCountry,phoneLocal);}catch(phoneError){setError(phoneError.message);return;}if(pass.length<6){setError("Contraseña mínima: 6 caracteres");return;}if(pass!==confirm){setError("Las contraseñas no coinciden");return;}if(!acceptedTerms){setError("Debes aceptar los Términos y el Aviso de Privacidad para continuar.");return;}setLoading(true);const{data,error:err}=await supabase.auth.signUp({email,password:pass,options:{data:{full_name:name,phone,phone_country:phoneCountry,privacy_notice_version:PRIVACY_VERSION,privacy_terms_accepted:true,privacy_financial_accepted:true},emailRedirectTo:redir()}});if(err){setError(err.message);setLoading(false);return;}if(data?.user){
-        await supabase.from("profiles").upsert({id:data.user.id,full_name:name,email,config:{}});
-        // La prueba de 14 días se activa al entrar por primera vez, cuando ya
-        // podemos ligarla a este celular y a este número (ver PhoneGate).
-      }if(data?.session)await trackMetaEvent(data.session,{event_name:"CompleteRegistration",event_id:makeMetaEventId("registration",data.user?.id),action_source:"website",event_source_url:window.location.href});setSuccess("¡Cuenta creada! Revisa tu correo para confirmar.");setLoading(false);if(!Capacitor.isNativePlatform())window.location.assign("https://ruleto.mx/descargar?cuenta=creada");};
-  const handleForgot=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:redir()});if(err)setError(err.message);else setSuccess("Te enviamos un link para restablecer tu contraseña.");setLoading(false);};
+  const handleRegister=async e=>{e.preventDefault();reset();const cleanEmail=email.trim().toLowerCase();if(!name.trim()){setError("Ingresa tu nombre completo");return;}let phone;try{phone=normalizePhone(phoneCountry,phoneLocal);}catch(phoneError){setError(phoneError.message);return;}if(pass.length<6){setError("Contraseña mínima: 6 caracteres");return;}if(pass!==confirm){setError("Las contraseñas no coinciden");return;}if(!acceptedTerms){setError("Debes aceptar los Términos y el Aviso de Privacidad para continuar.");return;}setLoading(true);if(/@ruleto\.mx$/i.test(cleanEmail)){try{const response=await fetch(apiUrl("/api/account/register-ruleto"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:cleanEmail,password:pass,full_name:name,phone,phone_country:phoneCountry,privacy_notice_version:PRIVACY_VERSION})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||"No se pudo crear la cuenta.");setSuccess("Cuenta de prueba creada. Ya puedes iniciar sesión.");}catch(err){setError(err.message);}setLoading(false);return;}const{data,error:err}=await supabase.auth.signUp({email:cleanEmail,password:pass,options:{data:{full_name:name,phone,phone_country:phoneCountry,privacy_notice_version:PRIVACY_VERSION,privacy_terms_accepted:true,privacy_financial_accepted:true},emailRedirectTo:redir()}});if(err){setError(err.message);setLoading(false);return;}if(data?.session){await supabase.from("profiles").upsert({id:data.user.id,full_name:name,email:cleanEmail,config:{}});await trackMetaEvent(data.session,{event_name:"CompleteRegistration",event_id:makeMetaEventId("registration",data.user?.id),action_source:"website",event_source_url:window.location.href});}setSuccess("Cuenta creada. Revisa tu correo y captura el código de verificación.");setMode("verify");setLoading(false);};
+  const handleForgot=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:passwordRecoveryRedirect()});if(err)setError(err.message);else setSuccess("Te enviamos un enlace para crear una nueva contraseña.");setLoading(false);};
   const handleGoogle=async()=>{
     reset();setLoading(true);
     try{
@@ -2312,8 +2523,8 @@ function Auth(){
       <div style={{width:"100%",maxWidth:400}}>
         <div style={{textAlign:"center",marginBottom:28}}><Logo size={38} iconSize={72} stacked tagline={false} s={{marginBottom:10}}/><div style={{fontSize:13,color:C.accent,fontWeight:700,marginTop:4}}>Tu copiloto financiero para cada viaje.</div></div>
         {migrated&&<div style={{padding:"10px 12px",borderRadius:10,background:`${C.teal}13`,border:`1px solid ${C.teal}45`,color:C.text,fontSize:12,lineHeight:1.5,marginBottom:16}}>Ruleto ahora vive en <strong>app.ruleto.mx</strong>. Inicia sesión aquí una vez y después agrégalo a la pantalla de inicio.</div>}
-        {mode!=="forgot"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:20,background:C.card2,borderRadius:11,padding:4}}>{["login","register"].map(m=><button key={m} onClick={()=>{setMode(m);reset();}} style={{padding:"9px",background:mode===m?C.card:"transparent",border:`1px solid ${mode===m?C.bord2:"transparent"}`,borderRadius:8,color:mode===m?C.text:C.muted,fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700}}>{m==="login"?"Iniciar sesión":"Crear cuenta"}</button>)}</div>}
-        <form onSubmit={mode==="login"?handleLogin:mode==="register"?handleRegister:handleForgot}>
+        {mode!=="forgot"&&mode!=="verify"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:20,background:C.card2,borderRadius:11,padding:4}}>{["login","register"].map(m=><button key={m} onClick={()=>{setMode(m);reset();}} style={{padding:"9px",background:mode===m?C.card:"transparent",border:`1px solid ${mode===m?C.bord2:"transparent"}`,borderRadius:8,color:mode===m?C.text:C.muted,fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",fontWeight:700}}>{m==="login"?"Iniciar sesión":"Crear cuenta"}</button>)}</div>}
+        {mode==="verify"?<EmailVerificationPage initialEmail={email} onDone={()=>setMode("login")}/>:<form onSubmit={mode==="login"?handleLogin:mode==="register"?handleRegister:handleForgot}>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             {mode==="register"&&<div style={{padding:"10px 12px",borderRadius:10,background:`${C.teal}13`,border:`1px solid ${C.teal}45`,color:C.text,fontSize:11,lineHeight:1.5}}>Al entrar por primera vez se activa una prueba de <strong>14 días de Pro sin tarjeta</strong> (una por celular y por número). Después puedes seguir en Free o contratar Pro.</div>}
             {mode==="forgot"&&<button type="button" className="text-link" onClick={()=>{setMode("login");reset();}} style={{fontSize:11,display:"flex",alignItems:"center",gap:5,marginBottom:6}}><SVG d={IC.back} size={13} color={C.accent}/>Volver</button>}
@@ -2343,7 +2554,7 @@ function Auth(){
               </div>
             </>}
           </div>
-        </form>
+        </form>}
       </div>
     </div>
   );
@@ -2669,6 +2880,12 @@ export default function RuletoDriveApp(){
       if(!isWebCallback&&!isAppCallback)return;
       let parsed;
       try{parsed=new URL(url);}catch{return;}
+      if(isWebCallback&&parsed.pathname==="/auth/restablecer"){
+        Browser.close().catch(()=>{});
+        window.history.replaceState({},document.title,`${parsed.pathname}${parsed.search}${parsed.hash}`);
+        setLoading(false);
+        return;
+      }
       if(isWebCallback&&parsed.searchParams.has("billing")){
         const billing=parsed.searchParams.get("billing");
         Browser.close().catch(()=>{});
@@ -3292,6 +3509,9 @@ export default function RuletoDriveApp(){
     }
     setShowNew(true);
   };
+
+  const isPasswordRecoveryPath=window.location.pathname==="/auth/restablecer";
+  if(isPasswordRecoveryPath)return <><style>{buildCSS(C,themeMode)}</style><PasswordRecoveryPage/></>;
 
   if(loading)return(
     <><style>{buildCSS(C,themeMode)}</style>
