@@ -132,6 +132,10 @@
   ],
   "rewrites": [
     {
+      "source": "/api/account/:route",
+      "destination": "/api/account?route=:route"
+    },
+    {
       "source": "/api/updates/:route",
       "destination": "/api/updates?route=:route"
     },

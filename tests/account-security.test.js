@@ -1,7 +1,7 @@
 const test=require("node:test");
 const assert=require("node:assert/strict");
-const emailChange=require("../api/account/email-change");
-const registerRuleto=require("../api/account/register-ruleto");
+const emailChange=require("../lib/account/email-change.cjs");
+const registerRuleto=require("../lib/account/register-ruleto.cjs");
 
 function response(){return{statusCode:200,body:null,headers:{},setHeader(k,v){this.headers[k]=v;},status(code){this.statusCode=code;return this;},json(body){this.body=body;return this;},end(){return this;}};}
 function configure(){process.env.SUPABASE_URL="https://example.supabase.co";process.env.SUPABASE_ANON_KEY="anon";process.env.SUPABASE_SERVICE_ROLE_KEY="service";}
@@ -66,4 +66,12 @@ test("registro @ruleto.mx crea usuario confirmado y perfil",async()=>{
     assert.ok(calls.some(call=>String(call.options.body).includes('"email_confirm":true')));
     assert.ok(calls.some(call=>call.path.includes("/rest/v1/profiles")));
   }finally{global.fetch=original;}
+});
+
+test("api/account despacha por ruta y rechaza rutas desconocidas",()=>{
+  const dispatcher=require("../api/account");
+  let status;
+  const res={status(code){status=code;return this;},json(){return this;}};
+  dispatcher({query:{route:"nope"}},res);
+  assert.equal(status,404);
 });
