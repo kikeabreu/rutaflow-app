@@ -18,7 +18,7 @@
   a{color:var(--teal);text-decoration:underline;text-underline-offset:3px;font-weight:700}
   .wrap{width:min(760px,calc(100% - 32px));margin:0 auto;padding:40px 0 80px}
   .brand{display:flex;align-items:center;gap:10px;font-weight:900;font-size:18px;margin-bottom:8px}
-  .brand img{width:30px;height:30px;border-radius:8px}
+  .brand img{height:28px;width:auto;display:block}
   .updated{font-size:12px;color:var(--muted);margin-bottom:28px}
   h1{font-size:26px;font-weight:900;margin:0 0 6px}
   h2{font-size:16px;font-weight:800;color:var(--accent);margin:34px 0 10px;letter-spacing:.02em}
@@ -37,7 +37,7 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="brand"><img src="/icons/icon-192.png" alt=""/> Ruleto Drive</div>
+  <div class="brand"><picture><source srcset="/brand/ruleto-logo-dark.png" media="(prefers-color-scheme: light)"><img src="/brand/ruleto-logo-light.png" alt="Ruleto"/></picture></div>
   <h1>Términos y Condiciones de Uso</h1>
   <div class="updated">Última actualización: 1 de octubre de 2026</div>
 

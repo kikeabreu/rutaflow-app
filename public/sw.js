@@ -1,5 +1,5 @@
 // ─── Ruleto Drive Service Worker ───────────────────────────────────────────────
-const VERSION = "ruleto-v1";
+const VERSION = "ruleto-v2";
 
 // Archivos que guardamos en caché para que la app cargue sin internet
 const CACHE_STATIC = [
@@ -7,6 +7,8 @@ const CACHE_STATIC = [
   "/index.html",
   "/manifest.json",
   "/icons/icon-192.png",
+  "/brand/ruleto-logo-light.png",
+  "/brand/ruleto-logo-dark.png",
   "/icons/icon-512.png",
 ];
 
@@ -93,7 +95,11 @@ self.addEventListener("push", (event) => {
   event.waitUntil(self.registration.showNotification(data.title || "Ruleto Drive", {
     body: data.body || "",
     icon: "/icons/icon-192.png",
+  "/brand/ruleto-logo-light.png",
+  "/brand/ruleto-logo-dark.png",
     badge: "/icons/icon-192.png",
+  "/brand/ruleto-logo-light.png",
+  "/brand/ruleto-logo-dark.png",
     tag: data.releaseId ? `update-${data.releaseId}` : undefined,
     data: { releaseId: data.releaseId },
   }));
