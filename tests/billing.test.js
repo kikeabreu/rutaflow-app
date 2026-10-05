@@ -156,6 +156,18 @@ test("signed subscription webhook calls the atomic entitlement RPC",async()=>{
   }finally{global.fetch=original;}
 });
 
+test("confirmed subscription checkout sends one Subscribe event to Meta",async()=>{
+  configure();process.env.META_DATASET_ID="4090885441210287";process.env.META_ACCESS_TOKEN="meta-test-token";process.env.META_GRAPH_API_VERSION="v26.0";
+  const event={id:"evt_checkout_1",created:Math.floor(Date.now()/1000),type:"checkout.session.completed",data:{object:{id:"cs_test_1",mode:"subscription",customer:"cus_1",amount_total:9700,currency:"mxn",metadata:{supabase_user_id:"11111111-1111-4111-8111-111111111111"}}}};
+  const raw=Buffer.from(JSON.stringify(event));const t=Math.floor(Date.now()/1000);const sig=crypto.createHmac("sha256",process.env.STRIPE_WEBHOOK_SECRET).update(`${t}.`).update(raw).digest("hex");
+  const calls=[];const original=global.fetch;global.fetch=async(url,options={})=>{calls.push({url:String(url),options});if(String(url).includes("billing_customers?"))return{ok:true,json:async()=>[{user_id:"11111111-1111-4111-8111-111111111111"}]};if(String(url).includes("graph.facebook.com"))return{ok:true,status:200,json:async()=>({events_received:1})};throw new Error(`Unexpected fetch: ${url}`);};
+  try{
+    const res=response();await webhook({method:"POST",headers:{"stripe-signature":`t=${t},v1=${sig}`},rawBody:raw},res);
+    assert.equal(res.statusCode,200);assert.equal(res.body.received,true);assert.equal(res.body.meta.sent,true);
+    const graph=calls.find(call=>call.url.includes("graph.facebook.com"));assert.ok(graph);const body=JSON.parse(graph.options.body);assert.equal(body.data[0].event_name,"Subscribe");assert.equal(body.data[0].event_id,"stripe-evt_checkout_1");assert.equal(body.data[0].custom_data.value,97);assert.equal(graph.options.body.includes("meta-test-token"),false);
+  }finally{global.fetch=original;}
+});
+
 
 test("Android billing preflight allows its app origin and idempotency header",async()=>{
   const res=response();

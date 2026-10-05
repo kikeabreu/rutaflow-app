@@ -1,8 +1,8 @@
 {
   "platform": "android",
-  "version_label": "1.4.14-beta",
-  "build_number": 19,
+  "version_label": "1.4.17-beta",
+  "build_number": 22,
   "minimum_build": 0,
-  "notes": "Agrega recuperación de contraseña, verificación de correo y controles de seguridad de cuenta.",
-  "artifact_url": "https://github.com/kikeabreu/rutaflow-app/releases/download/v1.4.14-beta/Ruleto-Drive-1.4.14-beta.apk"
+  "notes": "Agrega recuperación de contraseña, verificación de correo y controles de seguridad de cuenta, además de la página 404.",
+  "artifact_url": "https://github.com/kikeabreu/rutaflow-app/releases/download/v1.4.17-beta/Ruleto-Drive-1.4.17-beta.apk"
 }

@@ -39,6 +39,7 @@ import { ConsentGate, DeleteAccountModal } from "./components/ConsentGate";
 import { PRIVACY_VERSION, consentIsCurrent, deleteAccount, loadConsent, locationConsentGranted, saveConsent, setLocationConsent } from "./consent";
 import { DEFAULT_COUNTRY, normalizePhone, formatPhone } from "./phone";
 import { DEMO_TRIPS, DEMO_EVENTS } from "./demoData";
+import { makeMetaEventId, trackMetaEvent } from "./metaConversions";
 
 // ─── localStorage ─────────────────────────────────────────────────────────────
 const LS={
@@ -52,6 +53,8 @@ const saveTripDraft=(userId,draft)=>{
   else writeScoped(window.localStorage,userId,"trip-draft",draft);
 };
 const isStandaloneApp=()=>typeof window!=="undefined"&&(window.matchMedia?.("(display-mode: standalone)").matches||window.navigator.standalone===true);
+const TERMS_URL="https://ruleto.mx/terminos.html";
+const PRIVACY_URL="https://ruleto.mx/privacidad.html";
 
 const openExternalUrl=async url=>{
   if(Capacitor.isNativePlatform()){await Browser.open({url});return;}
@@ -115,6 +118,14 @@ const{dateKey,today,fmtDate,fmtHour,shiftDate,localDateTime,toStorageInstant,dev
 const fmtClock=ms=>{const s=Math.floor(Math.abs(ms)/1000);return`${String(Math.floor(s/3600)).padStart(2,"0")}:${String(Math.floor((s%3600)/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;};
 const haversine=(a,b)=>{const R=6371,r=x=>x*Math.PI/180;const dLat=r(b.lat-a.lat),dLon=r(b.lon-a.lon);const x=Math.sin(dLat/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLon/2)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));};
 const dateOf=x=>dateKey(x?.end_time||x?.occurred_at||x?.paid_at||x?.created_at||x?.date||Date.now());
+const missingPostgrestColumn=error=>{
+  const match=String(error?.message||"").match(/'([^']+)' column/);
+  return error?.code==="PGRST204"&&match?match[1]:null;
+};
+const stripMissingColumn=(payload,column)=>{
+  if(!column||!Object.prototype.hasOwnProperty.call(payload,column))return payload;
+  const next={...payload};delete next[column];return next;
+};
 const inDateRange=(item,range)=>{const d=dateOf(item);return(!range.from||d>=range.from)&&(!range.to||d<=range.to);};
 const locationName=point=>point?.zone||point?.city||(Number.isFinite(Number(point?.latitude??point?.lat))?`${Number(point.latitude??point.lat).toFixed(3)}, ${Number(point.longitude??point.lon).toFixed(3)}`:"");
 const isUpdatesAdmin=user=>user?.app_metadata?.support_role==="admin"||String(user?.email||"").toLowerCase()==="e.abreuespinoza@gmail.com";
@@ -924,7 +935,8 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
               <div style={{marginBottom:10}}>
                 {history.map((o, idx) => (
                   <button key={idx} onClick={()=>{
-                    setTrip(p=>({
+                    setTrip(p=>{
+                      const next={
                       ...p,
                       fare:String(o.fare||""),
                       pickup_km:String(o.pickupKm||""),
@@ -932,7 +944,10 @@ function TripModal({cfg,saveTrip,activeDay,activeBonuses=[],onClose,isPro,onUpgr
                       dest_km:String(o.tripKm||""),
                       dest_min:String(o.tripMin||""),
                       platform:o.platform||p.platform
-                    }));
+                      };
+                      saveTripDraft(userId,next);
+                      return next;
+                    });
                   }} style={{width:"100%",padding:"6px 10px",borderRadius:8,background:`${C.teal}12`,border:`1px solid ${C.teal}66`,color:C.teal,fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4,cursor:"pointer"}}>
                     <span><SVG d={IC.plus} size={11} color={C.teal}/> Oferta #{idx + 1}: ${o.fare||0} ({String(o.platform||"uber").toUpperCase()})</span>
                     <span style={{fontSize:9,opacity:0.8}}>{((o.pickupKm||0)+(o.tripKm||0)).toFixed(1)} km · {((o.pickupMin||0)+(o.tripMin||0)).toFixed(0)} min</span>
@@ -1460,7 +1475,7 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
                 </div>
               </div>
               <button onClick={()=>onRegisterCopilotOffer(currentOffer)} style={{marginTop:9,width:"100%",padding:"8px 10px",borderRadius:7,background:`${C.teal}18`,border:`1px solid ${C.teal}`,color:C.teal,fontSize:10,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",gap:6,cursor:"pointer"}}>
-                <SVG d={IC.plus} size={13} color={C.teal}/> Registrar este viaje fácil (${currentOffer.fare||currentOffer.gross||0})
+                <SVG d={IC.plus} size={13} color={C.teal}/> Guardar como viaje hecho (${currentOffer.fare||currentOffer.gross||0})
               </button>
             </div>
           );
@@ -2313,8 +2328,8 @@ function ConfigTab({cfg,saveConfig,onLogout,onChangePhone,onCheckUpdates,onOpenU
           {locationError&&<div style={{fontSize:10,color:C.danger,marginTop:4}}>{locationError}</div>}
         </div>}
         <div style={{fontSize:9,color:C.dim,marginTop:10,display:"flex",gap:12,flexWrap:"wrap"}}>
-          <a href="/terminos.html" target="_blank" rel="noopener noreferrer">Términos y condiciones</a>
-          <a href="/privacidad.html" target="_blank" rel="noopener noreferrer">Aviso de privacidad</a>
+          <a href={TERMS_URL} target="_blank" rel="noopener noreferrer">Términos y condiciones</a>
+          <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">Aviso de privacidad</a>
         </div>
       </Card>
       <AccountSecurityCard session={session}/>
@@ -2481,7 +2496,7 @@ function Auth(){
   const reset=()=>{setError("");setSuccess("");};
   const redir=()=>["localhost","127.0.0.1"].includes(window.location.hostname)?`${window.location.origin}/`:`${WEB_APP_ORIGIN}/`;
   const handleLogin=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.signInWithPassword({email,password:pass});if(err)setError("Correo o contraseña incorrectos");setLoading(false);};
-  const handleRegister=async e=>{e.preventDefault();reset();const cleanEmail=email.trim().toLowerCase();if(!name.trim()){setError("Ingresa tu nombre completo");return;}let phone;try{phone=normalizePhone(phoneCountry,phoneLocal);}catch(phoneError){setError(phoneError.message);return;}if(pass.length<6){setError("Contraseña mínima: 6 caracteres");return;}if(pass!==confirm){setError("Las contraseñas no coinciden");return;}if(!acceptedTerms){setError("Debes aceptar los Términos y el Aviso de Privacidad para continuar.");return;}setLoading(true);if(/@ruleto\.mx$/i.test(cleanEmail)){try{const response=await fetch(apiUrl("/api/account/register-ruleto"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:cleanEmail,password:pass,full_name:name,phone,phone_country:phoneCountry,privacy_notice_version:PRIVACY_VERSION})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||"No se pudo crear la cuenta.");setSuccess("Cuenta de prueba creada. Ya puedes iniciar sesión.");}catch(err){setError(err.message);}setLoading(false);return;}const{error:err}=await supabase.auth.signUp({email:cleanEmail,password:pass,options:{data:{full_name:name,phone,phone_country:phoneCountry,privacy_notice_version:PRIVACY_VERSION,privacy_terms_accepted:true,privacy_financial_accepted:true},emailRedirectTo:redir()}});if(err){setError(err.message);setLoading(false);return;}setSuccess("Cuenta creada. Revisa tu correo y captura el código de verificación.");setMode("verify");setLoading(false);};
+  const handleRegister=async e=>{e.preventDefault();reset();const cleanEmail=email.trim().toLowerCase();if(!name.trim()){setError("Ingresa tu nombre completo");return;}let phone;try{phone=normalizePhone(phoneCountry,phoneLocal);}catch(phoneError){setError(phoneError.message);return;}if(pass.length<6){setError("Contraseña mínima: 6 caracteres");return;}if(pass!==confirm){setError("Las contraseñas no coinciden");return;}if(!acceptedTerms){setError("Debes aceptar los Términos y el Aviso de Privacidad para continuar.");return;}setLoading(true);if(/@ruleto\.mx$/i.test(cleanEmail)){try{const response=await fetch(apiUrl("/api/account/register-ruleto"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:cleanEmail,password:pass,full_name:name,phone,phone_country:phoneCountry,privacy_notice_version:PRIVACY_VERSION})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||"No se pudo crear la cuenta.");setSuccess("Cuenta de prueba creada. Ya puedes iniciar sesión.");}catch(err){setError(err.message);}setLoading(false);return;}const{data,error:err}=await supabase.auth.signUp({email:cleanEmail,password:pass,options:{data:{full_name:name,phone,phone_country:phoneCountry,privacy_notice_version:PRIVACY_VERSION,privacy_terms_accepted:true,privacy_financial_accepted:true},emailRedirectTo:redir()}});if(err){setError(err.message);setLoading(false);return;}if(data?.session){await supabase.from("profiles").upsert({id:data.user.id,full_name:name,email:cleanEmail,config:{}});await trackMetaEvent(data.session,{event_name:"CompleteRegistration",event_id:makeMetaEventId("registration",data.user?.id),action_source:"website",event_source_url:window.location.href});}setSuccess("Cuenta creada. Revisa tu correo y captura el código de verificación.");setMode("verify");setLoading(false);};
   const handleForgot=async e=>{e.preventDefault();setLoading(true);reset();const{error:err}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:passwordRecoveryRedirect()});if(err)setError(err.message);else setSuccess("Te enviamos un enlace para crear una nueva contraseña.");setLoading(false);};
   const handleGoogle=async()=>{
     reset();setLoading(true);
@@ -2520,7 +2535,7 @@ function Auth(){
             {mode==="register"&&<div style={{position:"relative"}}><FI d={IC.lock}/><input type={showPw?"text":"password"} placeholder="Confirmar contraseña" value={confirm} onChange={e=>setConfirm(e.target.value)} required style={inp} onFocus={e=>e.target.style.borderColor=C.accent} onBlur={e=>e.target.style.borderColor=C.border}/></div>}
             {mode==="register"&&<label style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:11,color:C.muted,lineHeight:1.5,cursor:"pointer"}}>
               <input type="checkbox" checked={acceptedTerms} onChange={e=>setAcceptedTerms(e.target.checked)} style={{marginTop:2,accentColor:C.accent}}/>
-              <span>Acepto los <a href="/terminos.html" target="_blank" rel="noopener noreferrer">Términos y Condiciones</a> y el <a href="/privacidad.html" target="_blank" rel="noopener noreferrer">Aviso de Privacidad</a>.</span>
+              <span>Acepto los <a href={TERMS_URL} target="_blank" rel="noopener noreferrer">Términos y Condiciones</a> y el <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">Aviso de Privacidad</a>.</span>
             </label>}
             {mode==="login"&&<div style={{textAlign:"right"}}><button type="button" className="text-link" onClick={()=>{setMode("forgot");reset();}} style={{fontSize:10}}>¿Olvidaste tu contraseña?</button></div>}
             {error&&<div style={{background:`${C.danger}12`,border:`1px solid ${C.danger}33`,borderRadius:8,padding:"9px 13px",fontSize:12,color:C.danger}}>⚠️ {error}</div>}
@@ -2535,7 +2550,7 @@ function Auth(){
                 Continuar con Google
               </button>
               <div style={{textAlign:"center",fontSize:9.5,color:C.dim,lineHeight:1.5}}>
-                Al continuar, aceptas nuestros <a href="/terminos.html" target="_blank" rel="noopener noreferrer">Términos</a> y <a href="/privacidad.html" target="_blank" rel="noopener noreferrer">Aviso de Privacidad</a>.
+                Al continuar, aceptas nuestros <a href={TERMS_URL} target="_blank" rel="noopener noreferrer">Términos</a> y <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">Aviso de Privacidad</a>.
               </div>
             </>}
           </div>
@@ -2835,6 +2850,11 @@ export default function RuletoDriveApp(){
       if(oauthReturn)window.history.replaceState({},"",`${window.location.pathname}${window.location.hash}`);
       if(uid){if(authUserRef.current!==uid){
         authUserRef.current=uid;
+        const loginKey=`ruleto_meta_login_${uid}`;
+        if(!sessionStorage.getItem(loginKey)){
+          sessionStorage.setItem(loginKey,"1");
+          trackMetaEvent(nextSession,{event_name:"Login",event_id:makeMetaEventId("login",uid),action_source:Capacitor.isNativePlatform()?"app":"website",event_source_url:Capacitor.isNativePlatform()?undefined:window.location.href});
+        }
         (async () => {
           let ui, cachedDay;
           if (FLAGS.offline_v2) {
@@ -3178,6 +3198,7 @@ export default function RuletoDriveApp(){
       ].filter(Boolean);
       await enqueue({id:mutationId,user_id:uid,kind:"trip",payload,points,created_at:new Date().toISOString()});
       setTrips(prev=>[{...payload,id:`local-${mutationId}`,_pending:true},...prev]);
+      applyTripToActiveBonuses(payload);
       setPendingCount(count=>count+1);
       syncPendingFor(uid);
       showToast(navigator.onLine?"Viaje guardado; sincronizando":"Viaje guardado en este dispositivo; se sincronizará al volver la conexión");
@@ -3199,6 +3220,48 @@ export default function RuletoDriveApp(){
     if(!window.confirm("¿Eliminar este viaje?"))return;
     const{error}=await supabase.from("trips").delete().eq("id",id);
     if(!error){setTrips(p=>p.filter(t=>t.id!==id));showToast("Viaje eliminado");}
+  };
+
+  const writeBonusInsert=async row=>{
+    let payload={...row};
+    for(let attempt=0;attempt<4;attempt++){
+      const result=await supabase.from("bonuses").insert([payload]).select().single();
+      if(!result.error)return result;
+      const missing=missingPostgrestColumn(result.error);
+      if(!missing||!Object.prototype.hasOwnProperty.call(payload,missing))return result;
+      payload=stripMissingColumn(payload,missing);
+    }
+    return {error:new Error("No se pudo guardar el bono")};
+  };
+
+  const writeBonusUpdate=async(id,row)=>{
+    let payload={...row};
+    for(let attempt=0;attempt<4;attempt++){
+      const result=await supabase.from("bonuses").update(payload).eq("id",id).select().single();
+      if(!result.error)return result;
+      const missing=missingPostgrestColumn(result.error);
+      if(!missing||!Object.prototype.hasOwnProperty.call(payload,missing))return result;
+      payload=stripMissingColumn(payload,missing);
+    }
+    return {error:new Error("No se pudo actualizar el bono")};
+  };
+
+  const applyTripToActiveBonuses=async tripRow=>{
+    const platform=String(tripRow?.platform||"").toLowerCase();
+    if(!platform)return;
+    const candidates=bonuses.filter(b=>String(b.status||"")==="active"&&String(b.platform||"").toLowerCase()===platform);
+    if(!candidates.length)return;
+    for(const bonus of candidates){
+      const required=Number(bonus.required_trips)||0;
+      const completed=Number(bonus.completed_trips)||0;
+      if(!required||completed>=required)continue;
+      const next=Math.min(required,completed+1);
+      const status=next>=required?"earned":"active";
+      const patch={completed_trips:next,status,paid_at:status==="earned"?new Date().toISOString():bonus.paid_at,updated_at:new Date().toISOString()};
+      setBonuses(prev=>prev.map(item=>item.id===bonus.id?{...item,...patch}:item));
+      const {error}=await writeBonusUpdate(bonus.id,patch);
+      if(error)console.warn("Auto bonus progress",error.message||error);
+    }
   };
 
   const saveOperation=async data=>{
@@ -3235,7 +3298,7 @@ export default function RuletoDriveApp(){
   const saveBonus=async data=>{
     if(!session)return false;
     try{
-      const{data:saved,error}=await supabase.from("bonuses").insert([{
+      const{data:saved,error}=await writeBonusInsert({
         user_id:session.user.id,platform:data.platform||"uber",bonus_type:data.bonus_type||"racha",
         amount:Number(data.amount)||0,status:data.status||"paid",
         calculation_snapshot:["paid","earned"].includes(data.status)?{...calculationSnapshot(cfg,data.platform),fixedCostPerHour:fixedCostPerHour(cfg)}:null,
@@ -3244,7 +3307,7 @@ export default function RuletoDriveApp(){
         extra_km:Number(data.extra_km)||0,extra_min:Number(data.extra_min)||0,
         starts_at:data.starts_at||null,expires_at:data.expires_at||null,paid_at:data.paid_at||null,
         notes:data.notes||"",
-      }]).select().single();
+      });
       if(error){showToast(error.code==="42P01"?"Falta instalar la tabla de bonos en Supabase.":error.message,"err");return false;}
       setBonuses(p=>[saved,...p]);showToast("Bono guardado");return true;
     }catch(e){showToast("Error de conexion","err");return false;}
@@ -3255,7 +3318,7 @@ export default function RuletoDriveApp(){
       const previous=bonuses.find(b=>b.id===id);
       const settling=["paid","earned"].includes(data.status)&&!previous?.calculation_snapshot;
       const patch={...data,updated_at:new Date().toISOString(),...(settling?{calculation_snapshot:{...calculationSnapshot(cfg,previous?.platform||data.platform),fixedCostPerHour:fixedCostPerHour(cfg)}}:{})};
-      const{data:updated,error}=await supabase.from("bonuses").update(patch).eq("id",id).select().single();
+      const{data:updated,error}=await writeBonusUpdate(id,patch);
       if(error){showToast("No se pudo actualizar el bono","err");return false;}
       setBonuses(p=>p.map(b=>b.id===id?updated:b));showToast("Bono actualizado");return true;
     }catch(e){showToast("Error de conexion","err");return false;}
@@ -3270,7 +3333,9 @@ export default function RuletoDriveApp(){
 
   const updateOperation=async(id,data)=>{
     try{
-      const{data:updated,error}=await supabase.from("operational_events").update({...data,date:data.date||dateOf(data)}).eq("id",id).select().single();
+      const{end_location_promise,start_location,...clean}=data;
+      const payload={...clean,date:clean.date||dateOf(clean)};
+      const{data:updated,error}=await supabase.from("operational_events").update(payload).eq("id",id).select().single();
       if(error){showToast("No se pudo actualizar el movimiento","err");return false;}
       setEvents(p=>p.map(e=>e.id===id?updated:e).sort((a,b)=>eventMs(b)-eventMs(a)));showToast("Movimiento actualizado");return true;
     }catch(e){showToast("Error de conexion","err");return false;}
@@ -3412,11 +3477,12 @@ export default function RuletoDriveApp(){
     return true;
   };
 
-  const registerCopilotOffer=(offer)=>{
+  const registerCopilotOffer=async(offer)=>{
     if(!offer)return;
+    const now=toStorageInstant();
     const draft={
       ...DRAFT0,
-      calculation_snapshot:{...calculationSnapshot(cfg,offer.platform||"uber"),fixedCostPerHour:fixedCostPerHour(cfg),operatingEnergyCostPerKm:offer.operatingEnergyCostPerKm??energyCostPerKm(cfg),vehicleType:offer.vehicleType||cfg.vehicleType,commissionPct:offer.commissionPct??platformCommission(cfg,offer.platform),wearPerKm:offer.wearPerKm??calculationSnapshot(cfg,offer.platform).wearPerKm,fixedCostPerHour:offer.fixedCostPerHour??fixedCostPerHour(cfg)},
+      calculation_snapshot:{...calculationSnapshot(cfg,offer.platform||"uber"),source:"copilot_offer",fixedCostPerHour:fixedCostPerHour(cfg),operatingEnergyCostPerKm:offer.operatingEnergyCostPerKm??energyCostPerKm(cfg),vehicleType:offer.vehicleType||cfg.vehicleType,commissionPct:offer.commissionPct??platformCommission(cfg,offer.platform),wearPerKm:offer.wearPerKm??calculationSnapshot(cfg,offer.platform).wearPerKm,fixedCostPerHour:offer.fixedCostPerHour??fixedCostPerHour(cfg)},
       fare:String(offer.fare||""),
       pickup_km:String(offer.pickupKm||""),
       pickup_min:String(offer.pickupMin||""),
@@ -3425,6 +3491,17 @@ export default function RuletoDriveApp(){
       platform:offer.platform||"uber",
       mode:"manual"
     };
+    const ok=await saveTrip({
+      fare:Number(offer.fare)||0,platform:offer.platform||"uber",calculation_snapshot:draft.calculation_snapshot,
+      pickup_km:Number(offer.pickupKm)||0,pickup_min:Number(offer.pickupMin)||0,
+      dest_km:Number(offer.tripKm)||0,dest_min:Number(offer.tripMin)||0,
+      date:dateKey(now),end_time:now,day_id:activeDay?.id||null,
+    });
+    if(ok){
+      setCopilotState(p=>({...p,offerHistory:(p.offerHistory||[]).filter(item=>item.signature!==offer.signature),lastOffer:(p.offerHistory||[]).find(item=>item.signature!==offer.signature)||null,selectedOfferIndex:0}));
+      showToast("Viaje del copiloto registrado");
+      return;
+    }
     if (FLAGS.offline_v2) {
       import('./storage/db').then(DexieDB => DexieDB.UIStateStore.set(`${session?.user?.id}:trip-draft`, draft));
     } else {
