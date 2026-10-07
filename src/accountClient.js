@@ -31,7 +31,7 @@ export async function releaseDevice() {
   }
 }
 
-const PHONE_ERRORS = {
+export const PHONE_ERRORS = {
   phone_invalid: "Ese número no es válido.",
   phone_taken: "Ese número ya está registrado en otra cuenta de Ruleto. Inicia sesión con esa cuenta o escríbenos a soporte.",
 };
@@ -43,6 +43,12 @@ export const TRIAL_REASONS = {
   phone_used: "Este número ya ha utilizado la prueba gratuita.",
   no_device: "No pudimos identificar este dispositivo.",
 };
+
+// Antes de crear la cuenta: avisa si el celular ya es de otra. Falla abierto ante errores de red.
+export async function isPhoneAvailable(phone) {
+  const { data, error } = await supabase.rpc("ruleto_phone_available", { p_phone: phone });
+  return error ? true : data !== false;
+}
 
 export async function registerPhone(phone, country) {
   const device = await getDeviceIdentity();
