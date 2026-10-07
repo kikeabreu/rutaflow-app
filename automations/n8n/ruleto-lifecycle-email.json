@@ -1,0 +1,371 @@
+{
+  "name": "Ruleto Drive — acompañamiento del trial por correo",
+  "nodes": [
+    {
+      "id": "ruleto-2",
+      "name": "Cada 10 minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ruleto-1",
+      "name": "Configuración",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const config = {\"supabaseUrl\":\"https://REPLACE_PROJECT.supabase.co\",\"appUrl\":\"https://app.ruleto.mx\",\"unsubscribeUrl\":\"https://REPLACE_N8N_HOST/webhook/ruleto-email-preferences\",\"sendEnabled\":false};\nif (Object.values(config).some(v => typeof v === 'string' && v.includes('REPLACE_'))) throw new Error('Completa Configuración antes de ejecutar');\nreturn [{json:config}];"
+      }
+    },
+    {
+      "id": "ruleto-3",
+      "name": "Envíos habilitados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return $input.first().json.sendEnabled === true ? $input.all() : [];"
+      }
+    },
+    {
+      "id": "ruleto-4",
+      "name": "Preparar campañas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración').first().json.supabaseUrl + '/rest/v1/rpc/enqueue_lifecycle_email' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    },
+    {
+      "id": "ruleto-5",
+      "name": "Reservar un correo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración').first().json.supabaseUrl + '/rest/v1/rpc/claim_lifecycle_email' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    },
+    {
+      "id": "ruleto-6",
+      "name": "Crear mensaje",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "jsCode": "function renderEmail(data, config) {\n  const escape = value => String(value ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));\n  const secureUrl = value => {\n    const url = String(value || '');\n    if (!/^https:\\/\\/[a-z0-9.-]+(?::[0-9]+)?(?:\\/[a-z0-9/_%.-]*)?$/i.test(url)) throw new Error('Configura una URL HTTPS sin credenciales ni parámetros');\n    return url;\n  };\n  const appUrl = secureUrl(config.appUrl);\n  const unsubscribeUrl = secureUrl(config.unsubscribeUrl);\n  if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(data.unsubscribe_token)) throw new Error('Token de baja inválido');\n  const unsubscribeLink = unsubscribeUrl + '?token=' + encodeURIComponent(data.unsubscribe_token);\n  const until = new Date(data.trial_until);\n  if (!Number.isFinite(until.getTime())) throw new Error('Vencimiento inválido');\n  const deadline = until.toLocaleString('es-MX', {timeZone:'America/Mexico_City',dateStyle:'long',timeStyle:'short'}) + ' (hora de Ciudad de México)';\n  const count = Number(data.trips_count);\n  if (!Number.isSafeInteger(count) || count < 0) throw new Error('Número de viajes inválido');\n  const copy = {\n    welcome: ['Tus 14 días de Ruleto Drive Pro ya empezaron', `Tu prueba Pro vence el ${deadline}. Registra tu primer viaje para empezar a conocer tus costos y tu rendimiento.`, 'Registrar un viaje'],\n    activation: ['Prueba Ruleto Drive con tu primer viaje', 'Todavía no tienes viajes registrados. Empieza con uno: captura la tarifa, distancia y tiempo para ver el cálculo de tu rendimiento.', 'Registrar mi primer viaje'],\n    midpoint: ['Así va tu prueba de Ruleto Drive Pro', count > 0 ? `Ya registraste ${count} viaje${count===1?'':'s'} desde que comenzó tu prueba. Abre tu historial y consulta al asesor con tus propios datos. Tu prueba vence el ${deadline}.` : `Aún puedes aprovechar tu prueba: registra un viaje y prueba las funciones Pro. Tu acceso gratuito Pro vence el ${deadline}.`, 'Abrir Ruleto Drive'],\n    ending: ['Tu prueba de Ruleto Drive Pro está por terminar', `Tu prueba vence el ${deadline}. ${count > 0 ? `Ya registraste ${count} viaje${count===1?'':'s'} durante este periodo. ` : ''}Revisa las opciones de Pro en la app si quieres seguir usando sus funciones.`, 'Ver opciones de Pro'],\n    expired: ['Terminó tu prueba de Ruleto Drive Pro', 'Tu prueba gratuita terminó. Puedes seguir usando Ruleto Drive Free o consultar las opciones para continuar con Pro.', 'Abrir Ruleto Drive'],\n    return: ['Retoma tus viajes con Ruleto Drive', 'Hace varios días que no registras viajes. Vuelve a Ruleto Drive y retoma el seguimiento de tus costos y rendimiento con Free. Las opciones de Pro siguen disponibles en la app.', 'Volver a Ruleto Drive'],\n  }[data.campaign];\n  if (!copy) throw new Error('Campaña desconocida');\n  const name = String(data.name || 'conductor').trim().slice(0,80);\n  return {\n    ...data, subject:copy[0],\n    text:`Hola, ${name}.\\n\\n${copy[1]}\\n\\n${copy[2]}: ${appUrl}\\n\\nDejar de recibir estos correos: ${unsubscribeLink}`,\n    html:`<!doctype html><html lang=\"es\"><body style=\"font-family:Arial,sans-serif;color:#172129;max-width:600px;margin:auto;padding:24px\"><h1 style=\"font-size:22px\">Ruleto Drive</h1><p>Hola, ${escape(name)}.</p><p>${escape(copy[1])}</p><p><a href=\"${escape(appUrl)}\" style=\"display:inline-block;background:#146b50;color:white;padding:12px 18px;border-radius:8px;text-decoration:none\">${escape(copy[2])}</a></p><hr><p style=\"font-size:12px\">Recibes este mensaje porque activaste los correos de acompañamiento de Ruleto Drive. <a href=\"${escape(unsubscribeLink)}\">Dejar de recibirlos</a>.</p></body></html>`,\n  };\n}\nconst data = $input.first().json;\nif (!data || !data.delivery_id) return [];\nreturn [{json:renderEmail(data,$('Configuración').first().json)}];"
+      }
+    },
+    {
+      "id": "ruleto-7",
+      "name": "Revalidar permiso y plan",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración').first().json.supabaseUrl + '/rest/v1/rpc/validate_lifecycle_email' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({p_delivery_id:$('Crear mensaje').first().json.delivery_id,p_email:$('Crear mensaje').first().json.email}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    },
+    {
+      "id": "ruleto-8",
+      "name": "Resultado de validación",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return [{json:{ok:$input.first().json.ok === true}}];"
+      }
+    },
+    {
+      "id": "ruleto-9",
+      "name": "Puede enviar",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "allowed",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ruleto-10",
+      "name": "Enviar por Neubox",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2160,
+        0
+      ],
+      "parameters": {
+        "fromEmail": "Ruleto Drive <no-reply@ruleto.mx>",
+        "toEmail": "={{ $('Crear mensaje').first().json.email }}",
+        "subject": "={{ $('Crear mensaje').first().json.subject }}",
+        "emailFormat": "both",
+        "text": "={{ $('Crear mensaje').first().json.text }}",
+        "html": "={{ $('Crear mensaje').first().json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "ruleto-11",
+      "name": "Registrar envío",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración').first().json.supabaseUrl + '/rest/v1/rpc/finish_lifecycle_email' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({p_delivery_id:$('Crear mensaje').first().json.delivery_id,p_status:'sent'}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    },
+    {
+      "id": "ruleto-12",
+      "name": "Cancelar envío",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        220
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración').first().json.supabaseUrl + '/rest/v1/rpc/finish_lifecycle_email' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({p_delivery_id:$('Crear mensaje').first().json.delivery_id,p_status:'cancelled'}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cada 10 minutos": {
+      "main": [
+        [
+          {
+            "node": "Configuración",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuración": {
+      "main": [
+        [
+          {
+            "node": "Envíos habilitados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Envíos habilitados": {
+      "main": [
+        [
+          {
+            "node": "Preparar campañas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar campañas": {
+      "main": [
+        [
+          {
+            "node": "Reservar un correo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reservar un correo": {
+      "main": [
+        [
+          {
+            "node": "Crear mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear mensaje": {
+      "main": [
+        [
+          {
+            "node": "Revalidar permiso y plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Revalidar permiso y plan": {
+      "main": [
+        [
+          {
+            "node": "Resultado de validación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resultado de validación": {
+      "main": [
+        [
+          {
+            "node": "Puede enviar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Puede enviar": {
+      "main": [
+        [
+          {
+            "node": "Enviar por Neubox",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cancelar envío",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar por Neubox": {
+      "main": [
+        [
+          {
+            "node": "Registrar envío",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Mexico_City",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveManualExecutions": false
+  },
+  "pinData": {},
+  "tags": []
+}

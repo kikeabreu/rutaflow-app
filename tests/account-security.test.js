@@ -63,6 +63,9 @@ test("registro @ruleto.mx crea usuario confirmado y perfil",async()=>{
     await registerRuleto({method:"POST",headers:{},body:{email:"qa@ruleto.mx",password:"secret1",full_name:"QA Ruleto",phone:"+529991112233",phone_country:"MX"}},res);
     assert.equal(res.statusCode,200);
     assert.equal(res.body.created,true);
+    const metadata=JSON.parse(calls.find(call=>call.path.includes("/auth/v1/admin/users")).options.body).user_metadata;
+    assert.equal(metadata.lifecycle_email_enabled,false);
+    assert.equal(metadata.lifecycle_email_consent_version,"2026-10-07");
     assert.ok(calls.some(call=>String(call.options.body).includes('"email_confirm":true')));
     assert.ok(calls.some(call=>call.path.includes("/rest/v1/profiles")));
   }finally{global.fetch=original;}
