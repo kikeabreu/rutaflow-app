@@ -14,12 +14,13 @@ const http = (name,rpc,body,x) => node(name,'n8n-nodes-base.httpRequest',{
 const link=(connections,from,to,branch=0)=>{connections[from]??={main:[]};connections[from].main[branch]??=[];connections[from].main[branch].push({node:to,type:'main',index:0});};
 const workflow = (name,nodes,connections) => ({name,nodes,connections,active:false,settings:{executionOrder:'v1',timezone:'America/Mexico_City',saveDataSuccessExecution:'none',saveDataErrorExecution:'none',saveManualExecutions:false},pinData:{},tags:[]});
 const configure = code('Configuración',`const config = ${JSON.stringify(config)};\nif (Object.values(config).some(v => typeof v === 'string' && v.includes('REPLACE_'))) throw new Error('Completa Configuración antes de ejecutar');\nreturn [{json:config}];`,240);
+const buildCampaignFlow=(name,segment,file)=>{
 const nodes=[
   node('Cada 10 minutos','n8n-nodes-base.scheduleTrigger',{rule:{interval:[{field:'minutes',minutesInterval:10}]}},0),
   configure,
   code('Envíos habilitados',"return $input.first().json.sendEnabled === true ? $input.all() : [];",480),
   http('Preparar campañas','enqueue_lifecycle_email','{}',720),
-  http('Reservar un correo','claim_lifecycle_email','{}',960),
+  http('Reservar un correo','claim_lifecycle_email',segment==='trial'?'{}':JSON.stringify({p_segment:segment}),960),
   code('Crear mensaje',`${renderEmail.toString()}\nconst data = $input.first().json;\nif (!data || !data.delivery_id) return [];\nreturn [{json:renderEmail(data,$('Configuración').first().json)}];`,1200),
   http('Revalidar permiso y plan','validate_lifecycle_email',"={{ JSON.stringify({p_delivery_id:$('Crear mensaje').first().json.delivery_id,p_email:$('Crear mensaje').first().json.email}) }}",1440),
   code('Resultado de validación',"return [{json:{ok:$input.first().json.ok === true}}];",1680),
@@ -32,7 +33,10 @@ nodes[nodes.length-1].position[1]=220;
 const connections={};
 for(let i=0;i<8;i++)link(connections,nodes[i].name,nodes[i+1].name);
 link(connections,'Puede enviar','Enviar por Neubox',0);link(connections,'Puede enviar','Cancelar envío',1);link(connections,'Enviar por Neubox','Registrar envío');
-fs.writeFileSync(path.join(__dirname,'ruleto-lifecycle-email.json'),JSON.stringify(workflow('Ruleto Drive — acompañamiento del trial por correo',nodes,connections),null,2)+'\n');
+fs.writeFileSync(path.join(__dirname,file),JSON.stringify(workflow(name,nodes,connections),null,2)+'\n');
+};
+buildCampaignFlow('Ruleto Drive — acompañamiento del trial por correo','trial','ruleto-lifecycle-email.json');
+buildCampaignFlow('Ruleto Drive — acompañamiento Pro y Free por correo','paid_free','ruleto-lifecycle-pro-free.json');
 
 // Páginas públicas de baja: HTML autocontenido (n8n aísla las respuestas HTML), mismo verde que los correos.
 const APP_URL='https://app.ruleto.mx';

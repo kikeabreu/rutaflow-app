@@ -63,6 +63,21 @@ Fuentes de configuración:
 - n8n SMTP: https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.sendemail/
 - n8n credenciales HTTP: https://docs.n8n.io/integrations/builtin/credentials/httprequest/
 
+## Flujo para usuarios Pro y Free
+
+Segundo flujo, `automations/n8n/ruleto-lifecycle-pro-free.json` («acompañamiento Pro y Free»), separado del de la prueba. Usa el mismo consentimiento, baja, límite de un correo cada 36 horas por usuario y la misma credencial SMTP. Se importa inactivo y con `sendEnabled=false`.
+
+| Segmento | Campaña | Cuándo |
+| --- | --- | --- |
+| Pro con cobro (Stripe, `entitled` y `active`) | `pro_renewal` | Entre 3 y 2 días antes de renovar |
+| Pro con cobro y cancelación programada | `pro_canceling` | Entre 3 y 2 días antes de que termine el acceso |
+| Free: prueba terminada y nunca pagó | `free_recap` | 14 días después del vencimiento (usa los viajes de los últimos 30 días) |
+| Free: prueba terminada y nunca pagó | `free_offer` | 30 días después del vencimiento |
+
+Pro manual o de cortesía (sin registro de cobro) no recibe estos correos. Quien alguna vez tuvo una suscripción de pago y volvió a Free no recibe las campañas Free. No hay correo de bienvenida a Pro porque la tabla de cobros no guarda la fecha de inicio. Los correos de renovación se calculan con el fin del periodo, por lo que sirven para planes mensuales y anuales.
+
+Despliegue, en este orden: aplicar `supabase/migrations/20261007190000_lifecycle_pro_free.sql` (reemplaza `claim_lifecycle_email()` por `claim_lifecycle_email(p_segment text default 'trial')`: el flujo de la prueba sigue funcionando sin cambios), ejecutar `tests/lifecycle-pro-free.sql` (se revierte), importar el flujo, seleccionar las credenciales de Supabase y SMTP en sus nodos y mantener `sendEnabled=false` hasta revisar. Solo envía a quien tiene opt-in; confirmar con una cuenta propia antes de activar.
+
 ## Publicación de la app
 
 La entrega está preparada para Android 1.4.19-beta. El cambio de redirección solo debe publicarse después de subir la APK firmada con la misma clave de la versión anterior. La versión anterior está firmada con un certificado Android Debug cuyo SHA-256 es `08491fa5e04980c34292ab48683d818baf04b578af1b1364d16648f9e8142fac`. Esa clave privada no está disponible en este entorno. No sustituirla por una nueva: impediría actualizar las instalaciones existentes.
