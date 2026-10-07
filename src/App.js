@@ -2150,7 +2150,7 @@ function AccountSecurityCard({session,onEmailChanged}){
       </form>
       {emailPending&&<form onSubmit={confirmEmailChange} style={{display:"grid",gap:8,marginTop:10}}>
         <div style={{fontSize:10,color:C.muted}}>Código enviado a <strong style={{color:C.text}}>{emailPending}</strong></div>
-        <input inputMode="numeric" pattern="[0-9]*" placeholder="Código de verificación" value={email.code} onChange={e=>setEmail(p=>({...p,code:e.target.value.replace(/\D/g,"").slice(0,6)}))} style={{...cardInputStyle,letterSpacing:"0.18em",fontWeight:800,textAlign:"center"}}/>
+        <input inputMode="numeric" pattern="[0-9]*" placeholder="Código de verificación" value={email.code} onChange={e=>setEmail(p=>({...p,code:e.target.value.replace(/\D/g,"").slice(0,10)}))} style={{...cardInputStyle,letterSpacing:"0.18em",fontWeight:800,textAlign:"center"}}/>
         <Btn full disabled={busy==="email-code"}>{busy==="email-code"?"Confirmando...":"Confirmar correo"}</Btn>
       </form>}
       {err&&<div role="alert" style={{fontSize:11,color:C.danger,marginTop:10}}>{err}</div>}
@@ -2467,10 +2467,10 @@ function EmailVerificationPage({initialEmail,onDone}){
   return(
       <Card s={{marginTop:12}}>
         <div style={{fontSize:18,fontWeight:800,color:C.accent,marginBottom:6}}>Verifica tu correo</div>
-        <div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginBottom:14}}>Te enviamos un código de 6 dígitos para confirmar que el correo es válido.</div>
+        <div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginBottom:14}}>Te enviamos un código para confirmar que el correo es válido.</div>
         <form onSubmit={verify} style={{display:"flex",flexDirection:"column",gap:10}}>
           <input type="email" placeholder="correo@ejemplo.com" value={email} onChange={e=>setEmail(e.target.value)} style={authInputStyle}/>
-          <input inputMode="numeric" pattern="[0-9]*" placeholder="Código de verificación" value={token} onChange={e=>setToken(e.target.value.replace(/\D/g,"").slice(0,6))} style={{...authInputStyle,letterSpacing:"0.18em",fontWeight:800,textAlign:"center"}}/>
+          <input inputMode="numeric" pattern="[0-9]*" placeholder="Código de verificación" value={token} onChange={e=>setToken(e.target.value.replace(/\D/g,"").slice(0,10))} style={{...authInputStyle,letterSpacing:"0.18em",fontWeight:800,textAlign:"center"}}/>
           {error&&<div style={{fontSize:12,color:C.danger}}>{error}</div>}
           {success&&<div style={{fontSize:12,color:C.teal}}>{success}</div>}
           <Btn full disabled={loading}>{loading?"Validando...":"Verificar correo"}</Btn>
