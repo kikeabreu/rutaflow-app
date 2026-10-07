@@ -1,0 +1,236 @@
+{
+  "name": "Ruleto Drive — baja de correos",
+  "nodes": [
+    {
+      "id": "ruleto-13",
+      "name": "Abrir preferencias",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "path": "ruleto-email-preferences",
+        "httpMethod": "GET",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "ruleto-14",
+      "name": "Formulario de baja",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const token=String($input.first().json.query?.token||'');\nif(!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(token))return [{json:{html:'<p>Enlace inválido.</p>'}}];\nreturn [{json:{html:'<!doctype html><html lang=\"es\"><meta charset=\"utf-8\"><title>Ruleto Drive</title><body><h1>Preferencias de correo de Ruleto Drive</h1><form method=\"post\"><input type=\"hidden\" name=\"token\" value=\"'+token+'\"><button type=\"submit\">Dejar de recibir correos de acompañamiento</button></form></body></html>'}}];"
+      }
+    },
+    {
+      "id": "ruleto-15",
+      "name": "Mostrar formulario",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              },
+              {
+                "name": "Referrer-Policy",
+                "value": "no-referrer"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "ruleto-16",
+      "name": "Confirmar baja",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "path": "ruleto-email-preferences",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "ruleto-17",
+      "name": "Configuración",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return [{json:{\"supabaseUrl\":\"https://REPLACE_PROJECT.supabase.co\",\"appUrl\":\"https://app.ruleto.mx\",\"unsubscribeUrl\":\"https://REPLACE_N8N_HOST/webhook/ruleto-email-preferences\",\"sendEnabled\":false}}];"
+      }
+    },
+    {
+      "id": "ruleto-18",
+      "name": "Validar token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const token=String($('Confirmar baja').first().json.body?.token||''); if(!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(token))throw new Error('Enlace inválido'); if($('Configuración').first().json.supabaseUrl.includes('REPLACE_'))throw new Error('Configura Supabase'); return [{json:{token}}];"
+      }
+    },
+    {
+      "id": "ruleto-19",
+      "name": "Dar de baja",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración').first().json.supabaseUrl + '/rest/v1/rpc/unsubscribe_lifecycle_email' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({p_token:$json.token}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    },
+    {
+      "id": "ruleto-20",
+      "name": "Confirmación",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "<!doctype html><html lang=\"es\"><meta charset=\"utf-8\"><h1>Ruleto Drive</h1><p>Tu solicitud de baja fue procesada. Los correos de acceso y seguridad de tu cuenta no cambian.</p></html>",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Abrir preferencias": {
+      "main": [
+        [
+          {
+            "node": "Formulario de baja",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formulario de baja": {
+      "main": [
+        [
+          {
+            "node": "Mostrar formulario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirmar baja": {
+      "main": [
+        [
+          {
+            "node": "Configuración",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuración": {
+      "main": [
+        [
+          {
+            "node": "Validar token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar token": {
+      "main": [
+        [
+          {
+            "node": "Dar de baja",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dar de baja": {
+      "main": [
+        [
+          {
+            "node": "Confirmación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Mexico_City",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveManualExecutions": false
+  },
+  "pinData": {},
+  "tags": []
+}
