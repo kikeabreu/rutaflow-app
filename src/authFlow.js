@@ -57,3 +57,10 @@ export async function restoreOAuthSession(client, url) {
   }
   return null;
 }
+
+// Supabase oculta que un correo ya existe: responde 200 sin enviar código y con identities vacío.
+export const EMAIL_ALREADY_REGISTERED_MESSAGE = "Ya existe una cuenta con este correo. Inicia sesión o usa “¿Olvidaste tu contraseña?”.";
+
+export function isExistingEmailSignup(data) {
+  return Array.isArray(data?.user?.identities) && data.user.identities.length === 0;
+}

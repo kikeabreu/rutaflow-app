@@ -53,3 +53,11 @@ test("el App Link https sigue siendo un callback válido de respaldo", () => {
 test("la recuperacion de contraseña vuelve al dominio unico de la PWA", () => {
   expect(passwordRecoveryRedirect()).toBe("https://app.ruleto.mx/auth/restablecer");
 });
+
+test("detecta un registro con un correo que ya tiene cuenta", () => {
+  const { isExistingEmailSignup } = require("./authFlow");
+  expect(isExistingEmailSignup({ user: { identities: [] } })).toBe(true);
+  expect(isExistingEmailSignup({ user: { identities: [{ id: "1" }] } })).toBe(false);
+  expect(isExistingEmailSignup({ user: null })).toBe(false);
+  expect(isExistingEmailSignup(null)).toBe(false);
+});
