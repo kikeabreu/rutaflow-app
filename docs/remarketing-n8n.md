@@ -56,7 +56,7 @@ node automations/n8n/build-workflows.cjs
 node --test tests/lifecycle-email.test.js
 ```
 
-Las pruebas locales cubren plantillas, escape HTML, datos inválidos y conexiones del JSON. Se verificaron la migración en Supabase con casos dentro de una transacción revertida, una entrega SMTP a la cuenta de prueba del propietario y el webhook GET/POST de baja. El flujo de baja está activo en la instancia de Neubox; el de campañas permanece inactivo y con sendEnabled=false. El formulario de baja usa una acción HTTPS absoluta, compatible con el aislamiento HTML de n8n. Si se importa en otra instancia, ajustar también esa URL en Formulario de baja.
+Las pruebas locales cubren plantillas, escape HTML, datos inválidos y conexiones del JSON. Se verificaron la migración en Supabase con casos dentro de una transacción revertida, una entrega SMTP a la cuenta de prueba del propietario y el webhook GET/POST de baja. El flujo de baja está activo en la instancia de Neubox; el de campañas permanece inactivo y con sendEnabled=false. Las páginas de baja (formulario y confirmación) usan la identidad visual de Ruleto, se adaptan al celular y enlazan a la app; se generan con `automations/n8n/build-workflows.cjs`. El formulario de baja usa una acción HTTPS absoluta, compatible con el aislamiento HTML de n8n. Si se importa en otra instancia, ajustar también esa URL en Formulario de baja.
 
 Fuentes de configuración:
 - Neubox: https://neubox.com/tutoriales/base-de-conocimientos/configurar-correo-neubox-en-gmail-guia-pop3-imap-completa/
