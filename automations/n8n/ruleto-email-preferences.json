@@ -2,7 +2,7 @@
   "name": "Ruleto Drive — baja de correos",
   "nodes": [
     {
-      "id": "ruleto-13",
+      "id": "ruleto-24",
       "name": "Abrir preferencias",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
@@ -18,7 +18,7 @@
       }
     },
     {
-      "id": "ruleto-14",
+      "id": "ruleto-25",
       "name": "Formulario de baja",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -31,7 +31,7 @@
       }
     },
     {
-      "id": "ruleto-15",
+      "id": "ruleto-26",
       "name": "Mostrar formulario",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
@@ -63,7 +63,7 @@
       }
     },
     {
-      "id": "ruleto-16",
+      "id": "ruleto-27",
       "name": "Confirmar baja",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
@@ -79,7 +79,7 @@
       }
     },
     {
-      "id": "ruleto-17",
+      "id": "ruleto-28",
       "name": "Configuración",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -92,7 +92,7 @@
       }
     },
     {
-      "id": "ruleto-18",
+      "id": "ruleto-29",
       "name": "Validar token",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -105,7 +105,7 @@
       }
     },
     {
-      "id": "ruleto-19",
+      "id": "ruleto-30",
       "name": "Dar de baja",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -127,7 +127,7 @@
       }
     },
     {
-      "id": "ruleto-20",
+      "id": "ruleto-31",
       "name": "Confirmación",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,

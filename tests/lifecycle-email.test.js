@@ -15,6 +15,18 @@ test('all six campaigns render with one app link and a usable unsubscribe link',
     assert.ok(!result.html.includes('RUTAFLOW'));
   }
 });
+test('Pro and Free campaigns render with real dates and without invented claims',()=>{
+  const paid={...data,trial_until:null,period_end:'2026-10-21T18:00:00Z',trips_30d:4};
+  for(const campaign of ['pro_renewal','pro_canceling','free_recap','free_offer']){
+    const result=renderEmail({...paid,campaign},cfg);
+    assert.ok(result.subject.length>10);
+    assert.ok(result.text.includes(cfg.appUrl)&&result.text.includes('token='+data.unsubscribe_token));
+    assert.ok(!result.text.includes('$'));
+  }
+  assert.ok(renderEmail({...paid,campaign:'pro_renewal'},cfg).text.includes('21 de octubre de 2026'));
+  assert.ok(renderEmail({...paid,campaign:'free_recap'},cfg).text.includes('4 viajes'));
+  assert.throws(()=>renderEmail({...paid,campaign:'pro_renewal',period_end:null},cfg));
+});
 test('user names cannot inject HTML',()=>{
   const result=renderEmail({...data,campaign:'midpoint',name:'<img src=x onerror=alert(1)>'},cfg);
   assert.ok(!result.html.includes('<img'));
@@ -32,7 +44,7 @@ test('unsafe links, malformed tokens and missing trial dates fail closed',()=>{
   assert.throws(()=>renderEmail({...data,campaign:'welcome',trips_count:-1},cfg));
 });
 test('generated workflows have resolvable connections, no enabled sender or secrets, and compile',()=>{
-  for(const file of ['ruleto-lifecycle-email.json','ruleto-email-preferences.json']){
+  for(const file of ['ruleto-lifecycle-email.json','ruleto-lifecycle-pro-free.json','ruleto-email-preferences.json']){
     const w=JSON.parse(fs.readFileSync(path.join(__dirname,'../automations/n8n',file)));
     assert.equal(w.active,false);
     const names=new Set(w.nodes.map(n=>n.name));
@@ -47,6 +59,12 @@ test('generated workflows have resolvable connections, no enabled sender or secr
     }
     assert.ok(w.nodes.find(n=>n.name==='Configuración').parameters.jsCode.includes('"sendEnabled":false'));
   }
+});
+
+test('the Pro/Free flow claims only its own segment and the trial flow keeps the default',()=>{
+  const body=file=>JSON.parse(fs.readFileSync(path.join(__dirname,'../automations/n8n',file))).nodes.find(n=>n.name==='Reservar un correo').parameters.jsonBody;
+  assert.equal(body('ruleto-lifecycle-email.json'),'{}');
+  assert.equal(body('ruleto-lifecycle-pro-free.json'),'{"p_segment":"paid_free"}');
 });
 
 test('SMTP uses the built-in emailSend node and unsubscribe form has an absolute action',()=>{

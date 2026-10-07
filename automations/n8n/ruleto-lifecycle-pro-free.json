@@ -1,8 +1,8 @@
 {
-  "name": "Ruleto Drive — acompañamiento del trial por correo",
+  "name": "Ruleto Drive — acompañamiento Pro y Free por correo",
   "nodes": [
     {
-      "id": "ruleto-2",
+      "id": "ruleto-13",
       "name": "Cada 10 minutos",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1,
@@ -35,7 +35,7 @@
       }
     },
     {
-      "id": "ruleto-3",
+      "id": "ruleto-14",
       "name": "Envíos habilitados",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -48,7 +48,7 @@
       }
     },
     {
-      "id": "ruleto-4",
+      "id": "ruleto-15",
       "name": "Preparar campañas",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -70,7 +70,7 @@
       }
     },
     {
-      "id": "ruleto-5",
+      "id": "ruleto-16",
       "name": "Reservar un correo",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -85,14 +85,14 @@
         "genericAuthType": "httpCustomAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "{}",
+        "jsonBody": "{\"p_segment\":\"paid_free\"}",
         "options": {
           "timeout": 15000
         }
       }
     },
     {
-      "id": "ruleto-6",
+      "id": "ruleto-17",
       "name": "Crear mensaje",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -105,7 +105,7 @@
       }
     },
     {
-      "id": "ruleto-7",
+      "id": "ruleto-18",
       "name": "Revalidar permiso y plan",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -127,7 +127,7 @@
       }
     },
     {
-      "id": "ruleto-8",
+      "id": "ruleto-19",
       "name": "Resultado de validación",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -140,7 +140,7 @@
       }
     },
     {
-      "id": "ruleto-9",
+      "id": "ruleto-20",
       "name": "Puede enviar",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
@@ -174,7 +174,7 @@
       }
     },
     {
-      "id": "ruleto-10",
+      "id": "ruleto-21",
       "name": "Enviar por Neubox",
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
@@ -195,7 +195,7 @@
       }
     },
     {
-      "id": "ruleto-11",
+      "id": "ruleto-22",
       "name": "Registrar envío",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -217,7 +217,7 @@
       }
     },
     {
-      "id": "ruleto-12",
+      "id": "ruleto-23",
       "name": "Cancelar envío",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,

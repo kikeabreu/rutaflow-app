@@ -11,9 +11,16 @@ function renderEmail(data, config) {
   const unsubscribeUrl = secureUrl(config.unsubscribeUrl);
   if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(data.unsubscribe_token)) throw new Error('Token de baja inválido');
   const unsubscribeLink = unsubscribeUrl + '?token=' + encodeURIComponent(data.unsubscribe_token);
-  const until = new Date(data.trial_until);
-  if (!Number.isFinite(until.getTime())) throw new Error('Vencimiento inválido');
-  const deadline = until.toLocaleString('es-MX', {timeZone:'America/Mexico_City',dateStyle:'long',timeStyle:'short'}) + ' (hora de Ciudad de México)';
+  const trialCampaign = ['welcome','activation','midpoint','ending','expired','return'].includes(data.campaign);
+  const dateText = (value, label) => {
+    const date = new Date(value ?? NaN);
+    if (value === null || value === '' || !Number.isFinite(date.getTime())) throw new Error(label + ' inválido');
+    return date.toLocaleString('es-MX', {timeZone:'America/Mexico_City',dateStyle:'long',timeStyle:'short'}) + ' (hora de Ciudad de México)';
+  };
+  const deadline = trialCampaign ? dateText(data.trial_until, 'Vencimiento') : '';
+  const renewal = ['pro_renewal','pro_canceling'].includes(data.campaign) ? dateText(data.period_end, 'Fin de periodo') : '';
+  const count30 = Number(data.trips_30d ?? 0);
+  if (!Number.isSafeInteger(count30) || count30 < 0) throw new Error('Número de viajes inválido');
   const count = Number(data.trips_count);
   if (!Number.isSafeInteger(count) || count < 0) throw new Error('Número de viajes inválido');
   const copy = {
@@ -23,6 +30,10 @@ function renderEmail(data, config) {
     ending: ['Tu prueba de Ruleto Drive Pro está por terminar', `Tu prueba vence el ${deadline}. ${count > 0 ? `Ya registraste ${count} viaje${count===1?'':'s'} durante este periodo. ` : ''}Revisa las opciones de Pro en la app si quieres seguir usando sus funciones.`, 'Ver opciones de Pro'],
     expired: ['Terminó tu prueba de Ruleto Drive Pro', 'Tu prueba gratuita terminó. Puedes seguir usando Ruleto Drive Free o consultar las opciones para continuar con Pro.', 'Abrir Ruleto Drive'],
     return: ['Retoma tus viajes con Ruleto Drive', 'Hace varios días que no registras viajes. Vuelve a Ruleto Drive y retoma el seguimiento de tus costos y rendimiento con Free. Las opciones de Pro siguen disponibles en la app.', 'Volver a Ruleto Drive'],
+    pro_renewal: ['Tu suscripción de Ruleto Drive Pro se renueva pronto', `Tu suscripción Pro se renueva el ${renewal}. Si quieres revisar o cambiar tu plan, entra a Configuración y abre la sección Suscripción.`, 'Abrir Ruleto Drive'],
+    pro_canceling: ['Tu Ruleto Drive Pro termina pronto', `Tu suscripción Pro no se renovará y tu acceso Pro termina el ${renewal}. Después tu cuenta seguirá en Free. Si quieres continuar con Pro, puedes reactivar tu suscripción en Configuración, sección Suscripción.`, 'Abrir Ruleto Drive'],
+    free_recap: ['Tu cuenta de Ruleto Drive sigue activa', `Tu cuenta sigue activa en Free. ${count30 > 0 ? `En los últimos 30 días registraste ${count30} viaje${count30===1?'':'s'}. ` : ''}Puedes seguir registrando tus viajes cuando quieras; las opciones de Pro siguen disponibles en la app.`, 'Abrir Ruleto Drive'],
+    free_offer: ['Ruleto Drive Pro sigue disponible para ti', 'Ya llevas un tiempo con Ruleto Drive Free. Si quieres volver a las funciones Pro, revisa las opciones en la app cuando te convenga.', 'Ver opciones de Pro'],
   }[data.campaign];
   if (!copy) throw new Error('Campaña desconocida');
   const name = String(data.name || 'conductor').trim().slice(0,80);
