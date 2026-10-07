@@ -1,6 +1,6 @@
 # Ruleto Drive: acompañamiento del trial por correo
 
-Primera entrega: dos flujos importables de n8n, plantillas y una migración SQL. No modifica la PWA ni Android. No envía correos al importar; el flujo de envío queda inactivo y `sendEnabled=false`. La migración no habilita marketing para usuarios existentes. Los avisos dentro de la app y push de remarketing quedan para una segunda entrega con actualización de la app y APK.
+Incluye dos flujos importables de n8n, plantillas, migraciones SQL y la preferencia visual en registro y Configuración. No envía correos al importar; el flujo de envío queda inactivo y `sendEnabled=false`. La migración no habilita marketing para usuarios existentes. Los avisos dentro de la app y push de remarketing quedan para una segunda entrega con actualización de la app y APK.
 
 ## Secuencia
 
@@ -36,7 +36,7 @@ await supabase.rpc('set_lifecycle_email_preference', { p_enabled: true });
 await supabase.rpc('set_lifecycle_email_preference', { p_enabled: false });
 ```
 
-Esta entrega incorpora el backend de preferencias; todavía no añade el selector visual. Para el piloto usar únicamente una cuenta propia con aceptación explícita y correo verificado. El remitente es `Ruleto Drive <no-reply@ruleto.mx>`. Las bajas no alteran correos de recuperación o seguridad.
+El registro muestra una casilla opcional, desmarcada, independiente de los términos. Explica consejos para aprovechar Pro, recordatorios de la prueba y novedades, y la baja en cualquier momento desde el correo o Configuración. La selección se guarda al crear la cuenta; Google y usuarios existentes pueden elegir en Configuración. La migración de consentimiento registra fecha, origen y versión del texto. No cambia preferencias existentes ni reutiliza actualizaciones de metadatos para reactivar una baja. Para el piloto usar únicamente una cuenta propia con aceptación explícita y correo verificado. El remitente es `Ruleto Drive <no-reply@ruleto.mx>`. Las bajas no alteran correos de recuperación o seguridad.
 
 ## Piloto y activación
 
@@ -56,9 +56,13 @@ node automations/n8n/build-workflows.cjs
 node --test tests/lifecycle-email.test.js
 ```
 
-Las pruebas locales cubren plantillas, escape HTML, datos inválidos y conexiones del JSON. Importación en n8n, ejecución SQL y entrega SMTP requieren las conexiones reales y aún deben verificarse en el piloto.
+Las pruebas locales cubren plantillas, escape HTML, datos inválidos y conexiones del JSON. Se verificaron la migración en Supabase con casos dentro de una transacción revertida, una entrega SMTP a la cuenta de prueba del propietario y el webhook GET/POST de baja. El flujo de baja está activo en la instancia de Neubox; el de campañas permanece inactivo y con sendEnabled=false. El formulario de baja usa una acción HTTPS absoluta, compatible con el aislamiento HTML de n8n. Si se importa en otra instancia, ajustar también esa URL en Formulario de baja.
 
 Fuentes de configuración:
 - Neubox: https://neubox.com/tutoriales/base-de-conocimientos/configurar-correo-neubox-en-gmail-guia-pop3-imap-completa/
 - n8n SMTP: https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.sendemail/
 - n8n credenciales HTTP: https://docs.n8n.io/integrations/builtin/credentials/httprequest/
+
+## Publicación de la app
+
+La entrega está preparada para Android 1.4.19-beta. El cambio de redirección solo debe publicarse después de subir la APK firmada con la misma clave de la versión anterior. La versión anterior está firmada con un certificado Android Debug cuyo SHA-256 es `08491fa5e04980c34292ab48683d818baf04b578af1b1364d16648f9e8142fac`. Esa clave privada no está disponible en este entorno. No sustituirla por una nueva: impediría actualizar las instalaciones existentes.

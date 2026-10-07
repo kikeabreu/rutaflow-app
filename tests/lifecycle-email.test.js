@@ -48,3 +48,11 @@ test('generated workflows have resolvable connections, no enabled sender or secr
     assert.ok(w.nodes.find(n=>n.name==='Configuración').parameters.jsCode.includes('"sendEnabled":false'));
   }
 });
+
+test('SMTP uses the built-in emailSend node and unsubscribe form has an absolute action',()=>{
+  const mail=JSON.parse(fs.readFileSync(path.join(__dirname,'../automations/n8n/ruleto-lifecycle-email.json')));
+  assert.equal(mail.nodes.find(n=>n.name==='Enviar por Neubox').type,'n8n-nodes-base.emailSend');
+  const prefs=JSON.parse(fs.readFileSync(path.join(__dirname,'../automations/n8n/ruleto-email-preferences.json')));
+  const form=prefs.nodes.find(n=>n.name==='Formulario de baja');
+  assert.match(form.parameters.jsCode,/<form method="post" action="https:\/\//);
+});

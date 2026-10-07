@@ -176,7 +176,7 @@
     {
       "id": "ruleto-10",
       "name": "Enviar por Neubox",
-      "type": "n8n-nodes-base.sendEmail",
+      "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
       "position": [
         2160,

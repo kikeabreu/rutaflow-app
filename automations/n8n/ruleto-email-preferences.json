@@ -27,7 +27,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const token=String($input.first().json.query?.token||'');\nif(!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(token))return [{json:{html:'<p>Enlace inválido.</p>'}}];\nreturn [{json:{html:'<!doctype html><html lang=\"es\"><meta charset=\"utf-8\"><title>Ruleto Drive</title><body><h1>Preferencias de correo de Ruleto Drive</h1><form method=\"post\"><input type=\"hidden\" name=\"token\" value=\"'+token+'\"><button type=\"submit\">Dejar de recibir correos de acompañamiento</button></form></body></html>'}}];"
+        "jsCode": "const token=String($input.first().json.query?.token||'');\nif(!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(token))return [{json:{html:'<p>Enlace inválido.</p>'}}];\nreturn [{json:{html:'<!doctype html><html lang=\"es\"><meta charset=\"utf-8\"><title>Ruleto Drive</title><body><h1>Preferencias de correo de Ruleto Drive</h1><form method=\"post\" action=\"https://356082.appsneubox.com/webhook/ruleto-email-preferences\"><input type=\"hidden\" name=\"token\" value=\"'+token+'\"><button type=\"submit\">Dejar de recibir correos de acompañamiento</button></form></body></html>'}}];"
       }
     },
     {
