@@ -34,16 +34,30 @@ for(let i=0;i<8;i++)link(connections,nodes[i].name,nodes[i+1].name);
 link(connections,'Puede enviar','Enviar por Neubox',0);link(connections,'Puede enviar','Cancelar envío',1);link(connections,'Enviar por Neubox','Registrar envío');
 fs.writeFileSync(path.join(__dirname,'ruleto-lifecycle-email.json'),JSON.stringify(workflow('Ruleto Drive — acompañamiento del trial por correo',nodes,connections),null,2)+'\n');
 
+// Páginas públicas de baja: HTML autocontenido (n8n aísla las respuestas HTML), mismo verde que los correos.
+const APP_URL='https://app.ruleto.mx';
+const pageHtml=(title,inner)=>'<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+title+'</title><style>'
+  +'*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f3f6f4;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:#172129}'
+  +'.card{background:#fff;width:calc(100% - 32px);max-width:440px;padding:36px 28px 28px;border-radius:16px;box-shadow:0 8px 30px rgba(20,107,80,.12);text-align:center}'
+  +'.logo{height:34px;margin:0 auto 22px;display:block}h1{font-size:22px;line-height:1.25;margin:0 0 10px}p{color:#4b5a63;line-height:1.55;margin:0 0 22px;font-size:15px}'
+  +'.btn{display:block;width:100%;background:#146b50;color:#fff;border:0;border-radius:10px;padding:14px 18px;font-size:16px;font-weight:700;cursor:pointer;text-decoration:none}.btn:hover{background:#0f5a42}'
+  +'.link{display:inline-block;margin-top:16px;color:#146b50;font-size:14px;text-decoration:none}.note{font-size:12px;color:#7a878f;margin:20px 0 0;line-height:1.5}'
+  +'.ok{width:56px;height:56px;border-radius:50%;background:#e3f4ec;color:#146b50;font-size:30px;line-height:56px;margin:0 auto 16px}'
+  +'</style></head><body><main class="card"><img class="logo" src="'+APP_URL+'/brand/ruleto-logo-dark.png" alt="Ruleto Drive">'+inner+'</main></body></html>';
+const FORM_ACTION='https://356082.appsneubox.com/webhook/ruleto-email-preferences';
+const formBefore=pageHtml('Ruleto Drive · Preferencias de correo','<h1>¿Dejar de recibir nuestros correos?</h1><p>Te enviamos consejos para aprovechar Ruleto Drive Pro, recordatorios de tu prueba y novedades. Si ya no los quieres, puedes darte de baja aquí.</p><form method="post" action="'+FORM_ACTION+'"><input type="hidden" name="token" value="__TOKEN__"><button class="btn" type="submit">Sí, dejar de recibirlos</button></form><a class="link" href="'+APP_URL+'">No, volver a Ruleto Drive</a><p class="note">Los correos de acceso y seguridad de tu cuenta no cambian, y tu plan tampoco.</p>');
+const invalidPage=pageHtml('Ruleto Drive · Enlace no válido','<h1>Este enlace no es válido</h1><p>Puede que esté incompleto o vencido. Abre Ruleto Drive y desactiva los correos desde Configuración.</p><a class="btn" href="'+APP_URL+'">Ir a Ruleto Drive</a>');
+const doneHtml=pageHtml('Ruleto Drive · Baja procesada','<div class="ok">✓</div><h1>Listo, ya no recibirás estos correos</h1><p>Tu solicitud de baja fue procesada. Si cambias de opinión, puedes volver a activarlos en Configuración dentro de la app.</p><a class="btn" href="'+APP_URL+'">Ir a Ruleto Drive</a><p class="note">Los correos de acceso y seguridad de tu cuenta no cambian.</p>');
 // GET only displays confirmation: link scanners must not unsubscribe recipients.
 const getNodes=[
   node('Abrir preferencias','n8n-nodes-base.webhook',{path:'ruleto-email-preferences',httpMethod:'GET',responseMode:'responseNode',options:{}},0),
-  code('Formulario de baja',`const token=String($input.first().json.query?.token||'');\nif(!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(token))return [{json:{html:'<p>Enlace inválido.</p>'}}];\nreturn [{json:{html:'<!doctype html><html lang="es"><meta charset="utf-8"><title>Ruleto Drive</title><body><h1>Preferencias de correo de Ruleto Drive</h1><form method="post" action="https://356082.appsneubox.com/webhook/ruleto-email-preferences"><input type="hidden" name="token" value="'+token+'"><button type="submit">Dejar de recibir correos de acompañamiento</button></form></body></html>'}}];`,240),
+  code('Formulario de baja',`const token=String($input.first().json.query?.token||'');\nif(!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(token))return [{json:{html:${JSON.stringify(invalidPage)}}}];\nreturn [{json:{html:${JSON.stringify(formBefore)}.replace('__TOKEN__',token)}}];`,240),
   node('Mostrar formulario','n8n-nodes-base.respondToWebhook',{respondWith:'text',responseBody:'={{ $json.html }}',options:{responseHeaders:{entries:[{name:'Content-Type',value:'text/html; charset=utf-8'},{name:'Cache-Control',value:'no-store'},{name:'Referrer-Policy',value:'no-referrer'}]}}},480),
   node('Confirmar baja','n8n-nodes-base.webhook',{path:'ruleto-email-preferences',httpMethod:'POST',responseMode:'responseNode',options:{}},0,300),
   code('Configuración',`return [{json:${JSON.stringify(config)}}];`,240,300),
   code('Validar token',"const token=String($('Confirmar baja').first().json.body?.token||''); if(!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(token))throw new Error('Enlace inválido'); if($('Configuración').first().json.supabaseUrl.includes('REPLACE_'))throw new Error('Configura Supabase'); return [{json:{token}}];",480,300),
   http('Dar de baja','unsubscribe_lifecycle_email',"={{ JSON.stringify({p_token:$json.token}) }}",720),
-  node('Confirmación','n8n-nodes-base.respondToWebhook',{respondWith:'text',responseBody:'<!doctype html><html lang="es"><meta charset="utf-8"><h1>Ruleto Drive</h1><p>Tu solicitud de baja fue procesada. Los correos de acceso y seguridad de tu cuenta no cambian.</p></html>',options:{responseHeaders:{entries:[{name:'Content-Type',value:'text/html; charset=utf-8'},{name:'Cache-Control',value:'no-store'}]}}},960,300),
+  node('Confirmación','n8n-nodes-base.respondToWebhook',{respondWith:'text',responseBody:doneHtml,options:{responseHeaders:{entries:[{name:'Content-Type',value:'text/html; charset=utf-8'},{name:'Cache-Control',value:'no-store'}]}}},960,300),
 ];
 getNodes[6].position[1]=300;
 const gc={};link(gc,'Abrir preferencias','Formulario de baja');link(gc,'Formulario de baja','Mostrar formulario');link(gc,'Confirmar baja','Configuración');link(gc,'Configuración','Validar token');link(gc,'Validar token','Dar de baja');link(gc,'Dar de baja','Confirmación');
