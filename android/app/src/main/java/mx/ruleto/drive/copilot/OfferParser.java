@@ -27,9 +27,21 @@ final class OfferParser {
     private static final Pattern TRIP = Pattern.compile("viaje|destino|trayecto|duracion|incluye", Pattern.CASE_INSENSITIVE);
     // Marca el final de una tarjeta de oferta en una lista con varias ofertas visibles a la vez.
     private static final Pattern CARD_END = Pattern.compile("tomar\\s+viaje|aceptar(?:\\s+por)?\\s*" + CURRENCY, Pattern.CASE_INSENSITIVE);
-    // Nuestra propia notificacion (voz/heads-up) queda dentro de la captura de pantalla; si no la
-    // excluimos, sus numeros del viaje anterior contaminan la lectura del viaje que sigue.
-    private static final Pattern OWN_VOICE = Pattern.compile("no conviene|buen viaje|viaje aceptable", Pattern.CASE_INSENSITIVE);
+    // Lo que el copiloto dibuja en pantalla (notificacion, alerta expandida y la etiqueta
+    // "$85 · $350/h" sobre la tarjeta) sale en la captura. ML Kit separa la notificacion en
+    // bloques: el titulo trae "buen viaje", pero el cuerpo ("$60 netos · 25 min") no. Si se
+    // leyera, sus netos y minutos se mezclarian con la oferta y el copiloto se contradiria
+    // segundos despues de anunciar. Se reconoce por frases y formatos que solo usa Ruleto.
+    private static final Pattern OWN_TEXT = Pattern.compile(
+        "no conviene|buen viaje|viaje aceptable|netos|ofrecen \\$|escuchando ofertas|ruleto"
+            + "|la recogida es larga|desgaste consumirian|energia consumiria|la comision de|dejaria \\$",
+        Pattern.CASE_INSENSITIVE);
+    // La etiqueta sobre la tarjeta es exactamente "$85 · $350/h" (o "$85 · $7.6/km"). Se
+    // compara el bloque completo para no descartar una tarjeta real que muestre "$/km".
+    private static final Pattern OWN_LABEL = Pattern.compile(
+        "^\\$\\s*\\d+\\s*\\W{0,3}\\s*\\$\\s*\\d[\\d.,]*\\s*/\\s*(?:h|km)$");
+    // Importes que no son la tarifa: ganancias del dia, saldo, metas.
+    private static final Pattern NOT_FARE = Pattern.compile("ganancia|ganaste|saldo|semana|meta|objetivo|promocion|hoy");
 
     /** Un bloque de texto reconocido con su posicion en pantalla. Sin dependencias de Android/ML Kit para poder probarlo. */
     static final class Block {
@@ -76,7 +88,7 @@ final class OfferParser {
         List<Block> sorted = new ArrayList<>();
         StringBuilder screen = new StringBuilder();
         for (Block block : blocks) {
-            if (OWN_VOICE.matcher(normalize(block.text)).find()) continue;
+            if (isOwnText(block.text)) continue;
             sorted.add(block);
             screen.append(normalize(block.text)).append('\n');
         }
@@ -121,6 +133,11 @@ final class OfferParser {
         return results;
     }
 
+    static boolean isOwnText(String text) {
+        String value = normalize(text == null ? "" : text).trim();
+        return OWN_TEXT.matcher(value).find() || OWN_LABEL.matcher(value).matches();
+    }
+
     /** Analiza texto plano: cada linea se trata como un bloque sin posicion. */
     static OfferAnalysis parse(String rawText, CopilotConfig config) {
         if (rawText == null || rawText.trim().isEmpty()) return null;
@@ -140,7 +157,7 @@ final class OfferParser {
         String platform = platform(normalized);
         if ("otra".equals(platform)) platform = screenPlatform == null ? "otra" : screenPlatform;
         if ("otra".equals(platform)) platform = config.platformHint;
-        double fare = extractFare(normalized);
+        double fare = extractFare(cluster);
         if (fare <= 0) return null;
         if ("indrive".equals(platform)) return parseInDrive(cluster, fare, config);
 
@@ -341,15 +358,38 @@ final class OfferParser {
      * y dividir entre diez da una velocidad razonable, se usa esa lectura.
      */
     static double plausibleKm(double km, double min) {
-        if (km <= 0 || min <= 0) return km;
+        // Una coma perdida deja un entero ("16"). Si el numero trae decimales ("12.5") la
+        // coma si se leyo, y lo que esta mal son los minutos: no se "corrige" la distancia.
+        if (km <= 0 || min <= 0 || km != Math.rint(km)) return km;
         double speed = km / (min / 60.0);
         double corrected = (km / 10.0) / (min / 60.0);
         if (speed > 110 && corrected >= 4) return km / 10.0;
         return km;
     }
 
+    /**
+     * Un veredicto equivocado es peor que ninguno. Una lectura solo cuenta si describe un
+     * viaje posible: cada tramo a una velocidad de ciudad o carretera, y una tarifa por km
+     * dentro de lo que cobra cualquier plataforma. Un minuto perdido ("15 min" leido como
+     * "1 min") o un importe ajeno a la tarjeta producen numeros como $3,000 por hora y se
+     * descartan aqui en vez de anunciarse.
+     */
+    static boolean plausible(double fare, double pickupKm, double pickupMin, double tripKm, double tripMin) {
+        if (fare < 10 || pickupMin < 1 || tripMin < 1 || pickupMin > 90 || tripMin > 300) return false;
+        if (!plausibleLeg(pickupKm, pickupMin) || !plausibleLeg(tripKm, tripMin)) return false;
+        double perKm = fare / (pickupKm + tripKm);
+        double grossPerHour = fare / ((pickupMin + tripMin) / 60.0);
+        return perKm >= 2 && perKm <= 150 && grossPerHour <= 2000;
+    }
+
+    private static boolean plausibleLeg(double km, double min) {
+        double speed = km / (min / 60.0);
+        return km > 0 && speed >= 1.5 && speed <= 100;
+    }
+
     private static OfferAnalysis analyze(String platform, double fare, double pickupKm, double pickupMin,
                                          double tripKm, double tripMin, double confidence, CopilotConfig config) {
+        if (!plausible(fare, pickupKm, pickupMin, tripKm, tripMin)) return null;
         double totalKm = pickupKm + tripKm;
         double totalMin = pickupMin + tripMin;
         double commission = fare * config.commissionFor(platform) / 100.0;
@@ -389,17 +429,51 @@ final class OfferParser {
         return "otra";
     }
 
-    private static double extractFare(String text) {
-        Matcher acceptMatcher = ACCEPT_MONEY.matcher(text);
-        if (acceptMatcher.find()) {
-            double value = number(acceptMatcher.group(1));
-            if (value >= 10 && value <= 5000) return value;
+    /**
+     * La tarifa de la tarjeta. Si el boton dice "Aceptar por $X", esa es. Si no, se toma el
+     * importe mas cercano a los datos del viaje (km/min) y por encima de ellos: en Uber la
+     * pantalla tambien muestra, mas arriba, las ganancias del dia, y tomar el primer importe
+     * de la pantalla hacia que el copiloto calculara con ese numero en algunos cuadros.
+     */
+    private static double extractFare(List<Block> cluster) {
+        for (Block block : cluster) {
+            Matcher accept = ACCEPT_MONEY.matcher(normalize(block.text));
+            if (accept.find()) {
+                double value = number(accept.group(1));
+                if (value >= 10 && value <= 5000) return value;
+            }
         }
+        Block anchor = null;
+        for (Block block : cluster) {
+            String text = hoursToMinutes(normalize(block.text));
+            if (!distanceValues(text).isEmpty() || !values(MIN, text).isEmpty()) { anchor = block; break; }
+        }
+        double best = 0;
+        long bestScore = Long.MAX_VALUE;
+        for (int i = 0; i < cluster.size(); i++) {
+            Block block = cluster.get(i);
+            double value = blockFare(block);
+            if (value <= 0) continue;
+            if (anchor == null || !anchor.hasBounds() || !block.hasBounds()) {
+                // Sin posiciones: el primer importe, de arriba hacia abajo.
+                if (best <= 0) best = value;
+                continue;
+            }
+            long gap = block.bottom <= anchor.bottom
+                ? Math.max(0, anchor.top - block.bottom)
+                : 1_000_000L + (block.top - anchor.bottom); // debajo de los datos: ultimo recurso
+            if (gap < bestScore) { bestScore = gap; best = value; }
+        }
+        return best;
+    }
 
+    private static double blockFare(Block block) {
+        String text = normalize(block.text);
+        if (NOT_FARE.matcher(text).find()) return 0;
         Matcher matcher = MONEY.matcher(text);
         while (matcher.find()) {
             double value = number(matcher.group(1) != null ? matcher.group(1) : matcher.group(2));
-            // First plausible top-down fare (ignore sub-10 gas surcharges or tiny tokens)
+            // Se ignoran recargos menores a $10 y tokens sueltos.
             if (value >= 10 && value <= 5000) return value;
         }
         return 0;

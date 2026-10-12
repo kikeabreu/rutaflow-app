@@ -71,11 +71,15 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     private static final String CHANNEL_ALERTS_ID = "rutaflow_copilot_alerts";
     private static final int NOTIFICATION_ID = 7401;
     private static final int ALERT_NOTIFICATION_ID = 7402;
-    private static final long OCR_INTERVAL_MS = 650;
+    private static final long OCR_INTERVAL_MS = 450;
     private static final long DUPLICATE_WINDOW_MS = 45_000;
-    // Una lectura debe repetirse ~1.2 s (2-3 cuadros) y ser mayoria antes de dar veredicto.
-    private static final long STABLE_WINDOW_MS = 2_600;
-    private static final long STABLE_MIN_MS = 1_200;
+    // Una lectura debe salir identica en 3 cuadros seguidos (~0.9 s) antes de dar veredicto.
+    private static final long STABLE_WINDOW_MS = 1_500;
+    private static final long STABLE_MIN_MS = 800;
+    private static final int STABLE_HITS = 3;
+    // La misma tarjeta (misma tarifa) leida distinto poco despues del anuncio es una
+    // relectura, no un viaje nuevo: no se vuelve a anunciar con otros numeros.
+    private static final long SAME_CARD_MS = 15_000;
     // Ventana de diagnostico: volcamos el OCR crudo con geometria mientras este armado.
     private static final long DUMP_WINDOW_MS = 180_000;
 
@@ -92,7 +96,7 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     // Ofertas ya anunciadas y cuando: una lista con dos viajes no debe alternar anuncios.
     private final List<OfferAnalysis> announced = new ArrayList<>();
     private final List<Long> announcedAt = new ArrayList<>();
-    private final ReadingStabilizer stabilizer = new ReadingStabilizer(STABLE_WINDOW_MS, STABLE_MIN_MS, 2);
+    private final ReadingStabilizer stabilizer = new ReadingStabilizer(STABLE_WINDOW_MS, STABLE_MIN_MS, STABLE_HITS);
     private long dumpArmedUntil;
     private int dumpCount;
     private int captureWidth;
@@ -405,7 +409,8 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
             String title = String.format(Locale.forLanguageTag("es-MX"),
                 "%s %s · $%.0f · %s", icon, verdictTitle, offer.fare, metricLabel(offer));
             String body = String.format(Locale.forLanguageTag("es-MX"),
-                "$%.0f netos · %.0f min", offer.net, (offer.pickupMin + offer.tripMin));
+                "$%.0f netos · %s km · %.0f min", offer.net, OfferAnalysis.km(offer.pickupKm + offer.tripKm),
+                (offer.pickupMin + offer.tripMin));
 
             if (multiple) {
                 String multiTitle = String.format(Locale.forLanguageTag("es-MX"),
@@ -432,8 +437,10 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
                 announcedAt.remove(i);
             }
         }
-        for (OfferAnalysis previous : announced) {
+        for (int i = 0; i < announced.size(); i++) {
+            OfferAnalysis previous = announced.get(i);
             if (offer.sameTripAs(previous)) return true;
+            if (offer.sameCardAs(previous) && now - announcedAt.get(i) <= SAME_CARD_MS) return true;
         }
         return false;
     }

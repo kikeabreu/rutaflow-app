@@ -1,8 +1,8 @@
 {
   "platform": "android",
-  "version_label": "1.4.25-beta",
-  "build_number": 30,
+  "version_label": "1.4.26-beta",
+  "build_number": 31,
   "minimum_build": 0,
-  "notes": "Al cerrar tu jornada puedes activar los avisos para enterarte de cada versión nueva.",
-  "artifact_url": "https://github.com/kikeabreu/rutaflow-app/releases/download/v1.4.25-beta/Ruleto-Drive-1.4.25-beta.apk"
+  "notes": "El copiloto ya no cambia de veredicto segundos después de anunciar, descarta lecturas imposibles y te dice los km y minutos que leyó para que lo compruebes.",
+  "artifact_url": "https://github.com/kikeabreu/rutaflow-app/releases/download/v1.4.26-beta/Ruleto-Drive-1.4.26-beta.apk"
 }
