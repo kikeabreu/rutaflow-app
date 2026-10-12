@@ -32,7 +32,7 @@ import { buildNumber, buildLabel, platform, consentKey, checkUpdates, postponed,
 import { fixedCostPerHour } from "./fixedCosts";
 import { ENERGY_DEFAULTS, energyCostPerKm, validateEnergy, calculationSnapshot, kwhPer100FromKmPerKwh } from "./energy";
 import { C, ACCENT_FILL, useTheme } from "./theme";
-import { useGpsTracker, readTracker, startTracker, stopTracker, clearTracker, patchTracker, trackerElapsedMs } from "./gpsTracker";
+import { useGpsTracker, gpsStep, readTracker, startTracker, stopTracker, clearTracker, patchTracker, trackerElapsedMs } from "./gpsTracker";
 import { claimDevice, releaseDevice, isPhoneAvailable, PHONE_ERRORS } from "./accountClient";
 import { DeviceGate, PhoneGate, PhoneField } from "./components/AccountGates";
 import { ConsentGate, DeleteAccountModal } from "./components/ConsentGate";
@@ -118,7 +118,6 @@ const fmtMXN=n=>`$${fmt(n)}`;
 const fmtPct=n=>`${fmt(n,1)}%`;
 const{dateKey,today,fmtDate,fmtHour,shiftDate,localDateTime,toStorageInstant,deviceTimeZone}=dateUtils;
 const fmtClock=ms=>{const s=Math.floor(Math.abs(ms)/1000);return`${String(Math.floor(s/3600)).padStart(2,"0")}:${String(Math.floor((s%3600)/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;};
-const haversine=(a,b)=>{const R=6371,r=x=>x*Math.PI/180;const dLat=r(b.lat-a.lat),dLon=r(b.lon-a.lon);const x=Math.sin(dLat/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLon/2)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));};
 const dateOf=x=>dateKey(x?.end_time||x?.occurred_at||x?.paid_at||x?.created_at||x?.date||Date.now());
 const missingPostgrestColumn=error=>{
   const match=String(error?.message||"").match(/'([^']+)' column/);
@@ -464,26 +463,15 @@ function useDayGPS(isActive,userId,sessionId){
   const start=useCallback(()=>{
     if(!navigator.geolocation||!locationConsentGranted())return;
     return navigator.geolocation.watchPosition(
-      ({coords:{latitude:lat,longitude:lon}})=>{
-        if(lastRef.current){
-          const d=haversine(lastRef.current,{lat,lon});
-          if(d>0.01){
-            distRef.current+=d;
-            setDayKm(distRef.current);
-            const dataToSave = {km:distRef.current,ts:Date.now()};
-            if (FLAGS.offline_v2) {
-              import('./storage/db').then(DexieDB => DexieDB.UIStateStore.set(K.DAYGPS, dataToSave));
-            } else {
-              LS.set(K.DAYGPS, dataToSave);
-            }
-          }
-        }
-        lastRef.current={lat,lon};
+      ({coords})=>{
+        const{km,anchor}=gpsStep(lastRef.current,coords);
+        lastRef.current=anchor;
+        if(km>0)persistKm(distRef.current+km);
       },
       (err)=>console.warn("GPS Error",err),
       {enableHighAccuracy:true,maximumAge:0,timeout:10000}
     );
-  },[]);
+  },[persistKm]);
   useEffect(()=>{
     if (!isLoaded || !isActive) return undefined;
     // En la app de Android el servicio en primer plano sigue midiendo con la

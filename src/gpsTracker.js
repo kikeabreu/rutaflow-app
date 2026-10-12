@@ -5,7 +5,9 @@ import { useEffect, useState } from "react";
 // otra cosa no detiene la medición, y el estado se guarda en localStorage para
 // recuperarlo al volver a abrirlo (o tras recargar la app).
 export const TRACKER_KINDS = ["trip", "dead_km"];
-const MIN_STEP_KM = 0.005;
+const MAX_ACCURACY_M = 60;
+const MIN_MOVE_M = 10;
+const STOPPED_MPS = 1.1;
 
 const storageKey = (uid, kind) => `ruleto:${uid}:gps:${kind}`;
 const live = new Map(); // key -> { watchId, listeners:Set }
@@ -16,6 +18,23 @@ export function distanceKm(a, b) {
   const dLat = toRad(b.lat - a.lat), dLon = toRad(b.lon - a.lon);
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+// Mismo criterio que LocationFilter.java en Android. Estacionado, el punto del
+// GPS "baila" dentro de su margen de error; si cada baile se sumara, una espera
+// larga inventaría kilómetros. Se mide desde un ancla (el último punto que
+// contó) y solo se avanza si el salto rebasa el margen de error de ambas
+// lecturas y el GPS no dice que el auto está quieto. Lo recorrido despacio se
+// sigue acumulando contra el ancla, así que no se pierde.
+export function gpsStep(anchor, { latitude, longitude, accuracy, speed } = {}) {
+  const acc = Number(accuracy) || 0;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || acc > MAX_ACCURACY_M) return { km: 0, anchor };
+  const here = { lat: latitude, lon: longitude, acc };
+  if (!anchor) return { km: 0, anchor: here };
+  if (speed != null && speed >= 0 && speed < STOPPED_MPS) return { km: 0, anchor };
+  const km = distanceKm(anchor, here);
+  if (km * 1000 < Math.max(MIN_MOVE_M, (Number(anchor.acc) || 0) + acc)) return { km: 0, anchor };
+  return { km, anchor: here };
 }
 
 export function readTracker(uid, kind) {
@@ -55,15 +74,11 @@ function watch(uid, kind) {
   const current = entry(uid, kind);
   if (current.watchId != null || typeof navigator === "undefined" || !navigator.geolocation) return;
   current.watchId = navigator.geolocation.watchPosition(
-    ({ coords: { latitude: lat, longitude: lon } }) => {
+    ({ coords }) => {
       const state = readTracker(uid, kind);
       if (!state?.running) { clearWatch(uid, kind); return; }
-      let distKm = Number(state.distKm) || 0;
-      if (state.last) {
-        const step = distanceKm(state.last, { lat, lon });
-        if (step > MIN_STEP_KM) distKm += step;
-      }
-      write(uid, kind, { ...state, distKm, last: { lat, lon }, error: "" });
+      const { km, anchor } = gpsStep(state.last, coords);
+      write(uid, kind, { ...state, distKm: (Number(state.distKm) || 0) + km, last: anchor, error: "" });
     },
     () => {
       const state = readTracker(uid, kind);
