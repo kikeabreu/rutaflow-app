@@ -594,8 +594,8 @@ const Toast=({msg,type="ok"})=>msg?(
   </div>
 ):null;
 const MarkdownMessage=({children})=><div className="md"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{table:({children})=><div className="table-wrap"><table>{children}</table></div>}}>{String(children||"")}</ReactMarkdown></div>;
-const authInputStyle={width:"100%",background:C.well,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",color:C.text,fontSize:14,fontFamily:"inherit",outline:"none"};
-const cardInputStyle={width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 11px",color:C.text,fontSize:14,fontFamily:"inherit",outline:"none"};
+const authInputStyle=()=>({width:"100%",background:C.well,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",color:C.text,fontSize:14,fontFamily:"inherit",outline:"none"});
+const cardInputStyle=()=>({width:"100%",background:C.card2,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 11px",color:C.text,fontSize:14,fontFamily:"inherit",outline:"none"});
 
 function AuthShell({children,maxWidth=400}){
   return(
@@ -2077,6 +2077,13 @@ function AccountSecurityCard({session,onEmailChanged}){
   const[busy,setBusy]=useState("");
   const[msg,setMsg]=useState("");
   const[err,setErr]=useState("");
+  const[open,setOpen]=useState(false);
+  const[showPasswordForms,setShowPasswordForms]=useState(false);
+  const accountEmail=session?.user?.email||"";
+  // Supabase solo registra el proveedor "email" cuando la cuenta nació con contraseña;
+  // quien entró con Google no tiene una que escribir como "actual".
+  const providers=session?.user?.app_metadata?.providers||[session?.user?.app_metadata?.provider].filter(Boolean);
+  const googleOnly=providers.includes("google")&&!providers.includes("email");
   const clear=()=>{setMsg("");setErr("");};
   const changePassword=async e=>{
     e.preventDefault();clear();
@@ -2085,8 +2092,8 @@ function AccountSecurityCard({session,onEmailChanged}){
     setBusy("password");
     const{error}=await supabase.auth.updateUser({password:pw.next,current_password:pw.current});
     if(error){
-      const googleOnly=/identity|provider|password/i.test(error.message);
-      setErr(googleOnly?"Esta cuenta no tiene contraseña. Usa Olvidé mi contraseña para crear una.":"La contraseña actual no es correcta.");
+      const noPassword=/identity|provider/i.test(error.message);
+      setErr(noPassword?"Esta cuenta no tiene contraseña. Usa “No recuerdo mi contraseña actual” para crear una.":"La contraseña actual no es correcta.");
     }else{
       setMsg("Contraseña actualizada.");
       setPw({current:"",next:"",confirm:""});
@@ -2131,30 +2138,55 @@ function AccountSecurityCard({session,onEmailChanged}){
     }
     setBusy("");
   };
+  const sendPasswordLink=async()=>{
+    clear();
+    setBusy("link");
+    const{error}=await supabase.auth.resetPasswordForEmail(accountEmail,{redirectTo:passwordRecoveryRedirect()});
+    if(error)setErr("No pudimos enviar el enlace. Intenta de nuevo en unos minutos.");
+    else setMsg(`Te enviamos un enlace a ${accountEmail} para crear tu contraseña.`);
+    setBusy("");
+  };
   return(
-    <Card s={{marginBottom:13}}>
-      <div style={{fontSize:14,fontWeight:800,color:C.text,marginBottom:4}}>Seguridad de la cuenta</div>
-      <div style={{fontSize:10,color:C.muted,lineHeight:1.45,marginBottom:12}}>La recuperación por correo sigue siendo necesaria para entrar si olvidas tu contraseña.</div>
-      <form onSubmit={changePassword} style={{display:"grid",gap:8,marginBottom:14}}>
-        <Lbl>Cambiar contraseña</Lbl>
-        <input type="password" placeholder="Contraseña actual" value={pw.current} onChange={e=>setPw(p=>({...p,current:e.target.value}))} style={cardInputStyle}/>
-        <input type="password" placeholder="Nueva contraseña" value={pw.next} onChange={e=>setPw(p=>({...p,next:e.target.value}))} style={cardInputStyle}/>
-        <input type="password" placeholder="Confirmar nueva contraseña" value={pw.confirm} onChange={e=>setPw(p=>({...p,confirm:e.target.value}))} style={cardInputStyle}/>
-        <Btn full disabled={busy==="password"}>{busy==="password"?"Guardando...":"Cambiar contraseña"}</Btn>
-      </form>
-      <form onSubmit={requestEmailChange} style={{display:"grid",gap:8}}>
-        <Lbl>Cambiar correo</Lbl>
-        <input type="email" placeholder="Nuevo correo" value={email.next} onChange={e=>setEmail(p=>({...p,next:e.target.value}))} style={cardInputStyle}/>
-        <input type="password" placeholder="Contraseña actual" value={email.currentPassword} onChange={e=>setEmail(p=>({...p,currentPassword:e.target.value}))} style={cardInputStyle}/>
-        <Btn full disabled={busy==="email"}>{busy==="email"?"Validando...":"Enviar código"}</Btn>
-      </form>
-      {emailPending&&<form onSubmit={confirmEmailChange} style={{display:"grid",gap:8,marginTop:10}}>
-        <div style={{fontSize:10,color:C.muted}}>Código enviado a <strong style={{color:C.text}}>{emailPending}</strong></div>
-        <input inputMode="numeric" pattern="[0-9]*" placeholder="Código de verificación" value={email.code} onChange={e=>setEmail(p=>({...p,code:e.target.value.replace(/\D/g,"").slice(0,10)}))} style={{...cardInputStyle,letterSpacing:"0.18em",fontWeight:800,textAlign:"center"}}/>
-        <Btn full disabled={busy==="email-code"}>{busy==="email-code"?"Confirmando...":"Confirmar correo"}</Btn>
-      </form>}
-      {err&&<div role="alert" style={{fontSize:11,color:C.danger,marginTop:10}}>{err}</div>}
-      {msg&&<div style={{fontSize:11,color:C.teal,marginTop:10}}>{msg}</div>}
+    <Card s={{marginBottom:13,padding:0}}>
+      <button type="button" onClick={()=>{setOpen(o=>!o);clear();}} aria-expanded={open} style={{width:"100%",padding:15,display:"flex",alignItems:"center",gap:10,textAlign:"left",color:C.text}}>
+        <SVG d={IC.lock} size={17} color={C.muted}/>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:14,fontWeight:800}}>Seguridad de la cuenta</div>
+          <div style={{fontSize:10,color:C.muted,marginTop:2}}>{googleOnly?"Entras con Google · crear contraseña":"Contraseña y correo"}</div>
+        </div>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.muted} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{transform:open?"rotate(180deg)":"none",transition:"transform .2s"}}><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      {open&&<div style={{padding:"0 15px 15px"}}>
+        {googleOnly&&!showPasswordForms?<div style={{display:"grid",gap:10}}>
+          <div style={{fontSize:11,color:C.muted,lineHeight:1.5}}>Entraste con Google, así que tu cuenta todavía no tiene contraseña. Puedes crear una para entrar también con <strong style={{color:C.text}}>{accountEmail}</strong> y tu contraseña. Te enviaremos un enlace a ese correo.</div>
+          <Btn full onClick={sendPasswordLink} disabled={busy==="link"}>{busy==="link"?"Enviando...":"Crear contraseña"}</Btn>
+          <div style={{fontSize:10,color:C.muted,lineHeight:1.45}}>Para cambiar tu correo primero necesitas una contraseña.</div>
+          <button type="button" onClick={()=>{setShowPasswordForms(true);clear();}} style={{fontSize:10,color:C.teal,fontWeight:700,textDecoration:"underline",textUnderlineOffset:3,justifySelf:"start"}}>Ya creé mi contraseña</button>
+        </div>:<>
+        <div style={{fontSize:10,color:C.muted,lineHeight:1.45,marginBottom:12}}>Si olvidas tu contraseña, puedes recuperarla con tu correo.</div>
+        <form onSubmit={changePassword} style={{display:"grid",gap:8,marginBottom:14}}>
+          <Lbl>Cambiar contraseña</Lbl>
+          <input type="password" autoComplete="current-password" placeholder="Contraseña actual" value={pw.current} onChange={e=>setPw(p=>({...p,current:e.target.value}))} style={cardInputStyle()}/>
+          <input type="password" autoComplete="new-password" placeholder="Nueva contraseña" value={pw.next} onChange={e=>setPw(p=>({...p,next:e.target.value}))} style={cardInputStyle()}/>
+          <input type="password" autoComplete="new-password" placeholder="Confirmar nueva contraseña" value={pw.confirm} onChange={e=>setPw(p=>({...p,confirm:e.target.value}))} style={cardInputStyle()}/>
+          <Btn full disabled={busy==="password"}>{busy==="password"?"Guardando...":"Cambiar contraseña"}</Btn>
+          <button type="button" onClick={sendPasswordLink} disabled={busy==="link"} style={{fontSize:10,color:C.teal,fontWeight:700,textDecoration:"underline",textUnderlineOffset:3,justifySelf:"start"}}>{busy==="link"?"Enviando...":"No recuerdo mi contraseña actual"}</button>
+        </form>
+        <form onSubmit={requestEmailChange} style={{display:"grid",gap:8}}>
+          <Lbl>Cambiar correo</Lbl>
+          <input type="email" autoComplete="email" placeholder="Nuevo correo" value={email.next} onChange={e=>setEmail(p=>({...p,next:e.target.value}))} style={cardInputStyle()}/>
+          <input type="password" autoComplete="current-password" placeholder="Contraseña actual" value={email.currentPassword} onChange={e=>setEmail(p=>({...p,currentPassword:e.target.value}))} style={cardInputStyle()}/>
+          <Btn full disabled={busy==="email"}>{busy==="email"?"Validando...":"Enviar código"}</Btn>
+        </form>
+        {emailPending&&<form onSubmit={confirmEmailChange} style={{display:"grid",gap:8,marginTop:10}}>
+          <div style={{fontSize:10,color:C.muted}}>Código enviado a <strong style={{color:C.text}}>{emailPending}</strong></div>
+          <input inputMode="numeric" pattern="[0-9]*" placeholder="Código de verificación" value={email.code} onChange={e=>setEmail(p=>({...p,code:e.target.value.replace(/\D/g,"").slice(0,10)}))} style={{...cardInputStyle(),letterSpacing:"0.18em",fontWeight:800,textAlign:"center"}}/>
+          <Btn full disabled={busy==="email-code"}>{busy==="email-code"?"Confirmando...":"Confirmar correo"}</Btn>
+        </form>}
+        </>}
+        {err&&<div role="alert" style={{fontSize:11,color:C.danger,marginTop:10}}>{err}</div>}
+        {msg&&<div style={{fontSize:11,color:C.teal,marginTop:10}}>{msg}</div>}
+      </div>}
     </Card>
   );
 }
@@ -2423,14 +2455,14 @@ function PasswordRecoveryPage(){
         <div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginBottom:14}}>Usa una contraseña nueva para volver a entrar a Ruleto Drive.</div>
         {!ready&&<div style={{fontSize:12,color:C.muted}}>Validando enlace...</div>}
         {ready&&verified&&<form onSubmit={submitPassword} style={{display:"flex",flexDirection:"column",gap:10}}>
-          <input type="password" placeholder="Nueva contraseña" value={pass} onChange={e=>setPass(e.target.value)} style={authInputStyle}/>
-          <input type="password" placeholder="Confirmar nueva contraseña" value={confirm} onChange={e=>setConfirm(e.target.value)} style={authInputStyle}/>
+          <input type="password" placeholder="Nueva contraseña" value={pass} onChange={e=>setPass(e.target.value)} style={authInputStyle()}/>
+          <input type="password" placeholder="Confirmar nueva contraseña" value={confirm} onChange={e=>setConfirm(e.target.value)} style={authInputStyle()}/>
           {error&&<div style={{fontSize:12,color:C.danger}}>{error}</div>}
           {success&&<div style={{fontSize:12,color:C.teal}}>{success}</div>}
           <Btn full disabled={loading}>{loading?"Guardando...":"Guardar contraseña"}</Btn>
         </form>}
         {ready&&!verified&&<form onSubmit={resend} style={{display:"flex",flexDirection:"column",gap:10}}>
-          <input type="email" placeholder="correo@ejemplo.com" value={email} onChange={e=>setEmail(e.target.value)} style={authInputStyle}/>
+          <input type="email" placeholder="correo@ejemplo.com" value={email} onChange={e=>setEmail(e.target.value)} style={authInputStyle()}/>
           {error&&<div style={{fontSize:12,color:C.danger}}>{error}</div>}
           {success&&<div style={{fontSize:12,color:C.teal}}>{success}</div>}
           <Btn full disabled={loading}>{loading?"Enviando...":"Solicitar otro enlace"}</Btn>
@@ -2469,8 +2501,8 @@ function EmailVerificationPage({initialEmail,onDone}){
         <div style={{fontSize:18,fontWeight:800,color:C.accent,marginBottom:6}}>Verifica tu correo</div>
         <div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginBottom:14}}>Te enviamos un código para confirmar que el correo es válido.</div>
         <form onSubmit={verify} style={{display:"flex",flexDirection:"column",gap:10}}>
-          <input type="email" placeholder="correo@ejemplo.com" value={email} onChange={e=>setEmail(e.target.value)} style={authInputStyle}/>
-          <input inputMode="numeric" pattern="[0-9]*" placeholder="Código de verificación" value={token} onChange={e=>setToken(e.target.value.replace(/\D/g,"").slice(0,10))} style={{...authInputStyle,letterSpacing:"0.18em",fontWeight:800,textAlign:"center"}}/>
+          <input type="email" placeholder="correo@ejemplo.com" value={email} onChange={e=>setEmail(e.target.value)} style={authInputStyle()}/>
+          <input inputMode="numeric" pattern="[0-9]*" placeholder="Código de verificación" value={token} onChange={e=>setToken(e.target.value.replace(/\D/g,"").slice(0,10))} style={{...authInputStyle(),letterSpacing:"0.18em",fontWeight:800,textAlign:"center"}}/>
           {error&&<div style={{fontSize:12,color:C.danger}}>{error}</div>}
           {success&&<div style={{fontSize:12,color:C.teal}}>{success}</div>}
           <Btn full disabled={loading}>{loading?"Validando...":"Verificar correo"}</Btn>
