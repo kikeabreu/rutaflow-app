@@ -1,4 +1,4 @@
-import { readTracker, startTracker, stopTracker, clearTracker, patchTracker, resumeTracker, subscribeTracker, trackerElapsedMs } from "./gpsTracker";
+import { gpsStep, readTracker, startTracker, stopTracker, clearTracker, patchTracker, resumeTracker, subscribeTracker, trackerElapsedMs } from "./gpsTracker";
 
 let onPosition;
 let watches;
@@ -66,5 +66,33 @@ describe("gpsTracker", () => {
   it("separa las mediciones por usuario", () => {
     startTracker("u1", "trip");
     expect(readTracker("u2", "trip")).toBeNull();
+  });
+});
+
+// Un metro de latitud son ~0.000009 grados (Mérida).
+const M = 1 / 111195;
+const at = (north, east = 0, extra = {}) => ({ latitude: 20.97 + north * M, longitude: -89.62 + east * M, accuracy: 10, ...extra });
+const run = fixes => fixes.reduce((acc, c) => { const r = gpsStep(acc.anchor, c); return { km: acc.km + r.km, anchor: r.anchor }; }, { km: 0, anchor: null }).km;
+
+describe("gpsStep", () => {
+  it("estacionado, el ruido dentro del margen de error no suma", () => {
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) - 0.5;
+    const ruido = Array.from({ length: 400 }, () => at(rnd() * 20, rnd() * 20, { accuracy: 15 }));
+    expect(run(ruido)).toBe(0);
+  });
+
+  it("si el GPS dice que el auto está quieto, no avanza aunque el punto salte", () => {
+    expect(run([at(0), at(40, 0, { speed: 0.2 }), at(-40, 0, { speed: 0.3 })])).toBe(0);
+  });
+
+  it("en tráfico lento acumula contra el ancla y no pierde lo recorrido", () => {
+    const km = run(Array.from({ length: 41 }, (_, i) => at(i * 4, 0, { accuracy: 8 })));
+    expect(km * 1000).toBeGreaterThanOrEqual(140);
+    expect(km * 1000).toBeLessThanOrEqual(160);
+  });
+
+  it("descarta lecturas imprecisas", () => {
+    expect(run([at(0), at(500, 0, { accuracy: 200 })])).toBe(0);
   });
 });
