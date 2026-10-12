@@ -10,6 +10,13 @@ Ruleto Drive Android puede evaluar las tarjetas de viaje que aparecen en Uber, D
 4. ML Kit reconoce el texto en el teléfono. Las capturas no se guardan ni se envían a Ruleto Drive.
 5. El analizador obtiene tarifa, kilómetros y minutos, aplica la configuración financiera del conductor y comunica el resultado por voz y mediante una notificación.
 6. El botón **Apagar** de Ruleto Drive o de la notificación termina inmediatamente la captura.
+7. El veredicto se anuncia solo cuando la misma lectura se repite durante ~1.2 s, para no cambiar de opinión mientras la pantalla se dibuja.
+8. El botón de bocina de la tarjeta (o **Silenciar voz** en la notificación) apaga la voz; el veredicto sigue en la notificación y en el recuadro sobre la oferta.
+
+### inDrive
+
+- En la solicitud abierta se leen las etiquetas del mapa: la azul junto al punto A es la recogida y la verde junto al punto B es el destino. La distancia `~X km` bajo el mapa confirma cuál es la recogida.
+- La lista de solicitudes no muestra datos del viaje (sus "2 min." son la antigüedad de la solicitud), así que el copiloto espera a que el conductor abra una.
 
 El copiloto nunca toca ni automatiza los botones de las plataformas.
 

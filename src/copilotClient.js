@@ -56,6 +56,10 @@ export const copilot = {
     if (!isAndroidApp()) return;
     return NativeCopilot.updateConfig({ config: copilotConfig(cfg) });
   },
+  async setVoiceMuted(muted) {
+    if (!isAndroidApp()) return { voiceMuted: !!muted };
+    return NativeCopilot.setVoiceMuted({ muted: !!muted });
+  },
   async requestOverlayPermission() {
     if (!isAndroidApp()) return { granted: false };
     return NativeCopilot.requestOverlayPermission();
