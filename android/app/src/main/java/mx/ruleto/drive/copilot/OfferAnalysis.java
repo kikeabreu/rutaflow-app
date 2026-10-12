@@ -96,10 +96,16 @@ final class OfferAnalysis {
         return Math.abs(km - otherKm) <= Math.max(0.3, otherKm * 0.10);
     }
 
+    /** Misma tarjeta en pantalla: misma plataforma y misma tarifa. */
+    boolean sameCardAs(OfferAnalysis other) {
+        return other != null && platform.equals(other.platform) && Math.abs(fare - other.fare) <= 0.5;
+    }
+
     /**
-     * Frase minima para que quepa completa antes de que llegue la siguiente oferta:
-     * veredicto, tarifa y el rendimiento contra la meta activa (por hora o por km),
-     * sin relleno. El detalle completo queda en la notificacion expandida, no en la voz.
+     * Primero la decision (veredicto y rendimiento contra la meta activa) y despues los datos
+     * que se leyeron de la pantalla: tarifa, distancia a la recogida, km y minutos totales.
+     * Asi el conductor comprueba de oido que el copiloto leyo bien la tarjeta antes de
+     * fiarse del veredicto. El detalle con netos queda en la notificacion expandida.
      */
     String spokenText(boolean perKmGoal) {
         String lead;
@@ -108,9 +114,20 @@ final class OfferAnalysis {
             case "maybe": lead = "Aceptable"; break;
             default: lead = "No conviene";
         }
-        return perKmGoal
-            ? String.format(Locale.forLanguageTag("es-MX"), "%s. %.0f pesos. %.1f por kilometro.", lead, fare, perKm)
-            : String.format(Locale.forLanguageTag("es-MX"), "%s. %.0f pesos. %.0f por hora.", lead, fare, hourly);
+        Locale mx = Locale.forLanguageTag("es-MX");
+        String rate = perKmGoal
+            ? String.format(mx, "%s por kilómetro", km(perKm))
+            : String.format(mx, "%.0f por hora", hourly);
+        return String.format(mx, "%s, %s. %.0f pesos, recoges a %s kilómetros, %s en total, %.0f minutos.",
+            lead, rate, fare, km(pickupKm), km(pickupKm + tripKm), pickupMin + tripMin);
+    }
+
+    /** "2.4" para distancias cortas, "12" para las largas: lo que se alcanza a oir. */
+    static String km(double value) {
+        double rounded = value < 10 ? Math.round(value * 10) / 10.0 : Math.round(value);
+        return rounded == Math.rint(rounded)
+            ? String.format(Locale.forLanguageTag("es-MX"), "%.0f", rounded)
+            : String.format(Locale.forLanguageTag("es-MX"), "%.1f", rounded);
     }
 
     private static double round(double value) {

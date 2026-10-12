@@ -321,4 +321,86 @@ public class OfferParserTest {
         assertTrue(a.sameTripAs(b));
         assertTrue(!a.sameTripAs(other));
     }
+
+    // Tarjeta de Uber sin importe en el boton: la tarifa no sale de "Aceptar por".
+    private List<OfferParser.Block> uberCard(OfferParser.Block... extraAbove) {
+        List<OfferParser.Block> blocks = new java.util.ArrayList<>(Arrays.asList(extraAbove));
+        blocks.add(new OfferParser.Block("UberX", 40, 1200, 300, 1240));
+        blocks.add(new OfferParser.Block("MX$85.00", 40, 1250, 400, 1310));
+        blocks.add(new OfferParser.Block("4 min (1.2 km) de distancia", 40, 1330, 700, 1370));
+        blocks.add(new OfferParser.Block("Viaje de 15 min (8.0 km)", 40, 1380, 700, 1420));
+        blocks.add(new OfferParser.Block("Aceptar", 40, 1500, 700, 1580));
+        return blocks;
+    }
+
+    private static void assertUberCard(List<OfferParser.DetectedOffer> offers) {
+        assertEquals(1, offers.size());
+        OfferAnalysis offer = offers.get(0).offer;
+        assertEquals(85.0, offer.fare, 0.01);
+        assertEquals(1.2, offer.pickupKm, 0.01);
+        assertEquals(4, offer.pickupMin, 0.01);
+        assertEquals(8.0, offer.tripKm, 0.01);
+        assertEquals(15, offer.tripMin, 0.01);
+    }
+
+    @Test
+    public void readsAnUberCardWithoutAmountOnTheButton() {
+        assertUberCard(OfferParser.parseBlocks(uberCard(), config("uber")));
+    }
+
+    // Lo que causaba "buen viaje" y segundos despues otro veredicto: la notificacion del
+    // anuncio (separada por ML Kit en titulo y cuerpo) y la etiqueta sobre la tarjeta
+    // aparecen en la captura siguiente. Sus netos y minutos no deben mezclarse.
+    @Test
+    public void ignoresItsOwnNotificationBodyAndCardLabel() {
+        List<OfferParser.Block> blocks = uberCard(
+            new OfferParser.Block("BUEN VIAJE · $85 · $350/h", 30, 20, 700, 60),
+            new OfferParser.Block("$60 netos · 9.2 km · 19 min", 30, 70, 700, 100),
+            new OfferParser.Block("Ofrecen $85 · UBER\n$60 netos · 9.2 km · 19 min\nDejaría $60 netos en 19 minutos.", 30, 110, 700, 220),
+            new OfferParser.Block("$85 · $350/h", 40, 1150, 300, 1190)
+        );
+        assertUberCard(OfferParser.parseBlocks(blocks, config("uber")));
+    }
+
+    @Test
+    public void takesTheFareNextToTheTripNotTheDailyEarnings() {
+        List<OfferParser.Block> blocks = uberCard(
+            new OfferParser.Block("MX$840.00", 280, 150, 460, 200),
+            new OfferParser.Block("Ganancias de hoy MX$1,240.50", 200, 220, 600, 260)
+        );
+        assertUberCard(OfferParser.parseBlocks(blocks, config("uber")));
+    }
+
+    @Test
+    public void ownLabelFilterKeepsRealCardsThatShowPricePerKm() {
+        assertTrue(OfferParser.isOwnText("$85 · $350/h"));
+        assertTrue(OfferParser.isOwnText("$85 · $7.6/km"));
+        assertTrue(!OfferParser.isOwnText("MX$85.00 · MX$5.20/km"));
+        assertTrue(!OfferParser.isOwnText("MX$85.00"));
+    }
+
+    // "24 min" leido como "2 min": antes la distancia se "corregia" a 1.25 km y salian
+    // miles de pesos por hora. Una lectura imposible no se anuncia.
+    @Test
+    public void rejectsReadingsThatDescribeAnImpossibleTrip() {
+        assertNull(OfferParser.parse("DiDi\nMX$180.00\nA recoger 3.2 km · 8 min\nViaje 12.5 km · 2 min", config("didi")));
+        assertNull(OfferParser.parse("DiDi\nMX$180.00\nA recoger 3.2 km · 1 min\nViaje 1.5 km · 2 min", config("didi")));
+        assertNull(OfferParser.parse("DiDi\nMX$18.00\nA recoger 3.2 km · 8 min\nViaje 12.5 km · 24 min", config("didi")));
+    }
+
+    @Test
+    public void stillRecoversALostDecimalComma() {
+        OfferAnalysis offer = OfferParser.parse("DiDi\nMX$95.00\nA recoger 16 km · 4 min\nViaje 8.5 km · 15 min", config("didi"));
+        assertNotNull(offer);
+        assertEquals(1.6, offer.pickupKm, 0.01);
+    }
+
+    @Test
+    public void voiceSaysTheDataItReadSoTheDriverCanCheckIt() {
+        OfferAnalysis offer = OfferParser.parse("DiDi\nMX$180.00\nA recoger 3.2 km · 8 min\nViaje 12.5 km · 24 min", config("didi"));
+        assertNotNull(offer);
+        String spoken = offer.spokenText(false);
+        assertTrue(spoken, spoken.startsWith("Buen viaje, 223 por hora."));
+        assertTrue(spoken, spoken.contains("180 pesos, recoges a 3.2 kilómetros, 16 en total, 32 minutos."));
+    }
 }

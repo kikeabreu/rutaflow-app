@@ -6,11 +6,16 @@ Ruleto Drive Android puede evaluar las tarjetas de viaje que aparecen en Uber, D
 
 1. El conductor elige la plataforma activa en la tarjeta **Copiloto de ofertas**.
 2. Al tocar **Activar**, Android solicita permiso para compartir la pantalla.
-3. Un servicio visible toma un cuadro aproximadamente cada segundo.
+3. Un servicio visible toma un cuadro cada ~0.45 s.
 4. ML Kit reconoce el texto en el teléfono. Las capturas no se guardan ni se envían a Ruleto Drive.
 5. El analizador obtiene tarifa, kilómetros y minutos, aplica la configuración financiera del conductor y comunica el resultado por voz y mediante una notificación.
 6. El botón **Apagar** de Ruleto Drive o de la notificación termina inmediatamente la captura.
-7. El veredicto se anuncia solo cuando la misma lectura se repite durante ~1.2 s, para no cambiar de opinión mientras la pantalla se dibuja.
+7. El veredicto se anuncia solo cuando la lectura sale idéntica en 3 cuadros seguidos (~0.9 s); cualquier lectura distinta reinicia la cuenta. Así no cambia de opinión mientras la tarjeta entra animada.
+   - Se descarta lo que el propio copiloto dibuja en pantalla (notificación, alerta expandida y la etiqueta `$85 · $350/h`), porque sale en la captura siguiente y sus netos y minutos contaminaban la lectura.
+   - Una lectura que describe un viaje imposible no se anuncia: cada tramo debe ir entre 1.5 y 100 km/h, la tarifa entre $2 y $150 por km y como máximo $2,000 brutos por hora.
+   - La tarifa es el importe de "Aceptar por $X" o, si el botón no lo trae (Uber), el importe más cercano por encima de los km y minutos; no el de ganancias del día.
+   - Una relectura de la misma tarjeta (misma tarifa) en los 15 s siguientes no se vuelve a anunciar.
+   - La voz dice primero el veredicto y el rendimiento, y luego lo que leyó: tarifa, distancia a la recogida, km totales y minutos totales. Ejemplo: *"Buen viaje, 223 por hora. 180 pesos, recoges a 3.2 kilómetros, 16 en total, 32 minutos."*
 8. El botón de bocina de la tarjeta (o **Silenciar voz** en la notificación) apaga la voz; el veredicto sigue en la notificación y en el recuadro sobre la oferta.
 
 ### inDrive
