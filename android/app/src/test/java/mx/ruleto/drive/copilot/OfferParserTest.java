@@ -173,4 +173,152 @@ public class OfferParserTest {
         assertEquals(1, offers.size());
         assertEquals(57.0, offers.get(0).offer.fare, 0.01);
     }
+
+    // Solicitud individual de inDrive (captura real): etiqueta azul junto a A = recogida,
+    // verde junto a B = destino, y "~1,6 km" repetido bajo el mapa.
+    private List<OfferParser.Block> inDriveSingleOffer(String pickupKm) {
+        return Arrays.asList(
+            new OfferParser.Block("6:42", 55, 30, 110, 60),
+            new OfferParser.Block("Libre", 435, 128, 495, 158),
+            new OfferParser.Block("Solicitud de viaje", 180, 212, 560, 258),
+            new OfferParser.Block("4 min\n" + pickupKm, 515, 285, 600, 365),
+            new OfferParser.Block("15 min\n8,5 km", 40, 375, 135, 455),
+            new OfferParser.Block("A", 540, 388, 575, 420),
+            new OfferParser.Block("Progreso", 438, 440, 545, 468),
+            new OfferParser.Block("B", 70, 480, 105, 510),
+            new OfferParser.Block("NUEVA\nYUCALPETEN", 205, 465, 325, 503),
+            new OfferParser.Block("Isabella", 25, 770, 98, 790),
+            new OfferParser.Block("0.0 (0)\n55 seg.", 22, 805, 105, 852),
+            new OfferParser.Block("~1,6 km", 125, 685, 235, 715),
+            new OfferParser.Block("MXN62.40", 125, 730, 365, 780),
+            new OfferParser.Block("A", 125, 805, 160, 838),
+            new OfferParser.Block("Ubicación actual", 178, 805, 420, 838),
+            new OfferParser.Block("B", 125, 870, 160, 903),
+            new OfferParser.Block("Sin título", 178, 870, 305, 903),
+            new OfferParser.Block("Viaje", 125, 925, 215, 962),
+            new OfferParser.Block("Aceptar por MXN62.40", 160, 1095, 580, 1140),
+            new OfferParser.Block("Ofrece tu tarifa", 248, 1215, 490, 1250),
+            new OfferParser.Block("MXN69", 80, 1325, 200, 1362),
+            new OfferParser.Block("MXN75", 310, 1325, 428, 1362),
+            new OfferParser.Block("MXN82", 540, 1325, 660, 1362),
+            new OfferParser.Block("Omitir", 315, 1465, 425, 1500)
+        );
+    }
+
+    @Test
+    public void readsInDriveSingleRequestWithCurrencyBeforeTheAmount() {
+        List<OfferParser.DetectedOffer> offers = OfferParser.parseBlocks(inDriveSingleOffer("1,6 km"), config("didi"));
+
+        assertEquals(1, offers.size());
+        OfferAnalysis offer = offers.get(0).offer;
+        assertEquals("indrive", offer.platform);
+        assertEquals(62.40, offer.fare, 0.01);
+        assertEquals(1.6, offer.pickupKm, 0.01);
+        assertEquals(4, offer.pickupMin, 0.01);
+        assertEquals(8.5, offer.tripKm, 0.01);
+        assertEquals(15, offer.tripMin, 0.01);
+        assertEquals(1.0, offer.confidence, 0.001);
+    }
+
+    @Test
+    public void recoversInDriveDecimalCommaLostByOcr() {
+        // "1,6 km" leido como "16 km": 16 km en 4 min seria 240 km/h, imposible.
+        List<OfferParser.DetectedOffer> offers = OfferParser.parseBlocks(inDriveSingleOffer("16 km"), config("indrive"));
+
+        assertEquals(1, offers.size());
+        assertEquals(1.6, offers.get(0).offer.pickupKm, 0.01);
+        assertEquals(8.5, offers.get(0).offer.tripKm, 0.01);
+    }
+
+    @Test
+    public void usesABMarkersWhenInDriveCardDistanceIsMissing() {
+        // Destino arriba y recogida abajo: sin "~X km", se decide por cercania a A y B.
+        List<OfferParser.Block> blocks = Arrays.asList(
+            new OfferParser.Block("22 min\n11,2 km", 480, 280, 600, 360),
+            new OfferParser.Block("B", 520, 370, 555, 400),
+            new OfferParser.Block("3 min\n900 m", 60, 520, 160, 600),
+            new OfferParser.Block("A", 90, 610, 125, 640),
+            new OfferParser.Block("MXN120", 125, 730, 365, 780),
+            new OfferParser.Block("Aceptar por MXN120", 160, 1095, 580, 1140)
+        );
+
+        OfferAnalysis offer = OfferParser.parseBlocks(blocks, config("indrive")).get(0).offer;
+        assertEquals(0.9, offer.pickupKm, 0.001);
+        assertEquals(3, offer.pickupMin, 0.01);
+        assertEquals(11.2, offer.tripKm, 0.01);
+        assertEquals(22, offer.tripMin, 0.01);
+    }
+
+    @Test
+    public void joinsInDriveMinutesAndKilometersSplitIntoSeparateBlocks() {
+        List<OfferParser.Block> blocks = Arrays.asList(
+            new OfferParser.Block("4 min", 515, 285, 600, 320),
+            new OfferParser.Block("1,6 km", 515, 328, 600, 365),
+            new OfferParser.Block("15 min", 40, 375, 135, 410),
+            new OfferParser.Block("8,5 km", 40, 418, 135, 455),
+            new OfferParser.Block("~1,6 km", 125, 685, 235, 715),
+            new OfferParser.Block("MXN62.40", 125, 730, 365, 780),
+            new OfferParser.Block("Aceptar por MXN62.40", 160, 1095, 580, 1140)
+        );
+
+        OfferAnalysis offer = OfferParser.parseBlocks(blocks, config("indrive")).get(0).offer;
+        assertEquals(1.6, offer.pickupKm, 0.01);
+        assertEquals(15, offer.tripMin, 0.01);
+    }
+
+    @Test
+    public void doesNotGuessFromTheInDriveRequestList() {
+        // La lista solo trae la distancia a la recogida; "2 min." es la antiguedad de la
+        // solicitud. No debe salir un veredicto inventado.
+        List<OfferParser.Block> blocks = Arrays.asList(
+            new OfferParser.Block("Libre", 435, 128, 495, 158),
+            new OfferParser.Block("Resuelve estos problemas para\nevitar perder las mejores solicitudes", 100, 228, 630, 300),
+            new OfferParser.Block("gisly", 40, 448, 85, 470),
+            new OfferParser.Block("4.69\n(140)\n2 min.", 30, 482, 95, 556),
+            new OfferParser.Block("~1,3 km", 125, 355, 235, 388),
+            new OfferParser.Block("MXN75", 125, 405, 290, 450),
+            new OfferParser.Block("C. 39 321 (Feliciano Canul Reyes)", 125, 470, 615, 505),
+            new OfferParser.Block("Viaje", 125, 772, 215, 810),
+            new OfferParser.Block("Georgina", 20, 942, 105, 965),
+            new OfferParser.Block("5.0 (0)\n8 min.", 20, 975, 105, 1025),
+            new OfferParser.Block("~5,4 km", 125, 850, 240, 882),
+            new OfferParser.Block("MXN41", 125, 900, 282, 945),
+            new OfferParser.Block("C. 29 408 (Miguel Hidalgo Chicxulub)", 125, 965, 680, 1000),
+            new OfferParser.Block("PROGRESO CENTRO (Calle 35, Centro,\nProgreso, Yuc.)", 125, 1010, 690, 1085),
+            new OfferParser.Block("Viaje", 125, 1108, 215, 1145),
+            new OfferParser.Block("Solicitudes de viaje", 15, 1525, 230, 1555),
+            new OfferParser.Block("Demanda", 315, 1525, 420, 1555)
+        );
+
+        assertTrue(OfferParser.parseBlocks(blocks, config("indrive")).isEmpty());
+        assertTrue(OfferParser.parseBlocks(blocks, config("didi")).isEmpty());
+    }
+
+    @Test
+    public void distinguishesMetersFromKilometers() {
+        assertEquals(0.85, OfferParser.distanceValues("850 m").get(0), 0.001);
+        assertEquals(1.6, OfferParser.distanceValues("1,6 m").get(0), 0.001);
+        assertEquals(1.6, OfferParser.distanceValues("1,6 krn").get(0), 0.001);
+        assertEquals(12.0, OfferParser.distanceValues("12 km").get(0), 0.001);
+        assertTrue(OfferParser.distanceValues("15 min").isEmpty());
+    }
+
+    @Test
+    public void readsTripDurationsGivenInHours() {
+        OfferAnalysis offer = OfferParser.parse(
+            "DiDi\nMX$420.00\nA recoger 2.0 km · 6 min\nViaje 48 km · 1 h 5 min",
+            config("didi")
+        );
+        assertNotNull(offer);
+        assertEquals(65, offer.tripMin, 0.01);
+    }
+
+    @Test
+    public void sameTripIgnoresSmallOcrDifferences() {
+        OfferAnalysis a = OfferParser.parse("DiDi\nMX$180.00\nA recoger 3.2 km · 8 min\nViaje 12.5 km · 24 min", config("didi"));
+        OfferAnalysis b = OfferParser.parse("DiDi\nMX$180.00\nA recoger 3.2 km · 8 min\nViaje 12.8 km · 25 min", config("didi"));
+        OfferAnalysis other = OfferParser.parse("DiDi\nMX$95.00\nA recoger 1.0 km · 3 min\nViaje 6 km · 12 min", config("didi"));
+        assertTrue(a.sameTripAs(b));
+        assertTrue(!a.sameTripAs(other));
+    }
 }
