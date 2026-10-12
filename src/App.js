@@ -28,7 +28,7 @@ import { OnboardingWizard } from "./components/OnboardingWizard";
 import { PermissionGate, necesitaPuertaDePermisos } from "./components/PermissionGate";
 import { Logo } from "./components/Logo";
 import { UpdatePanel } from "./components/UpdatePanel";
-import { buildNumber, buildLabel, platform, consentKey, checkUpdates, postponed, postpone, updateNow, reportInstallation, enableUpdateNotifications, disableUpdateNotifications, listenToUpdatePush, setupWorkerReload, unlinkInstallation } from "./updateClient";
+import { buildNumber, buildLabel, platform, consentKey, checkUpdates, postponed, postpone, updateNow, reportInstallation, enableUpdateNotifications, disableUpdateNotifications, shouldAskUpdates, markAskedUpdates, listenToUpdatePush, setupWorkerReload, unlinkInstallation } from "./updateClient";
 import { fixedCostPerHour } from "./fixedCosts";
 import { ENERGY_DEFAULTS, energyCostPerKm, validateEnergy, calculationSnapshot, kwhPer100FromKmPerKwh } from "./energy";
 import { C, ACCENT_FILL, useTheme } from "./theme";
@@ -2188,6 +2188,32 @@ function AccountSecurityCard({session,onEmailChanged}){
   );
 }
 
+// Se muestra una sola vez, al cerrar una jornada. Sin esto casi nadie activa
+// los avisos y el envío de una versión nueva no tiene a quién llegar.
+function AskUpdatesCard({userId,onDone}){
+  const[busy,setBusy]=useState(false);
+  const[error,setError]=useState("");
+  const later=()=>{markAskedUpdates(userId);onDone(false);};
+  const accept=async()=>{
+    setBusy(true);setError("");
+    try{await enableUpdateNotifications(userId);markAskedUpdates(userId);onDone(true);}
+    catch(e){markAskedUpdates(userId);setError(e.message);}
+    finally{setBusy(false);}
+  };
+  return(
+    <div role="dialog" aria-labelledby="ask-updates-title" style={{position:"fixed",left:"50%",transform:"translateX(-50%)",bottom:"calc(86px + env(safe-area-inset-bottom))",maxWidth:460,width:"calc(100% - 24px)",zIndex:15000,background:C.card,border:`2px solid ${C.teal}`,borderRadius:12,padding:16,boxShadow:"0 12px 35px #0008"}}>
+      <strong id="ask-updates-title" style={{fontSize:15}}>¿Te avisamos cuando haya mejoras?</strong>
+      <p style={{fontSize:12,color:C.muted,lineHeight:1.5,marginTop:6}}>Te mandamos una notificación solo cuando salga una versión nueva de Ruleto. Puedes desactivarlo en Configuración.</p>
+      {error&&<p role="alert" style={{fontSize:12,color:C.danger,marginTop:6}}>{error}</p>}
+      <div style={{display:"flex",gap:16,marginTop:12}}>
+        {error
+          ?<button className="text-link" onClick={()=>onDone(false)}>Cerrar</button>
+          :<><button className="text-link" disabled={busy} onClick={accept} style={{fontWeight:800}}>{busy?"Activando…":"Sí, avisarme"}</button><button className="text-link" disabled={busy} onClick={later}>Ahora no</button></>}
+      </div>
+    </div>
+  );
+}
+
 function ConfigTab({cfg,saveConfig,onLogout,onChangePhone,onCheckUpdates,onOpenUpdatesAdmin,installApp,onOpenSupport,onOpenOnboarding,themeMode,setThemeMode,isPro,planTier,profile,trialDaysLeft,session,onUpgrade,consent,onToggleLocation,onDeleteAccount}){
   const[portalLoading,setPortalLoading]=useState(false);
   const[locationBusy,setLocationBusy]=useState(false);
@@ -2638,6 +2664,7 @@ export default function RuletoDriveApp(){
   const[updateState,setUpdateState]=useState(null);
   const[updateError,setUpdateError]=useState("");
   const[noticeDismissed,setNoticeDismissed]=useState(false);
+  const[askUpdates,setAskUpdates]=useState(false);
   const[showOnboarding,setShowOnboarding]=useState(()=>LS.get("rf_onboarding_dismissed",false)!==true);
   const[billingModal,setBillingModal]=useState(null);
   const[showPlanPicker,setShowPlanPicker]=useState(false);
@@ -3487,6 +3514,7 @@ export default function RuletoDriveApp(){
     }
     setActiveDay(null);
     showToast("Jornada cerrada y guardada");
+    if(shouldAskUpdates(session.user.id))setAskUpdates(true);
   };
 
   const saveConfig=async newCfg=>{
@@ -3657,6 +3685,7 @@ export default function RuletoDriveApp(){
       {showNew&&<TripModal cfg={cfg} saveTrip={saveTrip} activeDay={activeDay} activeBonuses={bonuses.filter(b=>String(b.status||"")==="active")} onClose={()=>{setShowNew(false);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_CLOSED);}} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)} copilotState={copilotState} userId={session.user.id}/>}
       {showOperation&&<OperationModal cfg={cfg} isPro={isPro} userId={session.user.id} initial={editingEvent} initialKind={editingKind} onClose={()=>{setShowOperation(false);setEditingEvent(null);setEditingKind("event");emitTourEvent(TOUR_EVENTS.QUICK_CLOSED);}} onSaveOperation={saveOperation} onUpdateOperation={updateOperation} onSaveTrip={saveTrip} onSaveBonus={saveBonus} onUpdateBonus={updateBonus}/>}
       {selectedRecord&&<RecordDetail kind={selectedRecord.kind} record={selectedRecord.record} cfg={cfg} onClose={()=>setSelectedRecord(null)} onEdit={()=>{setEditingEvent(selectedRecord.record);setEditingKind(selectedRecord.kind);setSelectedRecord(null);setShowOperation(true);}} onDelete={async()=>{const deleted=selectedRecord.kind==="bonus"?await deleteBonus(selectedRecord.record.id):await deleteOperation(selectedRecord.record.id);if(deleted)setSelectedRecord(null);}}/>}
+      {askUpdates&&!selectedClosure&&session&&<AskUpdatesCard userId={session.user.id} onDone={ok=>{setAskUpdates(false);if(ok)showToast("Listo: te avisaremos cuando haya una versión nueva");}}/>}
       {selectedClosure&&<ClosureModal closure={selectedClosure} cfg={cfg} trips={trips} events={events} bonuses={bonuses} onClose={()=>setSelectedClosure(null)} onSelectTrip={trip=>{setSelectedClosure(null);setSelTrip(trip);}} onSelectRecord={(kind,record)=>{setSelectedClosure(null);setSelectedRecord({kind,record});}}/>}
       {selTrip&&<TripDetail trip={selTrip} cfg={cfg} onClose={()=>setSelTrip(null)}
         onSave={async(id,d)=>{await updateTrip(id,d);setSelTrip(null);}}
