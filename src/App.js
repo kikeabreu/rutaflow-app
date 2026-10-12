@@ -367,6 +367,7 @@ const IC={
   tip:["M12 2v20","M17 5H9.5a3.5 3.5 0 000 7H14a3.5 3.5 0 010 7H6"],
   mic:["M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3z","M19 10v2a7 7 0 01-14 0v-2","M12 19v3","M8 22h8"],
   speaker:["M11 5L6 9H2v6h4l5 4V5z","M15.54 8.46a5 5 0 010 7.07","M19.07 4.93a10 10 0 010 14.14"],
+  speakerOff:["M11 5L6 9H2v6h4l5 4V5z","M23 9l-6 6","M17 9l6 6"],
   close:"M18 6L6 18 M6 6l12 12",
 };
 
@@ -1377,7 +1378,7 @@ function BonusTripAdvice({bonus,insight,cfg}){
 }
 
 // ─── HOME TAB ─────────────────────────────────────────────────────────────────
-function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,onNew,onQuick,dayKm:propDayKm,onSelect,onDeleteEvent,onEditEvent,onSelectClosure,onUpdateBonus,isPro,onUpgrade,copilotState,onToggleCopilot,copilotPlatform,onCopilotPlatform,onRegisterCopilotOffer,onSelectCopilotOfferIndex}){
+function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,onNew,onQuick,dayKm:propDayKm,onSelect,onDeleteEvent,onEditEvent,onSelectClosure,onUpdateBonus,isPro,onUpgrade,copilotState,onToggleCopilot,onToggleCopilotVoice,copilotPlatform,onCopilotPlatform,onRegisterCopilotOffer,onSelectCopilotOfferIndex}){
   const[elapsed,setElapsed]=useState(0);
   const[showAll,setShowAll]=useState(false);
   const timerRef=useRef(null);
@@ -1428,10 +1429,18 @@ function HomeTab({cfg,trips,events,bonuses,closures,activeDay,startDay,onEndDay,
               <div style={{fontSize:9,color:C.muted,lineHeight:1.45,marginTop:2}}>{copilotState.supported?(copilotState.message||"Lee la pantalla y explica cada oferta por voz"):"Disponible al instalar la app para Android"}</div>
             </div>
           </div>
-          <button disabled={!copilotState.supported||copilotState.busy} onClick={onToggleCopilot} style={{padding:"9px 11px",borderRadius:8,border:`1px solid ${copilotState.running?C.danger:copilotState.supported?C.teal:C.dim}`,color:copilotState.running?C.danger:copilotState.supported?C.teal:C.dim,fontSize:9,fontWeight:800,letterSpacing:".06em",flexShrink:0,opacity:copilotState.busy?.55:1}}>
-            {copilotState.busy?"ESPERA":copilotState.running?"APAGAR":"ACTIVAR"}
-          </button>
+          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+            {copilotState.supported&&(
+              <button onClick={onToggleCopilotVoice} aria-pressed={!!copilotState.voiceMuted} aria-label={copilotState.voiceMuted?"Activar voz del copiloto":"Silenciar voz del copiloto"} title={copilotState.voiceMuted?"Voz silenciada":"Voz activada"} style={{width:34,height:34,borderRadius:8,display:"grid",placeItems:"center",border:`1px solid ${copilotState.voiceMuted?C.dim:C.border}`,background:copilotState.voiceMuted?C.card2:"transparent",cursor:"pointer"}}>
+                <SVG d={copilotState.voiceMuted?IC.speakerOff:IC.speaker} size={16} color={copilotState.voiceMuted?C.muted:C.text}/>
+              </button>
+            )}
+            <button disabled={!copilotState.supported||copilotState.busy} onClick={onToggleCopilot} style={{padding:"9px 11px",borderRadius:8,border:`1px solid ${copilotState.running?C.danger:copilotState.supported?C.teal:C.dim}`,color:copilotState.running?C.danger:copilotState.supported?C.teal:C.dim,fontSize:9,fontWeight:800,letterSpacing:".06em",opacity:copilotState.busy?.55:1}}>
+              {copilotState.busy?"ESPERA":copilotState.running?"APAGAR":"ACTIVAR"}
+            </button>
+          </div>
         </div>
+        {copilotState.supported&&copilotState.voiceMuted&&<div style={{fontSize:8,color:C.muted,lineHeight:1.45,marginTop:7}}>Voz silenciada: verás el veredicto en la notificación y en el recuadro sobre la oferta.</div>}
         {(() => {
           const history = copilotState.offerHistory || (copilotState.lastOffer ? [copilotState.lastOffer] : []);
           if (!history.length) return null;
@@ -2840,6 +2849,18 @@ export default function RuletoDriveApp(){
     }
   };
 
+  const toggleCopilotVoice=async()=>{
+    const muted=!copilotState.voiceMuted;
+    setCopilotState(p=>({...p,voiceMuted:muted}));
+    try{
+      await copilot.setVoiceMuted(muted);
+      showToast(muted?"Voz del copiloto silenciada":"Voz del copiloto activada");
+    }catch(e){
+      setCopilotState(p=>({...p,voiceMuted:!muted}));
+      showToast(e.message||"No se pudo cambiar la voz","err");
+    }
+  };
+
   useEffect(()=>{
     let active=true;
     let appUrlListener=null;
@@ -3592,7 +3613,7 @@ export default function RuletoDriveApp(){
           <button onClick={()=>openBillingPortal(session)} style={{background:"transparent",color:C.warn,border:`1px solid ${C.warn}`,borderRadius:7,padding:"8px 13px",fontSize:11,fontWeight:800,cursor:"pointer",flexShrink:0}}>REACTIVAR</button>
         </div>}
 
-        {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)} copilotState={copilotState} onToggleCopilot={toggleCopilot} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer} onSelectCopilotOfferIndex={idx=>setCopilotState(p=>({...p,selectedOfferIndex:idx}))}/>}
+        {tab==="home"&&<HomeTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} activeDay={activeDay} startDay={startDay} onEndDay={endDay} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} dayKm={dayKm} onSelect={setSelTrip} onDeleteEvent={deleteOperation} onEditEvent={e=>{setEditingEvent(e);setEditingKind("event");setShowOperation(true);}} onSelectClosure={setSelectedClosure} onUpdateBonus={updateBonus} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)} copilotState={copilotState} onToggleCopilot={toggleCopilot} onToggleCopilotVoice={toggleCopilotVoice} copilotPlatform={copilotPlatform} onCopilotPlatform={p=>{setCopilotPlatform(p);LS.set("rf_copilot_platform",p);}} onRegisterCopilotOffer={registerCopilotOffer} onSelectCopilotOfferIndex={idx=>setCopilotState(p=>({...p,selectedOfferIndex:idx}))}/>}
         {tab==="trips"  &&<TripsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} onSelect={setSelTrip} onNew={()=>{setShowNew(true);emitTourEvent(TOUR_EVENTS.TRIP_MODAL_OPENED);}} onQuick={()=>{setEditingEvent(null);setEditingKind("event");setShowOperation(true);emitTourEvent(TOUR_EVENTS.QUICK_OPENED);}} onSelectRecord={(kind,record)=>setSelectedRecord({kind,record})} onEditRecord={(kind,record)=>{setEditingEvent(record);setEditingKind(kind);setShowOperation(true);}} onDeleteEvent={deleteOperation} onDeleteBonus={deleteBonus} onSelectClosure={setSelectedClosure} section={tripsSection} setSection={setTripsSection} extraType={tripsExtraType} setExtraType={setTripsExtraType}/>}
         {tab==="stats"  &&<StatsTab cfg={cfg} trips={trips} events={events} bonuses={bonuses} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)}/>}
         {tab==="ai"     &&<AITab cfg={cfg} trips={trips} events={events} bonuses={bonuses} closures={closures} locations={locations} isPro={isPro} onUpgrade={()=>setShowPlanPicker(true)} userId={session.user.id}/>}

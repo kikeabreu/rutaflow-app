@@ -51,6 +51,8 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     public static final String ACTION_START = "mx.ruleto.drive.copilot.START";
     public static final String ACTION_STOP = "mx.ruleto.drive.copilot.STOP";
     public static final String ACTION_DUMP = "mx.ruleto.drive.copilot.DUMP";
+    public static final String ACTION_VOICE = "mx.ruleto.drive.copilot.VOICE";
+    public static final String EXTRA_VOICE_MUTED = "voiceMuted";
     public static final String ACTION_EVENT = "mx.ruleto.drive.copilot.EVENT";
     public static final String EXTRA_EVENT = "event";
     public static final String EXTRA_PAYLOAD = "payload";
@@ -63,6 +65,7 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     public static final String PREF_CAPTURE_ACTIVE = "captureActive";
     public static final String PREF_NEEDS_CONSENT = "needsConsent";
     public static final String PREF_STOP_REASON = "stopReason";
+    public static final String PREF_VOICE_MUTED = "voiceMuted";
 
     private static final String CHANNEL_ID = "rutaflow_copilot";
     private static final String CHANNEL_ALERTS_ID = "rutaflow_copilot_alerts";
@@ -97,6 +100,8 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     private CopilotConfig config = CopilotConfig.defaults();
     private boolean explicitShutdown;
     private CopilotOverlayView overlayView;
+    private String notificationTitle = "Escuchando ofertas";
+    private String notificationBody = "Ruleto analiza únicamente mientras este aviso esté activo.";
 
     @Nullable
     @Override
@@ -139,6 +144,15 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
             armDump();
             return START_NOT_STICKY;
         }
+        if (ACTION_VOICE.equals(intent.getAction())) {
+            // Sin extra es el boton de la notificacion (alterna); con extra viene de la app.
+            boolean muted = intent.hasExtra(EXTRA_VOICE_MUTED)
+                ? intent.getBooleanExtra(EXTRA_VOICE_MUTED, false)
+                : !isVoiceMuted();
+            setVoiceMuted(muted);
+            if (projection == null) stopSelf();
+            return START_NOT_STICKY;
+        }
         if (!ACTION_START.equals(intent.getAction())) return START_NOT_STICKY;
 
         config = CopilotConfig.fromJson(getSharedPreferences(PREFS, MODE_PRIVATE)
@@ -166,6 +180,8 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     }
 
     private void startAsForeground(String title, String body) {
+        notificationTitle = title;
+        notificationBody = body;
         Notification notification = notification(title, body, false);
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
@@ -452,6 +468,7 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
             json.put("needs_consent", needsConsent);
             json.put("stop_reason", stopReason);
             json.put("message", message);
+            json.put("voiceMuted", isVoiceMuted());
         } catch (JSONException ignored) {}
         sendEvent("status", json);
     }
@@ -473,8 +490,21 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
         sendBroadcast(broadcast);
     }
 
+    private boolean isVoiceMuted() {
+        return getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_VOICE_MUTED, false);
+    }
+
+    private void setVoiceMuted(boolean muted) {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(PREF_VOICE_MUTED, muted).apply();
+        if (muted && tts != null) tts.stop();
+        if (projection != null) {
+            updateNotification(notificationTitle, notificationBody, false);
+            sendStatus(true, muted ? "Voz del copiloto silenciada" : "Voz del copiloto activada");
+        }
+    }
+
     private void announce(String message) {
-        if (!ttsReady || message == null || message.isEmpty()) return;
+        if (!ttsReady || message == null || message.isEmpty() || isVoiceMuted()) return;
         tts.speak(message, TextToSpeech.QUEUE_FLUSH, null, "ruleto-copilot");
     }
 
@@ -500,6 +530,9 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
         Intent dump = new Intent(this, CopilotCaptureService.class).setAction(ACTION_DUMP);
         PendingIntent dumpIntent = PendingIntent.getService(this, 2, dump,
             PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        Intent voice = new Intent(this, CopilotCaptureService.class).setAction(ACTION_VOICE);
+        PendingIntent voiceIntent = PendingIntent.getService(this, 3, voice,
+            PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         return new NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_copilot)
             .setContentTitle(title)
@@ -510,6 +543,7 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
             .setOnlyAlertOnce(!alert)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .addAction(0, "Apagar", stopIntent)
+            .addAction(0, isVoiceMuted() ? "Activar voz" : "Silenciar voz", voiceIntent)
             .addAction(0, "Diagnóstico", dumpIntent)
             .build();
     }
@@ -519,6 +553,8 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     }
 
     private void updateNotification(String title, String body, boolean alert) {
+        notificationTitle = title;
+        notificationBody = body;
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null) manager.notify(NOTIFICATION_ID, notification(title, body, alert));
     }
