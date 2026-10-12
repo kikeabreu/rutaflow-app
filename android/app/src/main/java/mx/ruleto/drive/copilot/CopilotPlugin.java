@@ -105,6 +105,7 @@ public class CopilotPlugin extends Plugin {
         result.put("needs_consent", needsConsent);
         result.put("stop_reason", stopReason == null ? "" : stopReason);
         result.put("canDrawOverlays", android.provider.Settings.canDrawOverlays(getContext()));
+        result.put("voiceMuted", prefs.getBoolean(CopilotCaptureService.PREF_VOICE_MUTED, false));
         result.put("message", running ? "Copiloto escuchando ofertas"
             : needsConsent ? "La captura requiere autorización. Toca iniciar el copiloto." : "Copiloto apagado");
         String lastOffer = prefs.getString(CopilotCaptureService.PREF_LAST_OFFER, "");
@@ -121,6 +122,23 @@ public class CopilotPlugin extends Plugin {
         getContext().getSharedPreferences(CopilotCaptureService.PREFS, Context.MODE_PRIVATE)
             .edit().putString(CopilotCaptureService.PREF_CONFIG, config).apply();
         call.resolve();
+    }
+
+    @PluginMethod
+    public void setVoiceMuted(PluginCall call) {
+        boolean muted = Boolean.TRUE.equals(call.getBoolean("muted", false));
+        getContext().getSharedPreferences(CopilotCaptureService.PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(CopilotCaptureService.PREF_VOICE_MUTED, muted).apply();
+        if (isServiceRunning()) {
+            // El servicio corta la frase en curso y actualiza el boton de su notificacion.
+            Intent voice = new Intent(getContext(), CopilotCaptureService.class)
+                .setAction(CopilotCaptureService.ACTION_VOICE)
+                .putExtra(CopilotCaptureService.EXTRA_VOICE_MUTED, muted);
+            getContext().startService(voice);
+        }
+        JSObject result = new JSObject();
+        result.put("voiceMuted", muted);
+        call.resolve(result);
     }
 
     @PluginMethod
