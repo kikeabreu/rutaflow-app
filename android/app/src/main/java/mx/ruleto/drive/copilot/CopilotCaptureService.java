@@ -70,6 +70,9 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     private static final int ALERT_NOTIFICATION_ID = 7402;
     private static final long OCR_INTERVAL_MS = 650;
     private static final long DUPLICATE_WINDOW_MS = 45_000;
+    // Una lectura debe repetirse ~1.2 s (2-3 cuadros) y ser mayoria antes de dar veredicto.
+    private static final long STABLE_WINDOW_MS = 2_600;
+    private static final long STABLE_MIN_MS = 1_200;
     // Ventana de diagnostico: volcamos el OCR crudo con geometria mientras este armado.
     private static final long DUMP_WINDOW_MS = 180_000;
 
@@ -83,8 +86,10 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     private TextToSpeech tts;
     private boolean ttsReady;
     private long lastFrameAt;
-    private long lastOfferAt;
-    private String lastSignature = "";
+    // Ofertas ya anunciadas y cuando: una lista con dos viajes no debe alternar anuncios.
+    private final List<OfferAnalysis> announced = new ArrayList<>();
+    private final List<Long> announcedAt = new ArrayList<>();
+    private final ReadingStabilizer stabilizer = new ReadingStabilizer(STABLE_WINDOW_MS, STABLE_MIN_MS, 2);
     private long dumpArmedUntil;
     private int dumpCount;
     private int captureWidth;
@@ -313,7 +318,7 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
     private void maybeDump(Text result) {
         if (System.currentTimeMillis() > dumpArmedUntil) return;
         String text = result.getText();
-        if (text == null || !text.contains("$")) return;
+        if (text == null || !(text.contains("$") || text.toLowerCase(Locale.ROOT).contains("mxn"))) return;
         String path = OcrDump.write(this, result, captureWidth, captureHeight);
         if (path == null) return;
         dumpCount += 1;
@@ -341,7 +346,12 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
                 : new OfferParser.Block(block.getText(), 0, 0, 0, 0));
         }
         List<OfferParser.DetectedOffer> offers = OfferParser.parseBlocks(blocks, config);
-        if (offers.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        StringBuilder key = new StringBuilder();
+        for (OfferParser.DetectedOffer detected : offers) key.append(detected.offer.signature()).append('|');
+        // Sin veredicto hasta que la misma lectura se repita: evita que la voz cambie de
+        // "buen viaje" a "no conviene" mientras la pantalla aun se esta dibujando.
+        if (!stabilizer.offer(key.toString(), now) || offers.isEmpty()) return;
         // Con varias ofertas en pantalla (una lista), solo se sombrean todas: la voz y la
         // alerta de una por una saturarian al conductor. Con una sola oferta, se anuncia normal.
         boolean multiple = offers.size() > 1;
@@ -358,12 +368,11 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
             if (!highlights.isEmpty()) overlayView.showHighlights(highlights);
         }
 
-        long now = System.currentTimeMillis();
         for (OfferParser.DetectedOffer detected : offers) {
             OfferAnalysis offer = detected.offer;
-            if (offer.signature().equals(lastSignature) && now - lastOfferAt < DUPLICATE_WINDOW_MS) continue;
-            lastSignature = offer.signature();
-            lastOfferAt = now;
+            if (alreadyAnnounced(offer, now)) continue;
+            announced.add(offer);
+            announcedAt.add(now);
 
             JSONObject json = offer.toJson();
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
@@ -398,6 +407,19 @@ public class CopilotCaptureService extends Service implements TextToSpeech.OnIni
             // resto ya quedo sombreado arriba y se registrara en el siguiente cuadro (~650ms).
             break;
         }
+    }
+
+    private boolean alreadyAnnounced(OfferAnalysis offer, long now) {
+        for (int i = announced.size() - 1; i >= 0; i--) {
+            if (now - announcedAt.get(i) > DUPLICATE_WINDOW_MS) {
+                announced.remove(i);
+                announcedAt.remove(i);
+            }
+        }
+        for (OfferAnalysis previous : announced) {
+            if (offer.sameTripAs(previous)) return true;
+        }
+        return false;
     }
 
     private static int colorFor(String verdict) {

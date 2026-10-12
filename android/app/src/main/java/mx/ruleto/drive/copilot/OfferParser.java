@@ -9,14 +9,24 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class OfferParser {
-    private static final Pattern MONEY = Pattern.compile("(?:mx\\s*)?\\$\\s*(\\d{1,4}(?:[.,]\\d{1,2})?)|(\\d{1,4}(?:[.,]\\d{1,2})?)\\s*(?:mxn|pesos?)", Pattern.CASE_INSENSITIVE);
-    private static final Pattern ACCEPT_MONEY = Pattern.compile("aceptar\\s*(?:mx\\s*)?\\$\\s*(\\d{1,4}(?:[.,]\\d{1,2})?)", Pattern.CASE_INSENSITIVE);
-    private static final Pattern KM_OR_M = Pattern.compile("(\\d{1,3}(?:[.,]\\d{1,2})?)\\s*(k(?:m|rn)|m\\b)", Pattern.CASE_INSENSITIVE);
+    // inDrive escribe la moneda antes del numero ("MXN62.40"); DiDi/Uber usan "MX$" o "$".
+    private static final String CURRENCY = "(?:mx\\s*\\$|mxn|\\$)";
+    private static final String AMOUNT = "(\\d{1,4}(?:[.,]\\d{1,2})?)";
+    private static final Pattern MONEY = Pattern.compile(CURRENCY + "\\s*" + AMOUNT + "|" + AMOUNT + "\\s*(?:mxn|pesos?)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ACCEPT_MONEY = Pattern.compile("aceptar(?:\\s+por)?\\s*" + CURRENCY + "\\s*" + AMOUNT, Pattern.CASE_INSENSITIVE);
+    private static final Pattern KM_OR_M = Pattern.compile("(\\d{1,4}(?:[.,]\\d{1,3})?)\\s*(k(?:m|rn)s?|m)\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern MIN = Pattern.compile("(\\d{1,3}(?:[.,]\\d{1,2})?)\\s*min(?:uto)?s?", Pattern.CASE_INSENSITIVE);
+    // "1 h 10 min" o "1 hr" se convierten a minutos antes de leer.
+    private static final Pattern HOURS = Pattern.compile("(\\d{1,2})\\s*(?:h|hr|hrs|hora|horas)\\b\\.?\\s*(?:(\\d{1,2})\\s*min(?:uto)?s?\\.?)?", Pattern.CASE_INSENSITIVE);
+    // Distancia "~1,6 km" que inDrive muestra junto al precio: es la distancia a la recogida.
+    private static final Pattern APPROX_DISTANCE = Pattern.compile("^\\s*[~\u223c\u2248\\-]\\s*\\d");
+    private static final Pattern DISTANCE_ONLY = Pattern.compile("^\\s*[~\u223c\u2248\\-]?\\s*\\d{1,4}(?:[.,]\\d{1,3})?\\s*(?:k(?:m|rn)s?|m)\\s*$");
+    // Textos fijos de la tarjeta de inDrive, que no siempre escribe el nombre de la app.
+    private static final Pattern INDRIVE_MARKERS = Pattern.compile("indrive|in drive|aceptar por|ofrece tu tarifa|solicitudes? de viaje");
     private static final Pattern PICKUP = Pattern.compile("recog|recolec|pasajer|llegar|hacia el punto|a recoger|de distancia", Pattern.CASE_INSENSITIVE);
     private static final Pattern TRIP = Pattern.compile("viaje|destino|trayecto|duracion|incluye", Pattern.CASE_INSENSITIVE);
     // Marca el final de una tarjeta de oferta en una lista con varias ofertas visibles a la vez.
-    private static final Pattern CARD_END = Pattern.compile("tomar\\s+viaje|aceptar\\s*(?:mx\\s*)?\\$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern CARD_END = Pattern.compile("tomar\\s+viaje|aceptar(?:\\s+por)?\\s*" + CURRENCY, Pattern.CASE_INSENSITIVE);
     // Nuestra propia notificacion (voz/heads-up) queda dentro de la captura de pantalla; si no la
     // excluimos, sus numeros del viaje anterior contaminan la lectura del viaje que sigue.
     private static final Pattern OWN_VOICE = Pattern.compile("no conviene|buen viaje|viaje aceptable", Pattern.CASE_INSENSITIVE);
@@ -63,16 +73,23 @@ final class OfferParser {
      * de aceptar, se trata toda la pantalla como una sola oferta (pantalla de un solo viaje).
      */
     static List<DetectedOffer> parseBlocks(List<Block> blocks, CopilotConfig config) {
-        List<Block> sorted = new ArrayList<>(blocks);
+        List<Block> sorted = new ArrayList<>();
+        StringBuilder screen = new StringBuilder();
+        for (Block block : blocks) {
+            if (OWN_VOICE.matcher(normalize(block.text)).find()) continue;
+            sorted.add(block);
+            screen.append(normalize(block.text)).append('\n');
+        }
         Collections.sort(sorted, (a, b) -> Integer.compare(a.top, b.top));
+        // La plataforma se decide con toda la pantalla: en inDrive "Ofrece tu tarifa" queda
+        // debajo del boton de aceptar, fuera de la tarjeta que se analiza.
+        String screenPlatform = platform(screen.toString());
 
         List<List<Block>> clusters = new ArrayList<>();
         List<Block> current = new ArrayList<>();
         for (Block block : sorted) {
-            String normalized = normalize(block.text);
-            if (OWN_VOICE.matcher(normalized).find()) continue;
             current.add(block);
-            if (CARD_END.matcher(normalized).find()) {
+            if (CARD_END.matcher(normalize(block.text)).find()) {
                 clusters.add(current);
                 current = new ArrayList<>();
             }
@@ -84,12 +101,9 @@ final class OfferParser {
 
         List<DetectedOffer> results = new ArrayList<>();
         for (List<Block> cluster : clusters) {
-            StringBuilder text = new StringBuilder();
             int left = Integer.MAX_VALUE, top = Integer.MAX_VALUE, right = Integer.MIN_VALUE, bottom = Integer.MIN_VALUE;
             boolean anyBounds = false;
             for (Block block : cluster) {
-                if (text.length() > 0) text.append('\n');
-                text.append(block.text);
                 if (block.hasBounds()) {
                     left = Math.min(left, block.left);
                     top = Math.min(top, block.top);
@@ -98,7 +112,7 @@ final class OfferParser {
                     anyBounds = true;
                 }
             }
-            OfferAnalysis analysis = parse(text.toString(), config);
+            OfferAnalysis analysis = parseCluster(cluster, config, screenPlatform);
             if (analysis == null || analysis.confidence < 0.60) continue;
             results.add(anyBounds
                 ? new DetectedOffer(analysis, left, top, right, bottom)
@@ -107,18 +121,34 @@ final class OfferParser {
         return results;
     }
 
+    /** Analiza texto plano: cada linea se trata como un bloque sin posicion. */
     static OfferAnalysis parse(String rawText, CopilotConfig config) {
         if (rawText == null || rawText.trim().isEmpty()) return null;
-        String normalized = normalize(rawText);
+        List<Block> lines = new ArrayList<>();
+        for (String line : rawText.split("\\n")) lines.add(new Block(line, 0, 0, 0, 0));
+        return parseCluster(lines, config, "otra");
+    }
+
+    private static OfferAnalysis parseCluster(List<Block> cluster, CopilotConfig config, String screenPlatform) {
+        StringBuilder joined = new StringBuilder();
+        for (Block block : cluster) {
+            if (joined.length() > 0) joined.append('\n');
+            joined.append(block.text);
+        }
+        String normalized = normalize(joined.toString());
+        if (normalized.trim().isEmpty()) return null;
         String platform = platform(normalized);
+        if ("otra".equals(platform)) platform = screenPlatform == null ? "otra" : screenPlatform;
         if ("otra".equals(platform)) platform = config.platformHint;
         double fare = extractFare(normalized);
         if (fare <= 0) return null;
+        if ("indrive".equals(platform)) return parseInDrive(cluster, fare, config);
 
         List<Double> allKm = new ArrayList<>();
         List<Double> allMin = new ArrayList<>();
         double pickupKm = 0, pickupMin = 0, tripKm = 0, tripMin = 0;
         for (String line : normalized.split("\\n")) {
+            line = hoursToMinutes(line);
             List<Double> lineKm = distanceValues(line);
             List<Double> lineMin = values(MIN, line);
             allKm.addAll(lineKm);
@@ -138,12 +168,190 @@ final class OfferParser {
         if (pickupMin <= 0 && !allMin.isEmpty()) pickupMin = allMin.get(0);
         if (tripKm <= 0 && allKm.size() >= 2) tripKm = allKm.get(1);
         if (tripMin <= 0 && allMin.size() >= 2) tripMin = allMin.get(1);
+        if (pickupKm <= 0 || tripKm <= 0 || pickupMin <= 0 || tripMin <= 0) return null;
+        pickupKm = plausibleKm(pickupKm, pickupMin);
+        tripKm = plausibleKm(tripKm, tripMin);
 
+        double confidence = 0.50;
+        if (!"otra".equals(platform)) confidence += 0.15;
+        confidence += 0.35;
+        return analyze(platform, fare, pickupKm, pickupMin, tripKm, tripMin, Math.min(1.0, confidence), config);
+    }
+
+    /** Par minutos/km de una etiqueta del mapa de inDrive ("4 min / 1,6 km"). */
+    private static final class Leg {
+        final double km, min;
+        final int left, top, right, bottom;
+
+        Leg(double km, double min, int left, int top, int right, int bottom) {
+            this.km = km;
+            this.min = min;
+            this.left = left;
+            this.top = top;
+            this.right = right;
+            this.bottom = bottom;
+        }
+
+        double distanceTo(Block marker) {
+            double cx = (marker.left + marker.right) / 2.0, cy = (marker.top + marker.bottom) / 2.0;
+            double dx = Math.max(0, Math.max(left - cx, cx - right));
+            double dy = Math.max(0, Math.max(top - cy, cy - bottom));
+            return Math.hypot(dx, dy);
+        }
+    }
+
+    /**
+     * inDrive pone en el mapa dos etiquetas "min / km": la azul junto al punto A (recogida)
+     * y la verde junto al punto B (destino). Debajo del mapa repite la distancia a la
+     * recogida como "~1,6 km". La lista de solicitudes no trae estas etiquetas, asi que ahi
+     * no se emite veredicto: los "2 min." de esa lista son la antiguedad de la solicitud,
+     * no el tiempo del viaje.
+     */
+    private static OfferAnalysis parseInDrive(List<Block> cluster, double fare, CopilotConfig config) {
+        List<Block> minOnly = new ArrayList<>();
+        List<Block> kmOnly = new ArrayList<>();
+        List<Block> markersA = new ArrayList<>();
+        List<Block> markersB = new ArrayList<>();
+        List<Leg> legs = new ArrayList<>();
+        double approxPickupKm = 0;
+
+        for (Block block : cluster) {
+            // "~1,6 km" puede venir en el mismo bloque que el precio: se separa por linea.
+            StringBuilder rest = new StringBuilder();
+            for (String line : hoursToMinutes(normalize(block.text)).split("\\n")) {
+                if (APPROX_DISTANCE.matcher(line).find() && DISTANCE_ONLY.matcher(line).matches()) {
+                    List<Double> km = distanceValues(line);
+                    if (!km.isEmpty() && approxPickupKm <= 0) approxPickupKm = km.get(0);
+                    continue;
+                }
+                if (rest.length() > 0) rest.append('\n');
+                rest.append(line.trim());
+            }
+            String text = rest.toString().trim();
+            if (text.isEmpty()) continue;
+            if ("a".equals(text)) { markersA.add(block); continue; }
+            if ("b".equals(text)) { markersB.add(block); continue; }
+            List<Double> km = distanceValues(text);
+            List<Double> min = values(MIN, text);
+            if (km.size() == 1 && min.size() == 1) {
+                legs.add(new Leg(km.get(0), min.get(0), block.left, block.top, block.right, block.bottom));
+            } else if (km.size() == 1 && min.isEmpty() && DISTANCE_ONLY.matcher(text).matches()) {
+                kmOnly.add(block);
+            } else if (min.size() == 1 && km.isEmpty() && text.matches("^\\d{1,3}\\s*min\\w*\\.?$")) {
+                minOnly.add(block);
+            }
+        }
+
+        // ML Kit a veces separa "4 min" y "1,6 km" en dos bloques: se unen si estan uno
+        // sobre otro en la misma columna (o seguidos, cuando no hay posiciones).
+        List<Block> unpairedKm = new ArrayList<>(kmOnly);
+        for (Block minBlock : minOnly) {
+            Block match = null;
+            for (Block kmBlock : unpairedKm) {
+                if (stacked(minBlock, kmBlock, cluster)) { match = kmBlock; break; }
+            }
+            if (match == null) continue;
+            unpairedKm.remove(match);
+            double km = distanceValues(normalize(match.text)).get(0);
+            double min = values(MIN, hoursToMinutes(normalize(minBlock.text))).get(0);
+            legs.add(new Leg(km, min,
+                Math.min(minBlock.left, match.left), Math.min(minBlock.top, match.top),
+                Math.max(minBlock.right, match.right), Math.max(minBlock.bottom, match.bottom)));
+        }
+        // Si el OCR no leyo la tilde de "~1,6 km", la distancia suelta que queda es esa.
+        if (approxPickupKm <= 0 && unpairedKm.size() == 1) {
+            approxPickupKm = distanceValues(normalize(unpairedKm.get(0).text)).get(0);
+        }
+        if (legs.isEmpty()) return null;
+
+        Leg pickup = null;
+        if (approxPickupKm > 0) {
+            for (Leg leg : legs) {
+                if (sameDistance(leg.km, approxPickupKm)) { pickup = leg; break; }
+            }
+        }
+        if (pickup == null && legs.size() >= 2 && !markersA.isEmpty() && !markersB.isEmpty()) {
+            double best = Double.MAX_VALUE;
+            for (Leg leg : legs) {
+                double score = nearest(leg, markersA) - nearest(leg, markersB);
+                if (score < best) { best = score; pickup = leg; }
+            }
+        }
+
+        double pickupKm, pickupMin, tripKm = 0, tripMin = 0;
+        double confidence = 0.75;
+        if (pickup != null) {
+            pickupKm = plausibleKm(pickup.km, pickup.min);
+            pickupMin = pickup.min;
+            for (Leg leg : legs) {
+                if (leg == pickup) continue;
+                tripKm += plausibleKm(leg.km, leg.min);
+                tripMin += leg.min;
+            }
+            confidence = 1.0;
+        } else if (legs.size() == 1 && approxPickupKm > 0) {
+            // Solo se leyo la etiqueta del destino: la recogida se toma de "~X km" y sus
+            // minutos se estiman con la misma velocidad del viaje.
+            Leg trip = legs.get(0);
+            tripKm = plausibleKm(trip.km, trip.min);
+            tripMin = trip.min;
+            pickupKm = approxPickupKm;
+            pickupMin = Math.max(1, Math.round(pickupKm * tripMin / tripKm));
+            confidence = 0.80;
+        } else if (legs.size() >= 2) {
+            // Sin pistas: la recogida suele ser el tramo mas corto.
+            Leg first = legs.get(0), second = legs.get(1);
+            Leg shorter = first.km <= second.km ? first : second;
+            Leg longer = shorter == first ? second : first;
+            pickupKm = plausibleKm(shorter.km, shorter.min);
+            pickupMin = shorter.min;
+            tripKm = plausibleKm(longer.km, longer.min);
+            tripMin = longer.min;
+            confidence = 0.75;
+        } else {
+            return null;
+        }
+        if (pickupKm <= 0 || tripKm <= 0 || pickupMin <= 0 || tripMin <= 0) return null;
+        return analyze("indrive", fare, pickupKm, pickupMin, tripKm, tripMin, confidence, config);
+    }
+
+    private static boolean stacked(Block a, Block b, List<Block> order) {
+        if (!a.hasBounds() || !b.hasBounds()) {
+            return Math.abs(order.indexOf(a) - order.indexOf(b)) == 1;
+        }
+        boolean overlapX = Math.min(a.right, b.right) > Math.max(a.left, b.left);
+        int height = Math.max(a.bottom - a.top, b.bottom - b.top);
+        int gap = Math.max(a.top, b.top) - Math.min(a.bottom, b.bottom);
+        return overlapX && gap <= height;
+    }
+
+    private static double nearest(Leg leg, List<Block> markers) {
+        double best = Double.MAX_VALUE;
+        for (Block marker : markers) best = Math.min(best, leg.distanceTo(marker));
+        return best;
+    }
+
+    private static boolean sameDistance(double a, double b) {
+        return Math.abs(a - b) <= Math.max(0.15, b * 0.08);
+    }
+
+    /**
+     * Corrige la coma decimal que el OCR pierde ("1,6 km" leido como "16 km"): ningun
+     * tramo urbano va a mas de 110 km/h, asi que si la velocidad implicita es imposible
+     * y dividir entre diez da una velocidad razonable, se usa esa lectura.
+     */
+    static double plausibleKm(double km, double min) {
+        if (km <= 0 || min <= 0) return km;
+        double speed = km / (min / 60.0);
+        double corrected = (km / 10.0) / (min / 60.0);
+        if (speed > 110 && corrected >= 4) return km / 10.0;
+        return km;
+    }
+
+    private static OfferAnalysis analyze(String platform, double fare, double pickupKm, double pickupMin,
+                                         double tripKm, double tripMin, double confidence, CopilotConfig config) {
         double totalKm = pickupKm + tripKm;
         double totalMin = pickupMin + tripMin;
-        // Require both distances and times or strict complete metrics
-        if (fare <= 0 || pickupKm <= 0 || tripKm <= 0 || pickupMin <= 0 || tripMin <= 0) return null;
-
         double commission = fare * config.commissionFor(platform) / 100.0;
         double fuel = totalKm * config.operatingEnergyCostPerKm;
         double wear = totalKm * config.wearPerKm;
@@ -151,12 +359,6 @@ final class OfferParser {
         double net = fare - commission - fuel - wear - fixed;
         double hourly = totalMin > 0 ? net / (totalMin / 60.0) : 0;
         double perKm = totalKm > 0 ? net / totalKm : 0;
-
-        double confidence = 0.50;
-        if (!"otra".equals(platform)) confidence += 0.15;
-        if (pickupKm > 0 && tripKm > 0) confidence += 0.20;
-        if (pickupMin > 0 && tripMin > 0) confidence += 0.15;
-        confidence = Math.min(1.0, confidence);
 
         double goalValue = config.perKmGoal ? perKm : hourly;
         double goalTarget = config.goalTarget();
@@ -178,12 +380,11 @@ final class OfferParser {
             net, hourly, perKm, confidence, verdict, explanation,
             config.operatingEnergyCostPerKm, config.vehicleType, config.commissionFor(platform),
             config.wearPerKm, config.fixedCostPerHour);
-
     }
 
     private static String platform(String text) {
         if (text.contains("didi")) return "didi";
-        if (text.contains("indrive") || text.contains("in drive")) return "indrive";
+        if (INDRIVE_MARKERS.matcher(text).find()) return "indrive";
         if (text.contains("uber")) return "uber";
         return "otra";
     }
@@ -204,16 +405,34 @@ final class OfferParser {
         return 0;
     }
 
-    private static List<Double> distanceValues(String text) {
+    private static String hoursToMinutes(String text) {
+        Matcher matcher = HOURS.matcher(text);
+        StringBuffer out = new StringBuffer();
+        while (matcher.find()) {
+            int minutes = Integer.parseInt(matcher.group(1)) * 60
+                + (matcher.group(2) != null ? Integer.parseInt(matcher.group(2)) : 0);
+            matcher.appendReplacement(out, minutes + " min");
+        }
+        matcher.appendTail(out);
+        return out.toString();
+    }
+
+    /**
+     * Distancias en km. "850 m" son metros; pero "1,6 m" o "3 m" no existen como distancia
+     * de un viaje: es "km" mal leido por el OCR, asi que se toman como kilometros.
+     */
+    static List<Double> distanceValues(String text) {
         List<Double> result = new ArrayList<>();
         Matcher matcher = KM_OR_M.matcher(text);
         while (matcher.find()) {
-            double value = number(matcher.group(1));
-            String unit = matcher.group(2) != null ? matcher.group(2).toLowerCase(Locale.ROOT) : "km";
+            String raw = matcher.group(1);
+            double value = number(raw);
+            String unit = matcher.group(2).toLowerCase(Locale.ROOT);
             if ("m".equals(unit)) {
-                value = value / 1000.0;
+                boolean hasDecimals = raw.contains(",") || raw.contains(".");
+                if (!hasDecimals && value >= 10) value = value / 1000.0;
             }
-            if (value > 0) result.add(value);
+            if (value > 0 && value < 500) result.add(value);
         }
         return result;
     }

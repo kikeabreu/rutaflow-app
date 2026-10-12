@@ -86,6 +86,17 @@ final class OfferAnalysis {
     }
 
     /**
+     * Misma oferta leida con pequenas diferencias de OCR: misma tarifa y distancia total
+     * parecida. Sirve para no volver a anunciar el viaje que ya se anuncio.
+     */
+    boolean sameTripAs(OfferAnalysis other) {
+        if (other == null || !platform.equals(other.platform)) return false;
+        if (Math.abs(fare - other.fare) > 0.5) return false;
+        double km = pickupKm + tripKm, otherKm = other.pickupKm + other.tripKm;
+        return Math.abs(km - otherKm) <= Math.max(0.3, otherKm * 0.10);
+    }
+
+    /**
      * Frase minima para que quepa completa antes de que llegue la siguiente oferta:
      * veredicto, tarifa y el rendimiento contra la meta activa (por hora o por km),
      * sin relleno. El detalle completo queda en la notificacion expandida, no en la voz.
